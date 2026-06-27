@@ -115,7 +115,7 @@ export default function DashboardLayout({
           </main>
           <footer className="border-t border-[#2E2B24] bg-[#131210] py-4 px-4 sm:px-6 lg:px-8 text-xs text-[#6B6358] select-none">
             <div className="flex items-center justify-between">
-              <span>Explore Salon ERP</span>
+              <span>Demo Salon ERP</span>
               <span>Built by Thrivex Labs</span>
             </div>
           </footer>

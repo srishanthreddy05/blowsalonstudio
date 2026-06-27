@@ -8,8 +8,12 @@ const COLLECTION_NAME = "settings";
 const DOCUMENT_ID = "salon-settings";
 
 const defaultSettings: Settings = {
-  salonName: "Explore Salon",
+  salonName: "Demo Salon",
   phoneNumber: "+91 98765 43210",
+  invoicePrefix: "INV",
+  currencyCode: "INR",
+  currencyLocale: "en-IN",
+  taxRate: 0,
 };
 
 export async function getSettings(): Promise<Settings> {
@@ -45,6 +49,13 @@ export async function updateSettings(data: Partial<Settings>): Promise<void> {
     if (normalizedData.salonName) {
       normalizedData.salonName = toTitleCase(normalizedData.salonName);
     }
+    // Sanitize any undefined properties to avoid Firestore errors
+    Object.keys(normalizedData).forEach((key) => {
+      const k = key as keyof typeof normalizedData;
+      if (normalizedData[k] === undefined) {
+        delete normalizedData[k];
+      }
+    });
     await setDoc(docRef, normalizedData, { merge: true });
     clearCache(CACHE_KEYS.settings);
   } catch (error) {

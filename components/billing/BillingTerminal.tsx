@@ -19,6 +19,7 @@ import * as advanceBalancesService from "@/services/advanceBalances";
 import type { CreditBalance } from "@/types/creditBalance";
 import { useAppData } from "@/context/AppDataContext";
 import { toLocalDateString } from "@/lib/utils/date";
+import { getServiceCommission } from "@/lib/utils/settlements";
 
 import type { Customer } from "@/types/customer";
 import type { Service } from "@/types/service";
@@ -36,7 +37,7 @@ interface BillingTerminalProps {
 }
 
 export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTerminalProps) {
-  const { services: servicesContextData, products: productsContextData, staff: staffContextData, offers: offersContextData, refreshProducts, loadingAppData } = useAppData();
+  const { services: servicesContextData, products: productsContextData, staff: staffContextData, offers: offersContextData, settings, refreshProducts, loadingAppData } = useAppData();
 
   const servicesList = servicesContextData;
   const productsList = productsContextData;
@@ -442,7 +443,9 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
     }
 
     const totalDiscount = lineDiscount + offerDiscount;
-    const grandTotal = Math.max(subtotal - totalDiscount, 0);
+    const preTaxTotal = Math.max(subtotal - totalDiscount, 0);
+    const gstAmount = Math.round(((preTaxTotal * (settings?.taxRate ?? 0)) / 100) * 100) / 100;
+    const grandTotal = preTaxTotal + gstAmount;
     return {
       serviceTotal,
       productTotal,
@@ -452,9 +455,9 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
       lineDiscount: lineDiscount,
       offerDiscount,
       grandTotal,
-      gst: 0,
+      gst: gstAmount,
     };
-  }, [services, products, selectedOffer, servicesList, productsList, billDiscount]);
+  }, [services, products, selectedOffer, servicesList, productsList, billDiscount, settings]);
 
   // Cap bill discount if serviceTotal decreases below it
   useEffect(() => {
@@ -706,8 +709,28 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
           ? (row.originalStaffRole || (row.staff === "System" ? "Owner" : (matchedStaff?.role || "Stylist")))
           : (row.staff === "System" ? "Owner" : (matchedStaff?.role || "Stylist"));
           
-        const stylistShare = staffRole === "Owner" ? 0 : 0.5 * serviceAmount - usedProductCost;
-        const ownerShare = staffRole === "Owner" ? serviceAmount : 0.5 * serviceAmount + usedProductCost;
+        const commissionRate = matchedStaff ? (matchedStaff.commissionRate ?? 50) : 50;
+        const isOwner = matchedStaff ? (matchedStaff.isOwner === true) : (row.staff === "System" || staffRole === "Owner");
+        const isSystemService = matchedService ? (matchedService.isSystemService === true || matchedService.id === "membership_fee") : (row.service === "Membership Fee");
+
+        const commissionResult = getServiceCommission(
+          {
+            price: Number(row.price) || 0,
+            discount: Number(row.discount) || 0,
+            amount: serviceAmount,
+            usedProductCost,
+            commissionRate,
+            isOwner,
+            isSystemService,
+            isCreditSettle: row.isCreditSettle || false,
+            serviceId: matchedService?.id ?? "",
+          },
+          null
+        );
+
+        const stylistShare = commissionResult.stylistShare;
+        const ownerShare = commissionResult.ownerShare;
+
         return {
           serviceId: matchedService?.id ?? "",
           serviceName: row.service,
@@ -722,6 +745,9 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
           staffRole,
           stylistShare,
           ownerShare,
+          commissionRate,
+          isOwner,
+          isSystemService,
           isCreditSettle: row.isCreditSettle || false,
           creditBalanceId: row.creditBalanceId ?? null,
           originalBillDate: row.originalBillDate ?? null,
@@ -1066,7 +1092,7 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
       })
       .join("\n");
 
-    const greeting = `Hello ${customerName},\n\nThank you for choosing Explore Salon ✨\n\n`;
+    const greeting = `Hello ${customerName},\n\nThank you for choosing Demo Salon ✨\n\n`;
 
     let itemsText = "";
     if (formattedServices) {
@@ -1103,7 +1129,7 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
     const closing =
       `Invoice No: ${invoiceNumberDisplay}\n` +
       `We look forward to serving you again.\n\n` +
-      `Explore Salon`;
+      `Demo Salon`;
 
     const msg = `${greeting}${itemsText}${pricingText}${closing}`;
 
@@ -1493,7 +1519,7 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
               </div>
 
               {/* Horizontal Payment Inputs */}
-              <div className="grid grid-cols-3 gap-2.5">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                 {(["cash", "upi", "card"] as const).map((method) => {
                   const val = method === "cash" ? cashAmount : method === "upi" ? upiAmount : cardAmount;
                   const setFn = method === "cash" ? setCashAmount : method === "upi" ? setUpiAmount : setCardAmount;

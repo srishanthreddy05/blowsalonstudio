@@ -189,7 +189,7 @@ export default function LoginPage() {
             {/* Live badge */}
             <div className="mb-8 flex w-fit items-center gap-2 rounded-full border border-[#2E2B24] bg-[#0E0D0B] px-3 py-1.5">
               <span className="size-1.5 rounded-full bg-[#34D399]" />
-              <span className="text-xs text-[#A89F8C]">Explore Salon — Management Suite</span>
+              <span className="text-xs text-[#A89F8C]">Demo Salon — Management Suite</span>
             </div>
 
             {/* Hero headline */}
@@ -227,6 +227,21 @@ export default function LoginPage() {
           <div className="mb-8">
             <h2 className="text-xl font-bold text-[#F5F0E8]">Welcome back</h2>
             <p className="mt-1 text-sm text-[#A89F8C]">Sign in to your account to continue</p>
+            
+            {/* Demo Credentials Hint */}
+            <div className="mt-4 rounded-xl border border-[#B8962E]/20 bg-[#131210] p-3 text-xs text-[#A89F8C] shadow-sm">
+              <span className="font-bold text-[#B8962E]">Demo Account Credentials</span>
+              <div className="mt-1.5 space-y-1 font-mono text-[11px] text-[#F5F0E8]">
+                <div className="flex justify-between">
+                  <span className="text-[#6B6358]">Email:</span>
+                  <span className="select-all">demo@gmail.com</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-[#6B6358]">Password:</span>
+                  <span className="select-all">123456</span>
+                </div>
+              </div>
+            </div>
           </div>
 
           <form onSubmit={handleLogin} className="space-y-4">
@@ -239,7 +254,7 @@ export default function LoginPage() {
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="owner@exploresalon.com"
+                placeholder="owner@demosalon.com"
                 className="mt-2 h-11 w-full rounded-xl border border-[#2E2B24] bg-[#131210] px-4 text-sm text-[#F5F0E8] outline-none transition focus:border-[#B8962E] placeholder:text-[#6B6358]"
               />
             </label>
@@ -316,7 +331,7 @@ export default function LoginPage() {
                   type="email"
                   value={resetEmail}
                   onChange={(e) => setResetEmail(e.target.value)}
-                  placeholder="owner@exploresalon.com"
+                  placeholder="owner@demosalon.com"
                   className="mt-2 h-11 w-full rounded-xl border border-[#2E2B24] bg-[#131210] px-4 text-sm text-[#F5F0E8] outline-none transition focus:border-[#B8962E] placeholder:text-[#6B6358]"
                 />
               </label>

@@ -15,14 +15,11 @@ export function Navbar({ onToggleMobileSidebar }: NavbarProps) {
       className="sticky top-0 z-20 border-b shadow-md"
       style={{ backgroundColor: "#000000", borderColor: "#2E2B24", height: "80px" }}
     >
-      {/* Banner image — centered, contained */}
-      <div className="absolute inset-0 flex items-center justify-center">
-        <img
-          src="/epx.jpeg"
-          alt="Explore Salon"
-          className="h-12 w-auto object-contain"
-          style={{ maxWidth: "320px" }}
-        />
+      {/* Brand Name — centered */}
+      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+        <span className="text-sm sm:text-base md:text-xl font-bold tracking-widest text-[#F5F0E8] uppercase hidden sm:block">
+          Demo Salon ERP
+        </span>
       </div>
 
       {/* Overlay grid on top of banner */}

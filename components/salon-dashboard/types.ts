@@ -32,9 +32,28 @@ export type BillTotals = {
   grandTotal: number;
 };
 
-export const formatCurrency = (value: number) =>
-  new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR",
-    maximumFractionDigits: 0,
-  }).format(value);
+export let globalCurrencyConfig = {
+  locale: "en-IN",
+  code: "INR"
+};
+
+export const setGlobalCurrencyConfig = (locale: string, code: string) => {
+  globalCurrencyConfig.locale = locale;
+  globalCurrencyConfig.code = code;
+};
+
+export const formatCurrency = (value: number) => {
+  try {
+    return new Intl.NumberFormat(globalCurrencyConfig.locale, {
+      style: "currency",
+      currency: globalCurrencyConfig.code,
+      maximumFractionDigits: 0,
+    }).format(value);
+  } catch (e) {
+    return new Intl.NumberFormat("en-IN", {
+      style: "currency",
+      currency: "INR",
+      maximumFractionDigits: 0,
+    }).format(value);
+  }
+};

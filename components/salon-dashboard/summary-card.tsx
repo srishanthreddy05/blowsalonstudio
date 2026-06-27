@@ -59,7 +59,7 @@ export function SummaryCard({
 
   // Grand total formula includes row-level line discounts
   const grandTotal = Math.max(
-    totals.serviceTotal - totals.billDiscount - totals.offerDiscount + totals.productTotal - (totals.lineDiscount || 0),
+    totals.serviceTotal - totals.billDiscount - totals.offerDiscount + totals.productTotal - (totals.lineDiscount || 0) + (totals.gst || 0),
     0
   );
 
@@ -144,6 +144,16 @@ export function SummaryCard({
             {formatCurrency(totals.subtotal)}
           </span>
         </div>
+
+        {/* GST Tax */}
+        {totals.gst !== undefined && totals.gst > 0 && (
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-stone-500">GST / Tax</span>
+            <span className="font-semibold text-stone-800">
+              {formatCurrency(totals.gst)}
+            </span>
+          </div>
+        )}
 
         {/* Item-level discounts display */}
         {totals.lineDiscount !== undefined && totals.lineDiscount > 0 && (

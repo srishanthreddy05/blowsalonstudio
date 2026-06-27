@@ -57,16 +57,14 @@ function toTitleCase(text: string): string {
     .join(" ");
 }
 
+// Replace with your salon's categories before seeding
 const DEFAULT_CATEGORIES = [
-  "Hair Care",
-  "Hair Cuts",
-  "Hair Colors",
-  "Hair Treatments",
-  "D-Tan /Bleach",
-  "Clean Ups",
-  "Facials",
-  "Luxury Facials",
-  "Makeup"
+  "Hair",
+  "Skin",
+  "Nails",
+  "Spa",
+  "Body",
+  "Other"
 ];
 
 async function runCategoryMigration() {

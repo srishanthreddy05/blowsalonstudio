@@ -20,6 +20,7 @@ import type { Invoice } from "@/types/invoice";
 import { toTitleCase } from "@/lib/utils/text";
 import { toLocalDateString } from "@/lib/utils/date";
 import { getInvoicePayments, getInvoicePaymentRatio, getServiceCommission } from "@/lib/utils/settlements";
+import { getSettings } from "./settings";
 
 const COLLECTION = "invoices";
 const COUNTER_DOC = doc(db, "counters", "invoice");  // /counters/invoice { lastNumber: 1000 }
@@ -37,6 +38,16 @@ async function getNextInvoiceNumber(dateString?: string): Promise<string> {
   const dd = String(selectedDate.getDate()).padStart(2, '0');
   const dateStr = `${yy}${mm}${dd}`; // e.g. "260614"
 
+  let prefix = "INV";
+  try {
+    const settings = await getSettings();
+    if (settings?.invoicePrefix) {
+      prefix = settings.invoicePrefix;
+    }
+  } catch (err) {
+    console.error("Error loading settings in getNextInvoiceNumber:", err);
+  }
+
   const dailyCounterDoc = doc(db, "counters", `invoices_${dateStr}`);
 
   return runTransaction(db, async (tx) => {
@@ -51,7 +62,7 @@ async function getNextInvoiceNumber(dateString?: string): Promise<string> {
     tx.set(dailyCounterDoc, { current: next });
 
     const formattedSeq = String(next).padStart(3, '0');
-    return `EXP-${dateStr}-${formattedSeq}`;
+    return `${prefix}-${dateStr}-${formattedSeq}`;
   });
 }
 

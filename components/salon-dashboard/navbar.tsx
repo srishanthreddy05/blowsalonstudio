@@ -10,14 +10,14 @@ export function Navbar() {
           <div className="grid size-11 place-items-center rounded-2xl border border-[#D4AF37]/35 bg-[#D4AF37]/15 text-[#D4AF37]">
             <Sparkles size={21} />
           </div>
-          <span className="font-semibold text-white">Explore</span>
+          <span className="font-semibold text-white">Demo</span>
         </div>
         <div className="hidden lg:block" />
 
         <div className="flex items-center justify-center gap-3">
           <div className="h-px w-10 bg-gradient-to-r from-transparent to-[#D4AF37]/60" />
           <div className="text-center">
-            <p className="text-lg font-semibold tracking-wide text-white">Explore Salon</p>
+            <p className="text-lg font-semibold tracking-wide text-white">Demo Salon</p>
             <p className="text-[10px] uppercase tracking-[0.4em] text-[#D4AF37]">Management Suite</p>
           </div>
           <div className="h-px w-10 bg-gradient-to-l from-transparent to-[#D4AF37]/60" />

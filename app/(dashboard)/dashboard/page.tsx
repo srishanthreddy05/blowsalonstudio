@@ -40,7 +40,7 @@ import { AddExpenseModal } from "@/components/expenses/AddExpenseModal";
 import * as customerService from "@/services/customers";
 import * as expensesService from "@/services/expenses";
 import { toLocalDateString } from "@/lib/utils/date";
-import { getInvoicePayments, getInvoicePaymentRatio } from "@/lib/utils/settlements";
+import { getInvoicePayments, getInvoicePaymentRatio, getServiceCommission } from "@/lib/utils/settlements";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 interface Invoice {
@@ -1110,7 +1110,26 @@ export default function DashboardPage() {
         );
         const role = s.staffRole || staffMember?.role || "Stylist";
 
-        if (s.serviceId === "membership_fee") {
+        const commissionRate = staffMember ? (staffMember.commissionRate ?? 50) : (s.commissionRate ?? 50);
+        const isOwner = staffMember ? (staffMember.isOwner === true) : (s.isOwner === true || role === "Owner");
+        const isSystemService = s.isSystemService === true || s.serviceId === "membership_fee";
+
+        const commissionResult = getServiceCommission(
+          {
+            ...s,
+            amount,
+            usedProductCost: cost,
+            commissionRate,
+            isOwner,
+            isSystemService,
+          },
+          null
+        );
+
+        const stylistShare = commissionResult.stylistShare;
+        const ownerShare = commissionResult.ownerShare;
+
+        if (isSystemService) {
           dayObj.totalMembershipAmount += amount * ratio;
           dayObj.totalOwnerShare += amount * ratio;
           return;
@@ -1161,16 +1180,14 @@ export default function DashboardPage() {
             type: "service",
           });
 
-          if (role === "Owner") {
+          if (isOwner) {
             dayObj.ownerDirectRevenue += amount * ratio;
             dayObj.totalOwnerShare += amount * ratio;
             sd.ownerShareContribution += amount * ratio;
           } else {
-            const staffShare = 0.5 * amount; // no product cost for credit settle
-            const ownerShare = 0.5 * amount;
             dayObj.totalOwnerShare += ownerShare * ratio;
-            dayObj.staffRevenueContribution += 0.5 * amount * ratio;
-            sd.collectedCreditsShare = (sd.collectedCreditsShare || 0) + staffShare * ratio;
+            dayObj.staffRevenueContribution += stylistShare * ratio;
+            sd.collectedCreditsShare = (sd.collectedCreditsShare || 0) + stylistShare * ratio;
             sd.ownerShareContribution += ownerShare * ratio;
           }
           return;
@@ -1192,7 +1209,7 @@ export default function DashboardPage() {
         }
         const sd = dayObj.staffDetails[key];
 
-        if (role === "Owner") {
+        if (isOwner) {
           dayObj.ownerDirectRevenue += amount * ratio;
           dayObj.totalServiceRevenue += amount * ratio;
           dayObj.totalOwnerShare += amount * ratio;
@@ -1200,17 +1217,15 @@ export default function DashboardPage() {
           sd.productCost += cost * ratio;
           sd.ownerShareContribution += amount * ratio;
         } else {
-          const staffShare = 0.5 * amount - cost;
-          const ownerShare = 0.5 * amount + cost;
           dayObj.totalServiceRevenue += amount * ratio;
           dayObj.totalProductCost += cost * ratio;
-          dayObj.totalStaffShare += staffShare * ratio;
+          dayObj.totalStaffShare += stylistShare * ratio;
           dayObj.totalOwnerShare += ownerShare * ratio;
-          dayObj.staffRevenueContribution += 0.5 * amount * ratio;
+          dayObj.staffRevenueContribution += ((commissionRate / 100) * amount) * ratio;
           dayObj.staffProductReimbursement += cost * ratio;
           sd.serviceRevenue += amount * ratio;
           sd.productCost += cost * ratio;
-          sd.staffShare += staffShare * ratio;
+          sd.staffShare += stylistShare * ratio;
           sd.ownerShareContribution += ownerShare * ratio;
         }
       });
@@ -1221,7 +1236,7 @@ export default function DashboardPage() {
 
   const staffSplits = useMemo(() => {
     const stylistStaff = staff.filter(
-      (st) => st.role !== "Owner" && st.id !== "system" && st.name !== "System"
+      (st) => st.isOwner !== true && st.id !== "system" && st.name !== "System"
     );
 
     return stylistStaff.map((member) => {
@@ -1235,13 +1250,27 @@ export default function DashboardPage() {
 
         (inv.services || []).forEach((s: any) => {
           if (s.staffId === member.id || s.staffName === member.name) {
-            if (s.serviceId !== "membership_fee") {
+            const commissionRate = member.commissionRate ?? s.commissionRate ?? 50;
+            const isOwner = member.isOwner ?? s.isOwner ?? false;
+            const isSystemService = s.isSystemService ?? s.serviceId === "membership_fee";
+
+            if (!isSystemService) {
               const base = s.amount ?? Math.max((s.price || 0) - (s.discount || 0), 0);
               const amount = base * discountFactor;
               const cost = s.usedProductCost || 0;
               if (isToday) {
-                const stylistShare = s.isCreditSettle ? (0.5 * amount) : (0.5 * amount - cost);
-                todayShare += stylistShare * ratio;
+                const commissionResult = getServiceCommission(
+                  {
+                    ...s,
+                    amount,
+                    usedProductCost: cost,
+                    commissionRate,
+                    isOwner,
+                    isSystemService,
+                  },
+                  null
+                );
+                todayShare += commissionResult.stylistShare * ratio;
               }
             }
           }
@@ -1249,7 +1278,8 @@ export default function DashboardPage() {
       });
 
       const stStats = member.id ? staffMonthlyStats[member.id] : null;
-      const monthlyShare = 0.5 * (stStats?.revenue ?? 0) - (stStats?.productCost ?? 0);
+      const rateMultiplier = (member.commissionRate ?? 50) / 100;
+      const monthlyShare = rateMultiplier * (stStats?.revenue ?? 0) - (stStats?.productCost ?? 0);
 
       return {
         id: member.id,

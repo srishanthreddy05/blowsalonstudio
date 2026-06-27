@@ -13,6 +13,10 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState<Settings>({
     salonName: "",
     phoneNumber: "",
+    invoicePrefix: "",
+    currencyCode: "",
+    currencyLocale: "",
+    taxRate: 0,
   });
 
   const [loading, setLoading] = useState(true);
@@ -42,7 +46,10 @@ export default function SettingsPage() {
   useEffect(() => {
     if (!loadingAppData) {
       if (cachedSettings) {
-        setSettings(cachedSettings);
+        setSettings((prev) => ({
+          ...prev,
+          ...cachedSettings,
+        }));
       }
       setLoading(false);
     }
@@ -61,6 +68,10 @@ export default function SettingsPage() {
       await updateSettings({
         salonName: settings.salonName,
         phoneNumber: settings.phoneNumber,
+        invoicePrefix: settings.invoicePrefix,
+        currencyCode: settings.currencyCode,
+        currencyLocale: settings.currencyLocale,
+        taxRate: Number(settings.taxRate),
       });
       await refreshSettings();
       setMessage({ type: "success", text: "Configuration saved successfully!" });
@@ -122,7 +133,7 @@ export default function SettingsPage() {
                 value={settings.salonName}
                 onChange={handleChange}
                 className="mt-2 h-12 w-full rounded-2xl border border-[#2E2B24] bg-[#131210] px-4 text-sm text-[#F5F0E8] outline-none focus:border-[#B8962E]"
-                placeholder="e.g. Explore Salon"
+                placeholder="e.g. Demo Salon"
               />
             </label>
 
@@ -135,6 +146,60 @@ export default function SettingsPage() {
                 onChange={handleChange}
                 className="mt-2 h-12 w-full rounded-2xl border border-[#2E2B24] bg-[#131210] px-4 text-sm text-[#F5F0E8] outline-none focus:border-[#B8962E]"
                 placeholder="e.g. +91 98765 43210"
+              />
+            </label>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2 mt-4">
+            <label className="block">
+              <span className="text-sm font-semibold text-[#A89F8C]">Invoice Prefix</span>
+              <input
+                type="text"
+                name="invoicePrefix"
+                value={settings.invoicePrefix || ""}
+                onChange={handleChange}
+                className="mt-2 h-12 w-full rounded-2xl border border-[#2E2B24] bg-[#131210] px-4 text-sm text-[#F5F0E8] outline-none focus:border-[#B8962E]"
+                placeholder="e.g. INV"
+              />
+            </label>
+
+            <label className="block">
+              <span className="text-sm font-semibold text-[#A89F8C]">Tax Rate (%)</span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                name="taxRate"
+                value={settings.taxRate ?? 0}
+                onChange={handleChange}
+                className="mt-2 h-12 w-full rounded-2xl border border-[#2E2B24] bg-[#131210] px-4 text-sm text-[#F5F0E8] outline-none focus:border-[#B8962E]"
+                placeholder="e.g. 18"
+              />
+            </label>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2 mt-4">
+            <label className="block">
+              <span className="text-sm font-semibold text-[#A89F8C]">Currency Code</span>
+              <input
+                type="text"
+                name="currencyCode"
+                value={settings.currencyCode || ""}
+                onChange={handleChange}
+                className="mt-2 h-12 w-full rounded-2xl border border-[#2E2B24] bg-[#131210] px-4 text-sm text-[#F5F0E8] outline-none focus:border-[#B8962E]"
+                placeholder="e.g. INR"
+              />
+            </label>
+
+            <label className="block">
+              <span className="text-sm font-semibold text-[#A89F8C]">Currency Locale</span>
+              <input
+                type="text"
+                name="currencyLocale"
+                value={settings.currencyLocale || ""}
+                onChange={handleChange}
+                className="mt-2 h-12 w-full rounded-2xl border border-[#2E2B24] bg-[#131210] px-4 text-sm text-[#F5F0E8] outline-none focus:border-[#B8962E]"
+                placeholder="e.g. en-IN"
               />
             </label>
           </div>

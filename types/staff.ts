@@ -10,5 +10,7 @@ export interface Staff {
     revenueMonthly: number;
     memberCountMonthly: number;
   };
+  commissionRate?: number;
+  isOwner?: boolean;
   createdAt?: string;
 }

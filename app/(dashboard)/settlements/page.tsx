@@ -1198,7 +1198,7 @@ export default function SettlementsPage() {
 
         const stylistStaff = staff.filter(
           (st) =>
-            st.role !== "Owner" && st.id !== "system" && st.name !== "System"
+            st.isOwner !== true && st.id !== "system" && st.name !== "System"
         );
 
         const sharesMap: Record<string, number> = {};
@@ -1216,7 +1216,8 @@ export default function SettlementsPage() {
                 const data = snap.data();
                 const revenue = data.revenue || 0;
                 const productCost = data.productCost || 0;
-                sharesMap[member.id] = 0.5 * revenue - productCost;
+                const rate = member.commissionRate ?? 50;
+                sharesMap[member.id] = (rate / 100) * revenue - productCost;
               } else {
                 sharesMap[member.id] = 0;
               }
@@ -1478,14 +1479,31 @@ export default function SettlementsPage() {
               type: "service",
             });
 
-            if (role === "Owner") {
+            const commissionRate = staffMember ? (staffMember.commissionRate ?? 50) : (s.commissionRate ?? 50);
+            const isOwner = staffMember ? (staffMember.isOwner === true) : (s.isOwner === true || role === "Owner");
+            const isSystemService = s.isSystemService === true || s.serviceId === "membership_fee";
+
+            const commissionResult = getServiceCommission(
+              {
+                ...s,
+                amount,
+                usedProductCost: cost,
+                commissionRate,
+                isOwner,
+                isSystemService,
+              },
+              null
+            );
+
+            const stylistShare = commissionResult.stylistShare;
+            const ownerShare = commissionResult.ownerShare;
+
+            if (isOwner) {
               ownerDirectRevenue += amount * ratio;
               sd.ownerShareContribution += amount * ratio;
             } else {
-              const staffShare = 0.5 * amount; // no product cost for credit settle
-              const ownerShare = 0.5 * amount;
-              staffRevenueContribution += 0.5 * amount * ratio;
-              sd.collectedCreditsShare = (sd.collectedCreditsShare || 0) + staffShare * ratio;
+              staffRevenueContribution += stylistShare * ratio;
+              sd.collectedCreditsShare = (sd.collectedCreditsShare || 0) + stylistShare * ratio;
               sd.ownerShareContribution += ownerShare * ratio;
             }
             return;
@@ -1507,19 +1525,36 @@ export default function SettlementsPage() {
           }
           const sd = staffDetails[key];
 
-          if (role === "Owner") {
+          const commissionRate = staffMember ? (staffMember.commissionRate ?? 50) : (s.commissionRate ?? 50);
+          const isOwner = staffMember ? (staffMember.isOwner === true) : (s.isOwner === true || role === "Owner");
+          const isSystemService = s.isSystemService === true || s.serviceId === "membership_fee";
+
+          const commissionResult = getServiceCommission(
+            {
+              ...s,
+              amount,
+              usedProductCost: cost,
+              commissionRate,
+              isOwner,
+              isSystemService,
+            },
+            null
+          );
+
+          const stylistShare = commissionResult.stylistShare;
+          const ownerShare = commissionResult.ownerShare;
+
+          if (isOwner) {
             ownerDirectRevenue += amount * ratio;
             sd.serviceRevenue += amount * ratio;
             sd.productCost += cost * ratio;
             sd.ownerShareContribution += amount * ratio;
           } else {
-            const staffShare = 0.5 * amount - cost;
-            const ownerShare = 0.5 * amount + cost;
-            staffRevenueContribution += 0.5 * amount * ratio;
+            staffRevenueContribution += ((commissionRate / 100) * amount) * ratio;
             staffProductReimbursement += cost * ratio;
             sd.serviceRevenue += amount * ratio;
             sd.productCost += cost * ratio;
-            sd.staffShare += staffShare * ratio;
+            sd.staffShare += stylistShare * ratio;
             sd.ownerShareContribution += ownerShare * ratio;
           }
         });
@@ -1541,7 +1576,7 @@ export default function SettlementsPage() {
   const staffSplits = useMemo((): StaffSplit[] => {
     const stylistStaff = staff.filter(
       (st) =>
-        st.role !== "Owner" && st.id !== "system" && st.name !== "System"
+        st.isOwner !== true && st.id !== "system" && st.name !== "System"
     );
     const todayInvoices = dayInvoicesMap[todayStr] || [];
 
@@ -1554,12 +1589,28 @@ export default function SettlementsPage() {
 
         (inv.services || []).forEach((s: any) => {
           if (s.staffId === member.id || s.staffName === member.name) {
-            if (s.serviceId !== "membership_fee") {
+            const commissionRate = member.commissionRate ?? s.commissionRate ?? 50;
+            const isOwner = member.isOwner ?? s.isOwner ?? false;
+            const isSystemService = s.isSystemService ?? s.serviceId === "membership_fee";
+
+            if (!isSystemService) {
               const serviceBaseAmount =
                 s.amount ?? Math.max((s.price || 0) - (s.discount || 0), 0);
               const amount = serviceBaseAmount * discountFactor;
               const cost = s.usedProductCost || 0;
-              todayShare += (0.5 * amount - cost) * ratio;
+
+              const commissionResult = getServiceCommission(
+                {
+                  ...s,
+                  amount,
+                  usedProductCost: cost,
+                  commissionRate,
+                  isOwner,
+                  isSystemService,
+                },
+                null
+              );
+              todayShare += commissionResult.stylistShare * ratio;
             }
           }
         });
@@ -1820,7 +1871,7 @@ export default function SettlementsPage() {
                                     value: details.ownerDirectRevenue,
                                   },
                                   {
-                                    label: "Stylists 50% Share",
+                                    label: "Stylists Share Contribution",
                                     value: details.staffRevenueContribution,
                                   },
                                   {
@@ -1852,10 +1903,13 @@ export default function SettlementsPage() {
                                 ]}
                                 collectedCredits={(details.collectedCredits || []).map((c: any) => {
                                   let share = 0;
-                                  if (c.staffName === "System" || c.role === "Owner") {
+                                  const matchedStaff = staff.find(st => st.id === c.staffId || st.name === c.staffName);
+                                  const isOwner = matchedStaff ? (matchedStaff.isOwner === true) : (c.staffName === "System" || c.role === "Owner");
+                                  if (c.staffName === "System" || isOwner) {
                                     share = c.amount;
                                   } else {
-                                    share = 0.5 * c.amount;
+                                    const rate = matchedStaff ? (matchedStaff.commissionRate ?? 50) : 50;
+                                    share = (rate / 100) * c.amount;
                                   }
                                   return {
                                     ...c,
@@ -1867,16 +1921,23 @@ export default function SettlementsPage() {
                               {/* Stylist Cards (3 Vertical Columns side-by-side) */}
                               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                                 {details.staffDetails
-                                  .filter((sd) => sd.role !== "Owner")
+                                  .filter((sd) => {
+                                    const matched = staff.find(st => st.id === sd.staffId || st.name === sd.name);
+                                    return matched ? (matched.isOwner !== true) : (sd.role !== "Owner");
+                                  })
                                   .map((sd) => {
                                     const collectedCredits = sd.collectedCredits || [];
                                     const collectedCreditsShare = sd.collectedCreditsShare || 0;
                                     const totalShare = sd.staffShare + collectedCreditsShare;
 
-                                    const mappedCollectedCredits = collectedCredits.map((c: any) => ({
-                                      ...c,
-                                      share: 0.5 * c.amount,
-                                    }));
+                                    const mappedCollectedCredits = collectedCredits.map((c: any) => {
+                                      const matchedStaff = staff.find(st => st.id === sd.staffId || st.name === sd.name);
+                                      const rate = matchedStaff ? (matchedStaff.commissionRate ?? 50) : 50;
+                                      return {
+                                        ...c,
+                                        share: (rate / 100) * c.amount,
+                                      };
+                                    });
 
                                     return (
                                       <SettlementDetailCard

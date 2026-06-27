@@ -61,24 +61,24 @@ export function getServiceCommission(s: any, inv: any): ServiceCommission {
   const amount = serviceBaseAmount * discountFactor;
   const cost = s.usedProductCost || 0;
   
-  let role = s.staffRole;
-  if (!role) {
-    if (s.serviceId === "membership_fee" || s.staffId === "system" || s.staffName === "System") {
-      role = "Owner";
-    } else {
-      role = "Stylist";
-    }
-  }
+  const isOwner = s.isOwner === true;
+  const isSystemService = s.isSystemService === true || s.serviceId === "membership_fee";
+  const commissionRate = typeof s.commissionRate === "number" ? s.commissionRate : 50; // default fallback 50%
+  const isCreditSettle = s.isCreditSettle === true;
 
   let stylistShare = 0;
   let ownerShare = 0;
 
-  if (role === "Owner") {
+  if (isOwner || isSystemService) {
     stylistShare = 0;
     ownerShare = amount;
   } else {
-    stylistShare = 0.5 * amount - cost;
-    ownerShare = 0.5 * amount + cost;
+    // For credit settlement, do not deduct product cost from stylist's share
+    const productCostDeduction = isCreditSettle ? 0 : cost;
+    const rateMultiplier = commissionRate / 100;
+    
+    stylistShare = rateMultiplier * amount - productCostDeduction;
+    ownerShare = (1 - rateMultiplier) * amount + productCostDeduction;
   }
 
   return {

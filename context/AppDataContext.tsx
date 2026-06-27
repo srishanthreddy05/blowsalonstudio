@@ -20,6 +20,7 @@ import type { Settings } from "@/types/settings";
 import type { ServiceCategory } from "@/types/serviceCategory";
 import { getSettings } from "@/services/settings";
 import { toTitleCase } from "@/lib/utils/text";
+import { setGlobalCurrencyConfig } from "@/components/salon-dashboard/types";
 import {
   CACHE_TTL,
   CACHE_KEYS,
@@ -86,9 +87,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           }
         });
         
+        // Replace with your salon's categories before seeding
         const DEFAULT_CATEGORIES = [
-          "Hair Care", "Hair Cuts", "Hair Colors", "Hair Treatments",
-          "D-Tan /Bleach", "Clean Ups", "Facials", "Luxury Facials", "Makeup"
+          "Hair", "Skin", "Nails", "Spa", "Body", "Other"
         ];
         
         const catsToSeed = uniqueCats.size > 0 
@@ -237,6 +238,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     try {
       const data = await getSettings();
       setSettings(data);
+      if (data) {
+        setGlobalCurrencyConfig(data.currencyLocale || "en-IN", data.currencyCode || "INR");
+      }
       return data;
     } catch (err) {
       console.error("Error loading settings in context:", err);

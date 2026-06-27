@@ -90,7 +90,7 @@ export function Sidebar({
   };
 
   const salonName = useMemo(() => {
-    if (!settings?.salonName) return "Explore";
+    if (!settings?.salonName) return "Demo";
     return settings.salonName.split(" ")[0];
   }, [settings]);
 
@@ -143,10 +143,10 @@ export function Sidebar({
             <div className="flex min-w-0 items-center">
               {!collapsed && (
                 <img
-                  src="/pic1.jpeg"
-                  alt="Explore Salon"
-                  className="h-16 w-auto object-contain"
-                  style={{ maxWidth: "220px" }}
+                  src="/logoo.jpeg"
+                  alt="Logo"
+                  className="h-16 w-auto object-contain rounded-lg"
+                  style={{ maxWidth: "160px" }}
                 />
               )}
             </div>
@@ -195,10 +195,10 @@ export function Sidebar({
             <div className="mb-8 flex h-14 items-center justify-between rounded-xl" style={{ backgroundColor: "#000000", margin: "-16px -16px 32px -16px", padding: "40px 16px" }}>
               <div className="flex min-w-0 items-center">
                 <img
-                  src="/pic1.jpeg"
-                  alt="Explore Salon"
-                  className="h-16 w-auto object-contain"
-                  style={{ maxWidth: "180px" }}
+                  src="/logoo.jpeg"
+                  alt="Logo"
+                  className="h-16 w-auto object-contain rounded-lg"
+                  style={{ maxWidth: "160px" }}
                 />
               </div>
               <button
