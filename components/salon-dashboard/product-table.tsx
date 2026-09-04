@@ -31,6 +31,10 @@ export function ProductTable({
     onRowsChange(rows.map((row) => (row.id === id ? { ...row, ...patch } : row)));
   };
 
+  const getProductCount = (productName: string) => {
+    return rows.filter((r) => r.product === productName).length;
+  };
+
   const selectProduct = (prod: { id?: string; name: string; price: number }) => {
     onRowsChange([
       ...rows,
@@ -43,7 +47,6 @@ export function ProductTable({
         discount: 0,
       },
     ]);
-    setShowModal(false);
   };
 
   return (
@@ -154,22 +157,50 @@ export function ProductTable({
                 <p className="text-sm text-[#747A72] italic text-center py-8">No retail products in catalog.</p>
               ) : (
                 <div className="grid gap-2.5 sm:grid-cols-2 md:grid-cols-3">
-                  {productOptions.map((prod) => (
-                    <div
-                      key={prod.name}
-                      onClick={() => selectProduct(prod)}
-                      className="cursor-pointer rounded-2xl border border-[#E0E4DD] bg-[#F7F7F4] p-3.5 transition duration-200 hover:-translate-y-0.5 hover:border-[#6F776D] hover:bg-[#E8ECE5]"
-                    >
-                      <h3 className="text-xs font-bold text-[#292D29] truncate" title={prod.name}>
-                        {prod.name}
-                      </h3>
-                      <p className="mt-1 text-xs font-bold text-[#6F776D]">
-                        {formatCurrency(prod.price)}
-                      </p>
-                    </div>
-                  ))}
+                  {productOptions.map((prod) => {
+                    const count = getProductCount(prod.name);
+                    return (
+                      <div
+                        key={prod.name}
+                        onClick={() => selectProduct(prod)}
+                        className={`relative cursor-pointer rounded-2xl border p-3.5 transition duration-150 select-none ${
+                          count > 0
+                            ? "border-[#6F776D] bg-[#E8ECE5] shadow-xs"
+                            : "border-[#E0E4DD] bg-[#F7F7F4] hover:-translate-y-0.5 hover:border-[#6F776D] hover:bg-[#E8ECE5]"
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-1.5">
+                          <h3 className="text-xs font-bold text-[#292D29] truncate" title={prod.name}>
+                            {prod.name}
+                          </h3>
+                          {count > 0 && (
+                            <span className="inline-flex items-center gap-0.5 rounded-full bg-[#6F776D] text-white px-2 py-0.5 text-[10px] font-bold shrink-0">
+                              ✓ {count}
+                            </span>
+                          )}
+                        </div>
+                        <p className="mt-1 text-xs font-bold text-[#6F776D]">
+                          {formatCurrency(prod.price)}
+                        </p>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
+            </div>
+
+            {/* Modal Footer with Done Button */}
+            <div className="mt-4 pt-3.5 border-t border-[#E0E4DD] flex items-center justify-between">
+              <span className="text-xs font-semibold text-[#747A72]">
+                {rows.length} product{rows.length === 1 ? "" : "s"} in bill
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowModal(false)}
+                className="rounded-xl bg-[#6F776D] hover:bg-[#2F352F] text-white px-6 py-2 text-xs font-bold transition duration-150 shadow-xs cursor-pointer"
+              >
+                Done
+              </button>
             </div>
           </div>
         </div>,
