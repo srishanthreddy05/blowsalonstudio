@@ -33,21 +33,41 @@ export async function create(
 
 export async function getPendingByCustomerId(customerId: string): Promise<CreditBalance[]> {
   try {
-    const q = query(
-      collection(db, COLLECTION_NAME),
-      where("customerId", "==", customerId),
-      where("status", "==", "pending"),
-      orderBy("createdAt", "desc")
-    );
-    const snap = await getDocs(q);
-    const results: CreditBalance[] = [];
-    snap.forEach((doc) => {
-      results.push({
-        id: doc.id,
-        ...doc.data(),
-      } as CreditBalance);
-    });
-    return results;
+    try {
+      const q = query(
+        collection(db, COLLECTION_NAME),
+        where("customerId", "==", customerId),
+        where("status", "==", "pending"),
+        orderBy("createdAt", "desc")
+      );
+      const snap = await getDocs(q);
+      const results: CreditBalance[] = [];
+      snap.forEach((doc) => {
+        results.push({
+          id: doc.id,
+          ...doc.data(),
+        } as CreditBalance);
+      });
+      return results;
+    } catch {
+      // Fallback while composite index builds
+      const fallbackQ = query(
+        collection(db, COLLECTION_NAME),
+        where("customerId", "==", customerId)
+      );
+      const snap = await getDocs(fallbackQ);
+      const results: CreditBalance[] = [];
+      snap.forEach((doc) => {
+        const data = doc.data() as CreditBalance;
+        if (data.status === "pending") {
+          results.push({
+            id: doc.id,
+            ...data,
+          });
+        }
+      });
+      return results.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+    }
   } catch (error) {
     console.error("Error getting pending credit balances by customer:", error);
     return [];
@@ -56,20 +76,37 @@ export async function getPendingByCustomerId(customerId: string): Promise<Credit
 
 export async function getAllPending(): Promise<CreditBalance[]> {
   try {
-    const q = query(
-      collection(db, COLLECTION_NAME),
-      where("status", "==", "pending"),
-      orderBy("createdAt", "desc")
-    );
-    const snap = await getDocs(q);
-    const results: CreditBalance[] = [];
-    snap.forEach((doc) => {
-      results.push({
-        id: doc.id,
-        ...doc.data(),
-      } as CreditBalance);
-    });
-    return results;
+    try {
+      const q = query(
+        collection(db, COLLECTION_NAME),
+        where("status", "==", "pending"),
+        orderBy("createdAt", "desc")
+      );
+      const snap = await getDocs(q);
+      const results: CreditBalance[] = [];
+      snap.forEach((doc) => {
+        results.push({
+          id: doc.id,
+          ...doc.data(),
+        } as CreditBalance);
+      });
+      return results;
+    } catch {
+      // Fallback while composite index builds
+      const fallbackQ = query(
+        collection(db, COLLECTION_NAME),
+        where("status", "==", "pending")
+      );
+      const snap = await getDocs(fallbackQ);
+      const results: CreditBalance[] = [];
+      snap.forEach((doc) => {
+        results.push({
+          id: doc.id,
+          ...doc.data(),
+        } as CreditBalance);
+      });
+      return results.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+    }
   } catch (error) {
     console.error("Error getting all pending credit balances:", error);
     return [];

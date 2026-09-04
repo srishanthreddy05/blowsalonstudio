@@ -14,7 +14,7 @@ export default function BillingPage() {
   return (
     <Suspense fallback={
       <div className="flex h-[40vh] items-center justify-center">
-        <div className="size-10 animate-spin rounded-full border-4 border-[#B8962E] border-t-transparent" />
+        <div className="size-9 animate-spin rounded-full border-3 border-[#6F776D] border-t-transparent" />
       </div>
     }>
       <BillingTerminalWithQuery />

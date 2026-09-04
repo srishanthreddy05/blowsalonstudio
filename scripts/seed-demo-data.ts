@@ -41,30 +41,33 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
 async function seedDemoData() {
-  console.log("Seeding Demo Salon default data in Firestore...");
+  console.log("Seeding THEA SALON default data in Firestore...");
   console.log("Target Project ID:", firebaseConfig.projectId);
 
   try {
     const batch = writeBatch(db);
 
     // 1. Seed Business Settings
-    const settingsRef = doc(db, "settings", "salon-settings");
-    batch.set(settingsRef, {
-      salonName: "Demo Salon",
-      phoneNumber: "+91 98765 43210",
-      invoicePrefix: "INV",
-      currencyCode: "INR",
-      currencyLocale: "en-IN",
-      taxRate: 0
-    });
-    console.log("- Queued default settings.");
+    console.log("Creating default settings...");
+    await setDoc(doc(db, "settings", "general"), {
+      salonName: "THEA SALON",
+      phone: "9876543210",
+      address: "4th Floor, Suite 402, Metro Plaza",
+      gstNumber: "36AAAAA0000A1Z5",
+      taxRate: 18,
+      currency: "INR",
+      currencySymbol: "₹",
+      invoicePrefix: "THEA-",
+      receiptFooterText: "Thank you for visiting THEA SALON! We look forward to seeing you again.",
+      updatedAt: new Date().toISOString()
+    }, { merge: true });
 
     // 2. Seed Staff Members
     const staffList = [
-      { id: "alex_stylist", name: "Alex", commissionRate: 50, isOwner: false, role: "Stylist", status: "Active", dutyStatus: "onDuty" },
-      { id: "jordan_stylist", name: "Jordan", commissionRate: 50, isOwner: false, role: "Stylist", status: "Active", dutyStatus: "onDuty" },
-      { id: "sam_stylist", name: "Sam", commissionRate: 50, isOwner: false, role: "Stylist", status: "Active", dutyStatus: "onDuty" },
-      { id: "owner_admin", name: "Owner", commissionRate: 0, isOwner: true, role: "Owner", status: "Active", dutyStatus: "onDuty" },
+      { id: "alex_stylist", name: "Alex", role: "Senior Stylist", salary: 30000, status: "Active", dutyStatus: "onDuty" },
+      { id: "jordan_stylist", name: "Jordan", role: "Stylist", salary: 25000, status: "Active", dutyStatus: "onDuty" },
+      { id: "sam_stylist", name: "Sam", role: "Specialist", salary: 28000, status: "Active", dutyStatus: "onDuty" },
+      { id: "owner_admin", name: "Manager", role: "Salon Manager", salary: 40000, status: "Active", dutyStatus: "onDuty" },
     ];
 
     staffList.forEach((s) => {

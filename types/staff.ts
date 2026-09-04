@@ -3,14 +3,13 @@ export interface Staff {
   name: string;
   phone?: string;
   role: string;
+  salary?: number; // Base monthly salary
   status: "Active" | "Inactive" | string;
   dutyStatus?: "onDuty" | "offDuty" | string;
-  clockLogs?: { event: "clockIn" | "clockOut"; timestamp: any }[];
+  clockLogs?: { event: "clockIn" | "clockOut"; timestamp: string | number | Date }[];
   targets?: {
     revenueMonthly: number;
-    memberCountMonthly: number;
+    servicesMonthly: number;
   };
-  commissionRate?: number;
-  isOwner?: boolean;
   createdAt?: string;
 }

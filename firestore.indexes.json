@@ -1,47 +1,135 @@
 {
-    "indexes": [
+  "indexes": [
+    {
+      "collectionGroup": "services",
+      "queryScope": "COLLECTION",
+      "fields": [
         {
-            "collectionGroup": "services",
-            "queryScope": "COLLECTION",
-            "fields": [
-                {
-                    "fieldPath": "isActive",
-                    "order": "ASCENDING"
-                },
-                {
-                    "fieldPath": "name",
-                    "order": "ASCENDING"
-                }
-            ]
+          "fieldPath": "isActive",
+          "order": "ASCENDING"
         },
         {
-            "collectionGroup": "products",
-            "queryScope": "COLLECTION",
-            "fields": [
-                {
-                    "fieldPath": "isActive",
-                    "order": "ASCENDING"
-                },
-                {
-                    "fieldPath": "name",
-                    "order": "ASCENDING"
-                }
-            ]
-        },
-        {
-            "collectionGroup": "customers",
-            "queryScope": "COLLECTION",
-            "fields": [
-                {
-                    "fieldPath": "customerType",
-                    "order": "ASCENDING"
-                },
-                {
-                    "fieldPath": "name",
-                    "order": "ASCENDING"
-                }
-            ]
+          "fieldPath": "name",
+          "order": "ASCENDING"
         }
-    ],
-    "fieldOverrides": []
+      ]
+    },
+    {
+      "collectionGroup": "products",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "isActive",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "name",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "customers",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "customerType",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "name",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "customers",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "customerType",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "membershipEnd",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "credit_balances",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "credit_balances",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "customerId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "advance_balances",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "lastUpdated",
+          "order": "DESCENDING"
+        },
+        {
+          "fieldPath": "balance",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "advance_balances",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "balance",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "lastUpdated",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "dailyStats",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        {
+          "fieldPath": "businessId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "date",
+          "order": "ASCENDING"
+        }
+      ]
+    }
+  ],
+  "fieldOverrides": []
 }

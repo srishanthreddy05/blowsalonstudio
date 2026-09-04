@@ -6,7 +6,6 @@ import { formatCurrency } from "@/components/salon-dashboard/types";
 import { Search, WalletCards, DollarSign, X } from "lucide-react";
 import { db } from "@/lib/firebase";
 import { collection, query, where, orderBy, getDocs, limit, startAfter } from "firebase/firestore";
-import type { Invoice } from "@/types/invoice";
 
 export default function PaymentsPage() {
   const [invoices, setInvoices] = useState<any[]>([]);
@@ -143,82 +142,80 @@ export default function PaymentsPage() {
   });
 
   return (
-    <div className="w-full text-[#F5F0E8]">
+    <div className="w-full text-[#292D29]">
       <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#A89F8C]">
-            Cashier
+          <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#747A72]">
+            Cashier & Receivables
           </p>
-          <h1 className="mt-2 text-3xl font-extrabold tracking-[-0.03em] text-[#F5F0E8]">
+          <h1 className="mt-1 font-serif text-2xl sm:text-3xl font-bold tracking-tight text-[#2F352F]">
             Pending Dues Collection
           </h1>
         </div>
       </div>
 
       {/* Search Bar */}
-      <div className="mb-5 flex max-w-md items-center rounded-2xl border border-[#2E2B24] bg-[#131210] px-4 h-12 shadow-sm focus-within:border-[#B8962E]">
-        <Search size={18} className="text-[#6B6358] mr-2" />
+      <div className="mb-5 flex max-w-md items-center rounded-xl border border-[#E0E4DD] bg-[#FFFFFF] px-4 h-11 shadow-xs focus-within:border-[#6F776D] focus-within:ring-1 focus-within:ring-[#6F776D] transition">
+        <Search size={16} className="text-[#747A72] mr-2" />
         <input
           type="text"
           placeholder="Search by name, phone, or invoice..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="w-full bg-transparent text-sm text-[#F5F0E8] outline-none placeholder:text-[#6B6358]"
+          className="w-full bg-transparent text-xs text-[#292D29] outline-none placeholder:text-[#747A72]"
         />
       </div>
 
       {loading ? (
         <div className="flex h-[40vh] items-center justify-center">
-          <div className="size-10 animate-spin rounded-full border-4 border-[#B8962E] border-t-transparent" />
+          <div className="size-9 animate-spin rounded-full border-3 border-[#6F776D] border-t-transparent" />
         </div>
       ) : filteredInvoices.length === 0 ? (
-        <div className="flex flex-col items-center justify-center rounded-2xl border border-[#2E2B24] bg-[#1C1A16] p-12 text-center shadow-md">
-          <div className="grid size-16 place-items-center rounded-2xl bg-[#131210] text-[#B8962E] mb-4">
-            <WalletCards size={32} />
+        <div className="flex flex-col items-center justify-center rounded-2xl border border-[#E0E4DD] bg-[#FFFFFF] p-12 text-center shadow-xs">
+          <div className="grid size-14 place-items-center rounded-2xl bg-[#F7F7F4] text-[#6F776D] border border-[#E0E4DD] mb-4">
+            <WalletCards size={28} />
           </div>
-          <h2 className="text-xl font-bold text-[#F5F0E8]">All Clear! No Pending Dues</h2>
-          <p className="mt-2 max-w-sm text-sm text-[#A89F8C]">
+          <h2 className="text-lg font-serif font-bold text-[#2F352F]">All Clear! No Pending Dues</h2>
+          <p className="mt-1.5 max-w-sm text-xs text-[#747A72]">
             There are no invoices with active balance dues matching your query.
           </p>
         </div>
       ) : (
         <div className="space-y-4">
-          <div className="overflow-x-auto rounded-2xl border border-[#2E2B24] bg-[#1C1A16] shadow-md">
-            <table className="w-full min-w-[600px] border-collapse text-left text-sm text-[#A89F8C]">
-              <thead className="bg-[#131210] text-xs uppercase tracking-[0.2em] text-[#A89F8C] border-b border-[#2E2B24]">
+          <div className="overflow-x-auto rounded-2xl border border-[#E0E4DD] bg-[#FFFFFF] shadow-xs">
+            <table className="w-full min-w-[600px] border-collapse text-left text-xs text-[#292D29]">
+              <thead className="bg-[#F7F7F4] text-[10px] font-bold uppercase tracking-wider text-[#747A72] border-b border-[#E0E4DD]">
                 <tr>
-                  <th className="px-6 py-4 font-bold">Customer</th>
-                  <th className="px-6 py-4 font-bold">Phone</th>
-                  <th className="px-6 py-4 font-bold">Invoice No</th>
-                  <th className="px-6 py-4 font-bold">Bill Amount</th>
-                  <th className="px-6 py-4 font-bold">Received</th>
-                  <th className="px-6 py-4 font-bold">Balance</th>
-                  <th className="px-6 py-4 font-bold text-right">Actions</th>
+                  <th className="px-5 py-3.5 font-bold">Customer</th>
+                  <th className="px-5 py-3.5 font-bold">Phone</th>
+                  <th className="px-5 py-3.5 font-bold">Invoice No</th>
+                  <th className="px-5 py-3.5 font-bold">Bill Amount</th>
+                  <th className="px-5 py-3.5 font-bold">Received</th>
+                  <th className="px-5 py-3.5 font-bold">Balance</th>
+                  <th className="px-5 py-3.5 font-bold text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-[#2E2B24]">
+              <tbody className="divide-y divide-[#E0E4DD]">
                 {filteredInvoices.map((inv) => (
-                  <tr key={inv.id} className="hover:bg-[#1F1A0F] transition bg-[#1C1A16] text-[#F5F0E8]">
-                    <td className="px-6 py-4 font-semibold text-[#F5F0E8]">{inv.customerName}</td>
-                    <td className="px-6 py-4 font-medium text-[#A89F8C]">{inv.customerPhone || inv.customerMobile}</td>
-                    <td className={`px-6 py-4 font-bold ${
-                      inv.customerType === "membership" ? "text-[#B8962E]" : "text-[#F5F0E8]"
-                    }`}>
+                  <tr key={inv.id} className="hover:bg-[#F7F7F4]/60 transition bg-transparent">
+                    <td className="px-5 py-3.5 font-semibold text-[#2F352F]">{inv.customerName}</td>
+                    <td className="px-5 py-3.5 font-medium text-[#747A72]">{inv.customerPhone || inv.customerMobile}</td>
+                    <td className="px-5 py-3.5 font-bold text-[#2F352F]">
                       {inv.invoiceNo || inv.invoiceNumber}
                     </td>
-                    <td className="px-6 py-4 font-semibold text-[#F5F0E8]">{formatCurrency(inv.grandTotal || 0)}</td>
-                    <td className="px-6 py-4 font-semibold text-[#34D399]">
+                    <td className="px-5 py-3.5 font-semibold text-[#2F352F]">{formatCurrency(inv.grandTotal || 0)}</td>
+                    <td className="px-5 py-3.5 font-semibold text-[#5F7A62]">
                       {formatCurrency(inv.receivedAmount ?? inv.grandTotal)}
                     </td>
-                    <td className="px-6 py-4 font-bold text-[#E57373]">
+                    <td className="px-5 py-3.5 font-bold text-[#B55B5B]">
                       {formatCurrency(inv.balanceDue ?? 0)}
                     </td>
-                    <td className="px-6 py-4 text-right">
+                    <td className="px-5 py-3.5 text-right">
                       <button
                         onClick={() => handleOpenCollect(inv)}
-                        className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl bg-[#B8962E] px-4 text-xs font-bold text-[#0E0D0B] hover:bg-[#D4A935] transition shadow-md"
+                        className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg bg-[#6F776D] hover:bg-[#2F352F] px-3.5 text-xs font-bold text-[#FFFFFF] transition shadow-xs cursor-pointer"
                       >
-                        <DollarSign size={14} />
+                        <DollarSign size={13} />
                         Collect Payment
                       </button>
                     </td>
@@ -233,7 +230,7 @@ export default function PaymentsPage() {
                 type="button"
                 onClick={loadMoreDues}
                 disabled={loadingMore}
-                className="inline-flex h-11 items-center justify-center rounded-xl border border-[#2E2B24] bg-[#131210] px-6 text-sm font-semibold text-[#A89F8C] hover:bg-[#1C1A16] hover:text-[#F5F0E8] hover:border-[#B8962E] transition shadow-xs cursor-pointer disabled:opacity-50"
+                className="inline-flex h-10 items-center justify-center rounded-xl border border-[#E0E4DD] bg-[#FFFFFF] px-6 text-xs font-bold text-[#2F352F] hover:bg-[#E8ECE5] hover:border-[#6F776D] transition shadow-xs cursor-pointer disabled:opacity-50"
               >
                 {loadingMore ? "Loading More..." : "Load More"}
               </button>
@@ -245,22 +242,22 @@ export default function PaymentsPage() {
       {/* Collect Payment Modal Dialog */}
       {modalOpen && selectedInvoice && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setModalOpen(false)} />
-          <div className="relative w-full max-w-md rounded-2xl border border-[#2E2B24] bg-[#1C1A16] p-6 shadow-2xl text-[#F5F0E8]">
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-xs" onClick={() => setModalOpen(false)} />
+          <div className="relative w-full max-w-md rounded-3xl border border-[#E0E4DD] bg-[#FFFFFF] p-6 shadow-xl text-[#292D29] z-10 animate-in zoom-in-95 duration-200">
             <button
               onClick={() => setModalOpen(false)}
-              className="absolute top-4 right-4 text-[#A89F8C] hover:text-[#F5F0E8]"
+              className="absolute top-4 right-4 text-[#747A72] hover:text-[#2F352F] transition cursor-pointer"
             >
-              <X size={20} />
+              <X size={18} />
             </button>
-            <h2 className="text-xl font-bold text-[#F5F0E8] mb-4">Collect Balance Payment</h2>
+            <h2 className="font-serif text-lg font-bold text-[#2F352F] mb-4">Collect Balance Payment</h2>
             
             {message && (
               <div
                 className={`mb-4 rounded-xl border p-3 text-xs font-semibold ${
                   message.type === "success"
-                    ? "border-[#105E3C] bg-[#0C2E1D] text-[#34D399]"
-                    : "border-[#5C2424] bg-[#2E1616] text-[#E57373]"
+                    ? "border-[#CCD2C8] bg-[#E8ECE5] text-[#5F7A62]"
+                    : "border-[#FBEBEB] bg-[#FBEBEB] text-[#B55B5B]"
                 }`}
               >
                 {message.text}
@@ -268,33 +265,33 @@ export default function PaymentsPage() {
             )}
 
             <form onSubmit={handleCollectSubmit} className="space-y-4">
-              <div className="space-y-1.5 text-sm bg-[#131210] border border-[#2E2B24] p-3.5 rounded-xl">
+              <div className="space-y-1.5 text-xs bg-[#F7F7F4] border border-[#E0E4DD] p-3.5 rounded-2xl">
                 <div className="flex justify-between">
-                  <span className="text-[#A89F8C] font-medium">Customer:</span>
-                  <span className="font-bold text-[#F5F0E8]">{selectedInvoice.customerName}</span>
+                  <span className="text-[#747A72] font-medium">Customer:</span>
+                  <span className="font-bold text-[#2F352F]">{selectedInvoice.customerName}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-[#A89F8C] font-medium">Invoice:</span>
-                  <span className="font-bold text-[#F5F0E8]">{selectedInvoice.invoiceNo || selectedInvoice.invoiceNumber}</span>
+                  <span className="text-[#747A72] font-medium">Invoice:</span>
+                  <span className="font-bold text-[#2F352F]">{selectedInvoice.invoiceNo || selectedInvoice.invoiceNumber}</span>
                 </div>
-                <div className="flex justify-between border-t border-[#2E2B24] pt-2 mt-2">
-                  <span className="text-[#A89F8C] font-semibold">Total Invoice Amount:</span>
-                  <span className="font-bold text-[#F5F0E8]">{formatCurrency(selectedInvoice.grandTotal)}</span>
+                <div className="flex justify-between border-t border-[#E0E4DD] pt-2 mt-2">
+                  <span className="text-[#747A72] font-semibold">Total Invoice Amount:</span>
+                  <span className="font-bold text-[#2F352F]">{formatCurrency(selectedInvoice.grandTotal)}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-[#A89F8C] font-semibold">Already Received:</span>
-                  <span className="font-bold text-[#34D399]">
+                  <span className="text-[#747A72] font-semibold">Already Received:</span>
+                  <span className="font-bold text-[#5F7A62]">
                     {formatCurrency(selectedInvoice.receivedAmount ?? selectedInvoice.grandTotal)}
                   </span>
                 </div>
-                <div className="flex justify-between border-t border-[#2E2B24] pt-2 mt-2">
-                  <span className="text-[#F5F0E8] font-bold">Remaining Balance Due:</span>
-                  <span className="font-extrabold text-[#E57373]">{formatCurrency(selectedInvoice.balanceDue)}</span>
+                <div className="flex justify-between border-t border-[#E0E4DD] pt-2 mt-2">
+                  <span className="text-[#2F352F] font-bold">Remaining Balance Due:</span>
+                  <span className="font-extrabold text-[#B55B5B]">{formatCurrency(selectedInvoice.balanceDue)}</span>
                 </div>
               </div>
 
               <label className="block">
-                <span className="text-sm font-semibold text-[#A89F8C]">Payment Amount Collected (INR)</span>
+                <span className="text-xs font-semibold text-[#747A72]">Payment Amount Collected (INR)</span>
                 <input
                   required
                   type="number"
@@ -305,22 +302,22 @@ export default function PaymentsPage() {
                     const val = e.target.value;
                     setCollectAmount(val === "" ? "" : Math.min(Number(val), selectedInvoice.balanceDue));
                   }}
-                  className="mt-2 h-11 w-full rounded-xl border border-[#2E2B24] bg-[#131210] px-4 text-sm text-[#F5F0E8] outline-none focus:border-[#B8962E]"
+                  className="mt-1.5 h-10 w-full rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] px-3 text-xs text-[#292D29] font-bold outline-none focus:border-[#6F776D] focus:ring-1 focus:ring-[#6F776D]"
                 />
               </label>
 
-              <div className="flex gap-3 justify-end pt-2">
+              <div className="flex gap-2 justify-end pt-2">
                 <button
                   type="button"
                   onClick={() => setModalOpen(false)}
-                  className="h-11 rounded-xl border border-[#2E2B24] bg-[#131210] px-4 text-sm font-semibold text-[#A89F8C] hover:bg-[#1C1A16] hover:text-[#F5F0E8] transition"
+                  className="h-9 rounded-xl border border-[#E0E4DD] bg-[#FFFFFF] px-4 text-xs font-semibold text-[#747A72] hover:bg-[#F7F7F4] hover:text-[#2F352F] transition cursor-pointer"
                   disabled={collecting}
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="h-11 rounded-xl bg-[#B8962E] px-6 text-sm font-bold text-[#0E0D0B] hover:bg-[#D4A935] transition shadow-md"
+                  className="h-9 rounded-xl bg-[#6F776D] px-5 text-xs font-bold text-[#FFFFFF] hover:bg-[#2F352F] transition shadow-xs cursor-pointer"
                   disabled={collecting}
                 >
                   {collecting ? "Logging..." : "Confirm Collection"}

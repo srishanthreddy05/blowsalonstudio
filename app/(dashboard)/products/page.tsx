@@ -4,7 +4,7 @@ import { useState } from "react";
 import * as productsService from "@/services/products";
 import { useAppData } from "@/context/AppDataContext";
 import type { Product } from "@/types/product";
-import { Plus, Search, Edit2, Trash2, X, Package } from "lucide-react";
+import { Plus, Search, Edit2, Trash2, X } from "lucide-react";
 import { formatCurrency } from "@/components/salon-dashboard/types";
 
 export default function ProductsPage() {
@@ -18,27 +18,21 @@ export default function ProductsPage() {
     name: "",
     price: 0,
     quantity: 0,
-    type: "retail" as "retail" | "service",
-    amount: 0,
-    noOfServings: 0,
-    brand: "",
-    category: "",
+    lowStockThreshold: 5,
+    description: "",
   });
 
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [idToDelete, setIdToDelete] = useState<string | null>(null);
 
-  const handleOpenAdd = (type: "retail" | "service" = "retail") => {
+  const handleOpenAdd = () => {
     setEditingProduct(null);
     setFormData({
       name: "",
       price: 0,
       quantity: 0,
-      type,
-      amount: 0,
-      noOfServings: 0,
-      brand: "",
-      category: "",
+      lowStockThreshold: 5,
+      description: "",
     });
     setModalOpen(true);
   };
@@ -49,11 +43,8 @@ export default function ProductsPage() {
       name: product.name,
       price: product.price || 0,
       quantity: product.quantity || 0,
-      type: product.type || "retail",
-      amount: product.amount || 0,
-      noOfServings: product.noOfServings || 0,
-      brand: product.brand || "",
-      category: product.category || "",
+      lowStockThreshold: product.lowStockThreshold ?? 5,
+      description: product.description || "",
     });
     setModalOpen(true);
   };
@@ -66,44 +57,35 @@ export default function ProductsPage() {
   const handleConfirmDelete = async () => {
     if (!idToDelete) return;
     try {
-      // ── FIX: soft delete — sets isActive: false, preserves Firestore doc ──
       await productsService.delete(idToDelete);
       setDeleteConfirmOpen(false);
       setIdToDelete(null);
       await refreshProducts();
     } catch (error) {
-      console.error("Failed to soft-delete product:", error);
+      console.error("Failed to delete product:", error);
     }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const payload = {
-        name: formData.name,
-        type: formData.type,
-        brand: formData.brand.trim() || undefined,
-        category: formData.category.trim() || undefined,
-        ...(formData.type === "retail" ? {
-          price: formData.price,
-          quantity: formData.quantity,
-          amount: null,
-          noOfServings: null,
-          costPerServing: null,
-        } : {
-          price: 0,
-          quantity: null,
-          amount: formData.amount,
-          noOfServings: formData.noOfServings,
-          costPerServing: (formData.amount && formData.noOfServings) ? (formData.amount / formData.noOfServings) : 0,
-        })
-      };
+    const desc = formData.description.trim();
+    const payload: Omit<Product, "id"> = {
+      name: formData.name.trim(),
+      price: Number(formData.price) || 0,
+      quantity: Number(formData.quantity) || 0,
+      lowStockThreshold: Number(formData.lowStockThreshold) || 5,
+      isActive: true,
+    };
+    if (desc) {
+      payload.description = desc;
+    }
 
-      if (editingProduct?.id) {
-        await productsService.update(editingProduct.id, payload);
-      } else {
-        await productsService.create(payload as Omit<Product, "id">);
-      }
+    if (editingProduct?.id) {
+      await productsService.update(editingProduct.id, payload);
+    } else {
+      await productsService.create(payload);
+    }
       setModalOpen(false);
       await refreshProducts();
     } catch (error) {
@@ -113,345 +95,240 @@ export default function ProductsPage() {
 
   const filteredProducts = products.filter((p) =>
     p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (p.brand && p.brand.toLowerCase().includes(searchQuery.toLowerCase())) ||
-    (p.category && p.category.toLowerCase().includes(searchQuery.toLowerCase()))
+    (p.description && p.description.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
-  const retailProducts = filteredProducts.filter((p) => !p.type || p.type === "retail");
-  const serviceProducts = filteredProducts.filter((p) => p.type === "service");
-
   return (
-    <div className="w-full text-[#A89F8C] space-y-8">
+    <div className="w-full text-[#292D29] space-y-8">
       {/* Title */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#A89F8C]">
-            Inventory
+          <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#747A72]">
+            Retail Inventory
           </p>
-          <h1 className="mt-2 text-3xl font-extrabold tracking-[-0.03em] text-[#F5F0E8]">
-            Products & Supplies ({products.length})
+          <h1 className="mt-1 font-serif text-2xl sm:text-3xl font-bold tracking-tight text-[#2F352F]">
+            Retail Products ({products.length})
           </h1>
         </div>
+        <button
+          onClick={handleOpenAdd}
+          className="inline-flex h-10 items-center gap-2 rounded-xl bg-[#6F776D] hover:bg-[#2F352F] px-4 text-xs font-bold text-white shadow-xs transition duration-150 cursor-pointer"
+        >
+          <Plus size={15} />
+          Add Retail Product
+        </button>
       </div>
 
       {loading ? (
         <div className="flex h-[40vh] items-center justify-center">
-          <div className="size-10 animate-spin rounded-full border-4 border-[#B8962E] border-t-transparent" />
+          <div className="size-9 animate-spin rounded-full border-3 border-[#6F776D] border-t-transparent" />
         </div>
       ) : (
         <>
           {/* Search bar */}
-          <div className="flex max-w-md items-center rounded-xl border border-[#2E2B24] bg-[#131210] px-4 h-12 shadow-sm focus-within:border-[#B8962E] transition">
-            <Search size={18} className="text-[#6B6358] mr-2" />
+          <div className="flex max-w-md items-center rounded-xl border border-[#E0E4DD] bg-[#FFFFFF] px-4 h-11 shadow-xs focus-within:border-[#6F776D] focus-within:ring-1 focus-within:ring-[#6F776D] transition">
+            <Search size={16} className="text-[#747A72] mr-2" />
             <input
               type="text"
-              placeholder="Search products & supplies..."
+              placeholder="Search retail products by name or description..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-transparent text-sm text-[#F5F0E8] outline-none placeholder:text-[#6B6358]"
+              className="w-full bg-transparent text-xs text-[#292D29] outline-none placeholder:text-[#747A72]"
             />
           </div>
 
-          {/* Retail Products Section */}
-          <div className="space-y-4">
-            <div className="flex items-center justify-between border-b border-[#2E2B24] pb-2">
-              <h2 className="text-lg font-bold text-[#F5F0E8]">Retail Inventory ({retailProducts.length})</h2>
-              <button
-                onClick={() => handleOpenAdd("retail")}
-                className="inline-flex h-10 items-center gap-2 rounded-xl border border-[#2E2B24] bg-[#131210] px-4 text-xs font-semibold text-[#A89F8C] hover:border-[#B8962E] hover:text-[#B8962E] hover:bg-[#1F1A0F] shadow-sm transition duration-150 cursor-pointer"
-              >
-                <Plus size={15} />
-                Add Retail Product
-              </button>
-            </div>
-
-            <div className="overflow-x-auto rounded-2xl border border-[#2E2B24] bg-[#131210] shadow-md">
-              <table className="w-full min-w-[800px] border-collapse text-left text-sm text-[#A89F8C]">
-                <thead className="bg-[#0E0D0B] text-[10px] font-bold uppercase tracking-[0.18em] text-[#A89F8C] border-b border-[#2E2B24]">
+          {/* Products Table */}
+          <div className="overflow-x-auto rounded-2xl border border-[#E0E4DD] bg-[#FFFFFF] shadow-xs">
+            <table className="w-full min-w-[700px] border-collapse text-left text-xs text-[#292D29]">
+              <thead className="bg-[#F7F7F4] text-[10px] font-bold uppercase tracking-wider text-[#747A72] border-b border-[#E0E4DD]">
+                <tr>
+                  <th className="px-5 py-3.5 font-bold">Product Name</th>
+                  <th className="px-5 py-3.5 font-bold">Retail Price</th>
+                  <th className="px-5 py-3.5 font-bold">Stock Available</th>
+                  <th className="px-5 py-3.5 font-bold">Min Reorder Level</th>
+                  <th className="px-5 py-3.5 font-bold">Status</th>
+                  <th className="px-5 py-3.5 font-bold text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#E0E4DD]">
+                {filteredProducts.length === 0 ? (
                   <tr>
-                    <th className="px-6 py-4 font-bold">Product Name</th>
-                    <th className="px-6 py-4 font-bold">Price</th>
-                    <th className="px-6 py-4 font-bold">Stock Level</th>
-                    <th className="px-6 py-4 font-bold">Status</th>
-                    <th className="px-6 py-4 font-bold text-right">Actions</th>
+                    <td colSpan={6} className="px-5 py-8 text-center text-[#747A72] italic bg-transparent">
+                      No retail products found.
+                    </td>
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-[#2E2B24]">
-                  {retailProducts.length === 0 ? (
-                    <tr>
-                      <td colSpan={5} className="px-6 py-8 text-center text-[#6B6358] italic bg-transparent">
-                        No retail products found.
-                      </td>
-                    </tr>
-                  ) : (
-                    retailProducts.map((product) => (
-                      <tr key={product.id} className="hover:bg-[#1C1A16] transition bg-transparent text-[#A89F8C]">
-                        <td className="px-6 py-4 font-semibold text-[#F5F0E8]">
+                ) : (
+                  filteredProducts.map((product) => {
+                    const qty = product.quantity ?? 0;
+                    const threshold = product.lowStockThreshold ?? 5;
+                    const isOutOfStock = qty <= 0;
+                    const isLowStock = !isOutOfStock && qty <= threshold;
+
+                    return (
+                      <tr key={product.id} className="hover:bg-[#F7F7F4]/60 transition bg-transparent">
+                        <td className="px-5 py-3.5 font-semibold text-[#2F352F]">
                           <div>{product.name}</div>
-                          {(product.brand || product.category) && (
-                            <div className="text-[10px] text-stone-500 font-medium mt-0.5 space-x-1.5">
-                              {product.brand && <span>Brand: {product.brand}</span>}
-                              {product.brand && product.category && <span>•</span>}
-                              {product.category && <span>Category: {product.category}</span>}
+                          {product.description && (
+                            <div className="text-[10px] text-[#747A72] font-normal mt-0.5 line-clamp-1">
+                              {product.description}
                             </div>
                           )}
                         </td>
-                        <td className="px-6 py-4 text-[#F5F0E8] font-semibold">{formatCurrency(product.price)}</td>
-                        <td className="px-6 py-4">{(product.quantity ?? 0)} items</td>
-                        <td className="px-6 py-4">
+                        <td className="px-5 py-3.5 text-[#2F352F] font-bold">
+                          {formatCurrency(product.price)}
+                        </td>
+                        <td className="px-5 py-3.5 text-[#747A72] font-semibold">
+                          {qty} units
+                        </td>
+                        <td className="px-5 py-3.5 text-[#747A72] font-medium">
+                          {threshold} units
+                        </td>
+                        <td className="px-5 py-3.5">
                           <span
-                            className={`inline-block rounded-full px-3 py-1 text-xs font-bold border ${
-                              (product.quantity ?? 0) <= 0
-                                ? "bg-[#1A1814] text-[#E57373] border border-[#E57373]/20"
-                                : (product.quantity ?? 0) <= 5
-                                  ? "bg-[#1A1814] text-[#B8962E] border border-[#B8962E]/20 animate-pulse"
-                                  : "bg-[#1F1A0F] text-[#B8962E] border border-[#B8962E]/20"
+                            className={`inline-block rounded-full px-2.5 py-0.5 text-[9px] font-bold uppercase tracking-wider border ${
+                              isOutOfStock
+                                ? "bg-[#FBEBEB] text-[#B55B5B] border-[#FBEBEB]"
+                                : isLowStock
+                                  ? "bg-[#FAF4E8] text-[#B18A45] border-[#B18A45]/30"
+                                  : "bg-[#E8ECE5] text-[#2F352F] border-[#CCD2C8]"
                             }`}
                           >
-                            {(product.quantity ?? 0) <= 0 ? "Out of Stock" : (product.quantity ?? 0) <= 5 ? "Low Stock" : "In Stock"}
+                            {isOutOfStock ? "Out of Stock" : isLowStock ? "Low Stock" : "In Stock"}
                           </span>
                         </td>
-                        <td className="px-6 py-4 text-right">
-                          <div className="flex justify-end gap-2">
+                        <td className="px-5 py-3.5 text-right">
+                          <div className="flex justify-end gap-1.5">
                             <button
                               onClick={() => handleOpenEdit(product)}
-                              className="grid size-9 place-items-center rounded-xl bg-[#131210] border border-[#2E2B24] text-[#B8962E] hover:bg-[#1F1A0F] hover:border-[#B8962E] transition cursor-pointer"
+                              className="grid size-8 place-items-center rounded-lg bg-[#E8ECE5] border border-[#CCD2C8] text-[#2F352F] hover:bg-[#6F776D] hover:text-[#FFFFFF] transition cursor-pointer shadow-xs"
                               title="Edit"
                             >
-                              <Edit2 size={14} />
+                              <Edit2 size={13} />
                             </button>
                             <button
                               onClick={() => product.id && handleDeleteTrigger(product.id)}
-                              className="grid size-9 place-items-center rounded-xl bg-[#131210] border border-[#2E2B24] text-[#E57373] hover:bg-[#131210] hover:border-[#E57373] transition cursor-pointer"
+                              className="grid size-8 place-items-center rounded-lg bg-[#FFFFFF] border border-[#E0E4DD] text-[#B55B5B] hover:bg-[#FBEBEB] hover:border-[#FBEBEB] transition cursor-pointer shadow-xs"
                               title="Remove"
                             >
-                              <Trash2 size={14} />
+                              <Trash2 size={13} />
                             </button>
                           </div>
                         </td>
                       </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* Service Products Section */}
-          <div className="space-y-4 pt-4">
-            <div className="flex items-center justify-between border-b border-[#2E2B24] pb-2">
-              <h2 className="text-lg font-bold text-[#F5F0E8]">Service Supplies (Used in Services) ({serviceProducts.length})</h2>
-              <button
-                onClick={() => handleOpenAdd("service")}
-                className="inline-flex h-10 items-center gap-2 rounded-xl border border-[#2E2B24] bg-[#131210] px-4 text-xs font-semibold text-[#A89F8C] hover:border-[#B8962E] hover:text-[#B8962E] hover:bg-[#1F1A0F] shadow-sm transition duration-150 cursor-pointer"
-              >
-                <Plus size={15} />
-                Add Service Product
-              </button>
-            </div>
-
-            <div className="overflow-x-auto rounded-2xl border border-[#2E2B24] bg-[#131210] shadow-md">
-              <table className="w-full min-w-[800px] border-collapse text-left text-sm text-[#A89F8C]">
-                <thead className="bg-[#0E0D0B] text-[10px] font-bold uppercase tracking-[0.18em] text-[#A89F8C] border-b border-[#2E2B24]">
-                  <tr>
-                    <th className="px-6 py-4 font-bold">Supply Name</th>
-                    <th className="px-6 py-4 font-bold">Cost Amount</th>
-                    <th className="px-6 py-4 font-bold">Cost Per Serving</th>
-                    <th className="px-6 py-4 font-bold">Servings Left</th>
-                    <th className="px-6 py-4 font-bold">Status</th>
-                    <th className="px-6 py-4 font-bold text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#2E2B24]">
-                  {serviceProducts.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="px-6 py-8 text-center text-[#6B6358] italic bg-transparent">
-                        No service supplies created yet.
-                      </td>
-                    </tr>
-                  ) : (
-                    serviceProducts.map((product) => (
-                      <tr key={product.id} className="hover:bg-[#1C1A16] transition bg-transparent text-[#A89F8C]">
-                        <td className="px-6 py-4 font-semibold text-[#F5F0E8]">
-                          <div>{product.name}</div>
-                          {(product.brand || product.category) && (
-                            <div className="text-[10px] text-stone-500 font-medium mt-0.5 space-x-1.5">
-                              {product.brand && <span>Brand: {product.brand}</span>}
-                              {product.brand && product.category && <span>•</span>}
-                              {product.category && <span>Category: {product.category}</span>}
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-6 py-4 text-[#F5F0E8] font-semibold">{formatCurrency(product.amount || 0)}</td>
-                        <td className="px-6 py-4 text-[#F5F0E8] font-semibold text-stone-600">
-                          {formatCurrency(product.costPerServing || 0)}
-                        </td>
-                        <td className="px-6 py-4">{product.noOfServings || 0} servings</td>
-                        <td className="px-6 py-4">
-                          <span
-                            className={`inline-block rounded-full px-3 py-1 text-xs font-bold border ${
-                              (!product.noOfServings || product.noOfServings <= 0)
-                                ? "bg-[#1A1814] text-[#E57373] border border-[#E57373]/20"
-                                : product.noOfServings <= 3
-                                  ? "bg-[#1A1814] text-[#B8962E] border border-[#B8962E]/20 animate-pulse"
-                                  : "bg-[#1F1A0F] text-[#B8962E] border border-[#B8962E]/20"
-                            }`}
-                          >
-                            {(!product.noOfServings || product.noOfServings <= 0) ? "Depleted" : product.noOfServings <= 3 ? "Low Servings" : "Available"}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-right">
-                          <div className="flex justify-end gap-2">
-                            <button
-                              onClick={() => handleOpenEdit(product)}
-                              className="grid size-9 place-items-center rounded-xl bg-[#131210] border border-[#2E2B24] text-[#B8962E] hover:bg-[#1F1A0F] hover:border-[#B8962E] transition cursor-pointer"
-                              title="Edit"
-                            >
-                              <Edit2 size={14} />
-                            </button>
-                            <button
-                              onClick={() => product.id && handleDeleteTrigger(product.id)}
-                              className="grid size-9 place-items-center rounded-xl bg-[#131210] border border-[#2E2B24] text-[#E57373] hover:bg-[#131210] hover:border-[#E57373] transition cursor-pointer"
-                              title="Remove"
-                            >
-                              <Trash2 size={14} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
           </div>
         </>
       )}
 
-      {/* Add / Edit Modal */}
+      {/* Add / Edit Product Modal */}
       {modalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setModalOpen(false)} />
-          <div className="relative w-full max-w-md rounded-3xl border border-[#2E2B24] bg-[#1C1A16] p-6 shadow-2xl text-[#A89F8C] z-10 animate-in zoom-in-95 duration-200">
-            <button onClick={() => setModalOpen(false)} className="absolute top-4 right-4 text-[#A89F8C] hover:text-[#B8962E] transition cursor-pointer">
-              <X size={20} />
+          <div
+            className="fixed inset-0 bg-[#292D29]/40 backdrop-blur-xs"
+            onClick={() => setModalOpen(false)}
+          />
+          <div className="relative w-full max-w-md rounded-3xl border border-[#E0E4DD] bg-[#FFFFFF] p-6 shadow-xl text-[#292D29] overflow-y-auto max-h-[90vh] z-10 animate-in zoom-in-95 duration-200">
+            <button
+              onClick={() => setModalOpen(false)}
+              className="absolute top-4 right-4 text-[#747A72] hover:text-[#2F352F] transition cursor-pointer"
+            >
+              <X size={18} />
             </button>
-            <h2 className="text-xl font-bold text-[#F5F0E8] mb-4">
-              {editingProduct 
-                ? "Edit Details" 
-                : formData.type === "retail" 
-                  ? "Add Retail Product" 
-                  : "Add Service Supply"}
+            <h2 className="font-serif text-lg font-bold text-[#2F352F] mb-4">
+              {editingProduct ? "Edit Retail Product" : "New Retail Product"}
             </h2>
             <form onSubmit={handleSubmit} className="space-y-4">
               <label className="block">
-                <span className="text-sm font-semibold text-[#A89F8C]">Name</span>
+                <span className="text-xs font-semibold text-[#747A72]">
+                  Product Name *
+                </span>
                 <input
                   required
                   type="text"
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  className="mt-2 h-11 w-full rounded-xl border border-[#2E2B24] bg-[#0E0D0B] px-4 text-sm text-[#F5F0E8] outline-none focus:border-[#B8962E] focus:ring-1 focus:ring-[#B8962E] placeholder-[#6B6358]"
-                  placeholder={formData.type === "retail" ? "e.g. Keratin Repair Serum" : "e.g. Hair Color Tube / Shampoo"}
+                  placeholder="e.g. Kerastase Nutritive Shampoo"
+                  className="mt-1 h-10 w-full rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] px-3 text-xs text-[#292D29] outline-none focus:border-[#6F776D] focus:ring-1 focus:ring-[#6F776D] transition"
+                />
+              </label>
+
+              <div className="grid grid-cols-2 gap-3">
+                <label className="block">
+                  <span className="text-xs font-semibold text-[#747A72]">
+                    Retail Price (₹) *
+                  </span>
+                  <input
+                    required
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={formData.price === 0 ? "" : formData.price}
+                    onChange={(e) => setFormData({ ...formData, price: e.target.value === "" ? 0 : Number(e.target.value) })}
+                    placeholder="0"
+                    className="mt-1 h-10 w-full rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] px-3 text-xs text-[#292D29] outline-none focus:border-[#6F776D] focus:ring-1 focus:ring-[#6F776D] transition"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="text-xs font-semibold text-[#747A72]">
+                    Stock Quantity *
+                  </span>
+                  <input
+                    required
+                    type="number"
+                    min="0"
+                    value={formData.quantity === 0 ? "" : formData.quantity}
+                    onChange={(e) => setFormData({ ...formData, quantity: e.target.value === "" ? 0 : Number(e.target.value) })}
+                    placeholder="0"
+                    className="mt-1 h-10 w-full rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] px-3 text-xs text-[#292D29] outline-none focus:border-[#6F776D] focus:ring-1 focus:ring-[#6F776D] transition"
+                  />
+                </label>
+              </div>
+
+              <label className="block">
+                <span className="text-xs font-semibold text-[#747A72]">
+                  Minimum Reorder Level
+                </span>
+                <input
+                  type="number"
+                  min="0"
+                  value={formData.lowStockThreshold === 0 ? "" : formData.lowStockThreshold}
+                  onChange={(e) => setFormData({ ...formData, lowStockThreshold: e.target.value === "" ? 0 : Number(e.target.value) })}
+                  placeholder="5"
+                  className="mt-1 h-10 w-full rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] px-3 text-xs text-[#292D29] outline-none focus:border-[#6F776D] focus:ring-1 focus:ring-[#6F776D] transition"
                 />
               </label>
 
               <label className="block">
-                <span className="text-sm font-semibold text-[#A89F8C]">Brand</span>
-                <input
-                  type="text"
-                  value={formData.brand}
-                  onChange={(e) => setFormData({ ...formData, brand: e.target.value })}
-                  className="mt-2 h-11 w-full rounded-xl border border-[#2E2B24] bg-[#0E0D0B] px-4 text-sm text-[#F5F0E8] outline-none focus:border-[#B8962E] focus:ring-1 focus:ring-[#B8962E] placeholder-[#6B6358]"
-                  placeholder="e.g. L'Oreal, Wella"
+                <span className="text-xs font-semibold text-[#747A72]">
+                  Description
+                </span>
+                <textarea
+                  rows={2}
+                  value={formData.description}
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  placeholder="Optional retail product notes..."
+                  className="mt-1 w-full rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] p-3 text-xs text-[#292D29] outline-none focus:border-[#6F776D] focus:ring-1 focus:ring-[#6F776D] transition resize-none"
                 />
               </label>
 
-              <label className="block">
-                <span className="text-sm font-semibold text-[#A89F8C]">Category</span>
-                <input
-                  type="text"
-                  value={formData.category}
-                  onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                  className="mt-2 h-11 w-full rounded-xl border border-[#2E2B24] bg-[#0E0D0B] px-4 text-sm text-[#F5F0E8] outline-none focus:border-[#B8962E] focus:ring-1 focus:ring-[#B8962E] placeholder-[#6B6358]"
-                  placeholder="e.g. Shampoo, Hair Color"
-                />
-              </label>
-
-              {formData.type === "retail" ? (
-                <>
-                  <label className="block">
-                    <span className="text-sm font-semibold text-[#A89F8C]">Retail Price (₹)</span>
-                    <input
-                      required
-                      type="number"
-                      min="0"
-                      value={formData.price === 0 ? "" : formData.price}
-                      onChange={(e) => setFormData({ ...formData, price: e.target.value === "" ? 0 : Number(e.target.value) })}
-                      className="mt-2 h-11 w-full rounded-xl border border-[#2E2B24] bg-[#0E0D0B] px-4 text-sm text-[#F5F0E8] outline-none focus:border-[#B8962E] focus:ring-1 focus:ring-[#B8962E]"
-                    />
-                  </label>
-                  <label className="block">
-                    <span className="text-sm font-semibold text-[#A89F8C]">In-Stock Quantity</span>
-                    <input
-                      required
-                      type="number"
-                      min="0"
-                      value={formData.quantity === 0 ? "" : formData.quantity}
-                      onChange={(e) => setFormData({ ...formData, quantity: e.target.value === "" ? 0 : Number(e.target.value) })}
-                      className="mt-2 h-11 w-full rounded-xl border border-[#2E2B24] bg-[#0E0D0B] px-4 text-sm text-[#F5F0E8] outline-none focus:border-[#B8962E] focus:ring-1 focus:ring-[#B8962E]"
-                    />
-                  </label>
-                </>
-              ) : (
-                <>
-                  <label className="block">
-                    <span className="text-sm font-semibold text-[#A89F8C]">Cost Amount (₹)</span>
-                    <input
-                      required
-                      type="number"
-                      min="0"
-                      value={formData.amount === 0 ? "" : formData.amount}
-                      onChange={(e) => setFormData({ ...formData, amount: e.target.value === "" ? 0 : Number(e.target.value) })}
-                      className="mt-2 h-11 w-full rounded-xl border border-[#2E2B24] bg-[#0E0D0B] px-4 text-sm text-[#F5F0E8] outline-none focus:border-[#B8962E] focus:ring-1 focus:ring-[#B8962E]"
-                    />
-                  </label>
-                  <label className="block">
-                    <span className="text-sm font-semibold text-[#A89F8C]">Number of Servings</span>
-                    <input
-                      required
-                      type="number"
-                      min="1"
-                      value={formData.noOfServings === 0 ? "" : formData.noOfServings}
-                      onChange={(e) => setFormData({ ...formData, noOfServings: e.target.value === "" ? 0 : Number(e.target.value) })}
-                      className="mt-2 h-11 w-full rounded-xl border border-[#2E2B24] bg-[#0E0D0B] px-4 text-sm text-[#F5F0E8] outline-none focus:border-[#B8962E] focus:ring-1 focus:ring-[#B8962E]"
-                    />
-                  </label>
-                  <label className="block">
-                    <span className="text-sm font-semibold text-[#A89F8C]">Cost Per Serving (₹ - Auto-calculated)</span>
-                    <input
-                      readOnly
-                      type="text"
-                      value={formData.noOfServings > 0 ? formatCurrency(formData.amount / formData.noOfServings) : "—"}
-                      className="mt-2 h-11 w-full rounded-xl border border-[#2E2B24] bg-[#0E0D0B] px-4 text-sm text-[#A89F8C] outline-none"
-                    />
-                  </label>
-                </>
-              )}
-
-              <div className="flex gap-3 justify-end pt-2">
+              <div className="flex justify-end gap-2 pt-4">
                 <button
                   type="button"
                   onClick={() => setModalOpen(false)}
-                  className="h-11 rounded-xl border border-[#2E2B24] bg-[#131210] px-4 text-sm font-semibold text-[#A89F8C] hover:border-[#B8962E] hover:text-[#B8962E] hover:bg-[#1F1A0F] transition cursor-pointer"
+                  className="rounded-xl border border-[#E0E4DD] px-4 py-2 text-xs font-bold text-[#747A72] hover:bg-[#F7F7F4] transition cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="h-11 rounded-xl bg-[#B8962E] px-6 text-sm font-bold text-[#0E0D0B] hover:bg-[#D4A935] shadow-[0_4px_16px_rgba(184,150,46,0.25)] transition disabled:opacity-50 cursor-pointer"
+                  className="rounded-xl bg-[#6F776D] hover:bg-[#2F352F] px-4 py-2 text-xs font-bold text-white shadow-xs transition duration-150 cursor-pointer"
                 >
-                  Save Product
+                  {editingProduct ? "Save Changes" : "Create Product"}
                 </button>
               </div>
             </form>
@@ -461,23 +338,28 @@ export default function ProductsPage() {
 
       {/* Delete Confirmation Modal */}
       {deleteConfirmOpen && (
-        <div className="fixed inset-0 z-55 flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setDeleteConfirmOpen(false)} />
-          <div className="relative w-full max-w-sm rounded-3xl border border-[#2E2B24] bg-[#1C1A16] p-6 shadow-2xl text-[#A89F8C] z-10 animate-in zoom-in-95 duration-200">
-            <h3 className="text-lg font-bold text-[#F5F0E8]">Remove this product?</h3>
-            <p className="mt-2 text-sm text-[#A89F8C]">
-              The product will be hidden from billing and inventory. Historical invoices that include it will not be affected.
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="fixed inset-0 bg-[#292D29]/40 backdrop-blur-xs"
+            onClick={() => setDeleteConfirmOpen(false)}
+          />
+          <div className="relative w-full max-w-sm rounded-3xl border border-[#E0E4DD] bg-[#FFFFFF] p-6 shadow-xl text-[#292D29] z-10 animate-in zoom-in-95 duration-200">
+            <h3 className="font-serif text-base font-bold text-[#2F352F] mb-2">
+              Remove Product
+            </h3>
+            <p className="text-xs text-[#747A72] mb-5">
+              Are you sure you want to remove this retail product from the inventory list?
             </p>
-            <div className="mt-6 flex gap-3 justify-end">
+            <div className="flex justify-end gap-2">
               <button
                 onClick={() => setDeleteConfirmOpen(false)}
-                className="h-10 rounded-xl border border-[#2E2B24] bg-[#131210] px-4 text-xs font-semibold text-[#A89F8C] hover:border-[#B8962E] hover:text-[#B8962E] transition cursor-pointer"
+                className="rounded-xl border border-[#E0E4DD] px-3.5 py-2 text-xs font-bold text-[#747A72] hover:bg-[#F7F7F4] transition cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 onClick={handleConfirmDelete}
-                className="h-10 rounded-xl bg-[#E57373] hover:bg-[#ef5350] px-4 text-xs font-bold text-[#0E0D0B] shadow-sm transition cursor-pointer"
+                className="rounded-xl bg-[#B55B5B] hover:bg-[#9E4747] px-3.5 py-2 text-xs font-bold text-white transition duration-150 cursor-pointer shadow-xs"
               >
                 Remove
               </button>

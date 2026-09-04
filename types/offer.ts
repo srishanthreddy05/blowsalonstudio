@@ -16,11 +16,11 @@ export interface Offer {
   endDate?: string;
 
   // ── Applicability ────────────────────────────────────────────────────────
-  // If both arrays are empty, the offer applies to the whole bill (subtotal).
-  // If either has entries, the offer only discounts matching service/product
-  // line items (by Firestore document ID).
+  // Offers apply ONLY to service sales.
+  // If applicableServiceIds is empty, the offer applies to all services in the bill.
+  // If applicableServiceIds has entries, the offer discounts only matching service IDs.
+  // Retail products NEVER receive offer discounts.
   applicableServiceIds?: string[];
-  applicableProductIds?: string[];
 
   // ── Minimum bill amount ──────────────────────────────────────────────────
   // Offer can only be applied if the bill subtotal (before this offer's

@@ -5,7 +5,6 @@ import { X } from "lucide-react";
 import * as expensesService from "@/services/expenses";
 import { toLocalDateString } from "@/lib/utils/date";
 
-
 interface AddExpenseModalProps {
   onClose: () => void;
   onSuccess: () => void;
@@ -57,31 +56,31 @@ export function AddExpenseModal({ onClose, onSuccess }: AddExpenseModalProps) {
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-in fade-in duration-200"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-in fade-in duration-200"
       onClick={onClose}
     >
       <div
-        className="relative w-full max-w-md rounded-3xl border border-[#2E2B24] bg-[#1C1A16] p-6 shadow-2xl text-[#A89F8C] my-auto animate-in zoom-in-95 duration-200"
+        className="relative w-full max-w-md rounded-3xl border border-[#E0E4DD] bg-[#FFFFFF] p-6 shadow-2xl text-[#292D29] my-auto animate-in zoom-in-95 duration-200"
         onClick={(e) => e.stopPropagation()}
       >
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 text-[#A89F8C] hover:text-[#B8962E] cursor-pointer transition"
+          className="absolute top-4 right-4 text-[#747A72] hover:text-[#2F352F] cursor-pointer transition"
           title="Close Modal (ESC)"
         >
-          <X size={20} />
+          <X size={18} />
         </button>
-        <h2 className="text-xl font-bold text-[#F5F0E8] mb-4">Log Business Expense</h2>
+        <h2 className="font-serif text-lg font-bold text-[#2F352F] mb-4">Log Business Expense</h2>
 
         {error && (
-          <div className="mb-4 text-xs font-semibold text-[#E57373] bg-[#131210] border border-[#2E2B24] rounded-lg p-2.5">
+          <div className="mb-4 text-xs font-semibold text-[#B55B5B] bg-[#FBEBEB] border border-[#FBEBEB] rounded-lg p-2.5">
             {error}
           </div>
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <label className="block">
-            <span className="text-sm font-semibold text-[#A89F8C]">Expense Description</span>
+            <span className="text-xs font-semibold text-[#747A72]">Expense Description</span>
             <input
               required
               autoFocus
@@ -89,29 +88,29 @@ export function AddExpenseModal({ onClose, onSuccess }: AddExpenseModalProps) {
               placeholder="e.g. Electricity bill (May 2026)"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              className="mt-2 h-11 w-full rounded-xl border border-[#2E2B24] bg-[#0E0D0B] px-4 text-sm text-[#F5F0E8] outline-none focus:border-[#B8962E] focus:ring-1 focus:ring-[#B8962E] placeholder-[#6B6358]"
+              className="mt-1.5 h-10 w-full rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] px-3 text-xs text-[#292D29] outline-none focus:border-[#6F776D] focus:ring-1 focus:ring-[#6F776D] placeholder-[#747A72]"
             />
           </label>
 
           <label className="block">
-            <span className="text-sm font-semibold text-[#A89F8C]">Expense Type</span>
+            <span className="text-xs font-semibold text-[#747A72]">Expense Type</span>
             <select
               value={type}
               onChange={(e) => setType(e.target.value as "daily" | "monthly")}
-              className="mt-2 h-11 w-full rounded-xl border border-[#2E2B24] bg-[#0E0D0B] px-4 text-sm text-[#F5F0E8] outline-none focus:border-[#B8962E] focus:ring-1 focus:ring-[#B8962E]"
+              className="mt-1.5 h-10 w-full rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] px-3 text-xs text-[#292D29] outline-none focus:border-[#6F776D] focus:ring-1 focus:ring-[#6F776D]"
             >
-              <option value="daily">Daily — tiffin, fuel, misc</option>
+              <option value="daily">Daily — refreshments, fuel, misc</option>
               <option value="monthly">Monthly — rent, electricity, salaries</option>
             </select>
           </label>
 
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-3 sm:grid-cols-2">
             <label className="block">
-              <span className="text-sm font-semibold text-[#A89F8C]">Category</span>
+              <span className="text-xs font-semibold text-[#747A72]">Category</span>
               <select
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
-                className="mt-2 h-11 w-full rounded-xl border border-[#2E2B24] bg-[#0E0D0B] px-4 text-sm text-[#F5F0E8] outline-none focus:border-[#B8962E] focus:ring-1 focus:ring-[#B8962E]"
+                className="mt-1.5 h-10 w-full rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] px-3 text-xs text-[#292D29] outline-none focus:border-[#6F776D] focus:ring-1 focus:ring-[#6F776D]"
               >
                 <option value="Rent">Shop Rent</option>
                 <option value="Utilities">Utilities (Power/Water)</option>
@@ -125,19 +124,19 @@ export function AddExpenseModal({ onClose, onSuccess }: AddExpenseModalProps) {
             </label>
 
             <label className="block">
-              <span className="text-sm font-semibold text-[#A89F8C]">Date</span>
+              <span className="text-xs font-semibold text-[#747A72]">Date</span>
               <input
                 required
                 type="date"
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
-                className="mt-2 h-11 w-full rounded-xl border border-[#2E2B24] bg-[#0E0D0B] px-4 text-sm text-[#F5F0E8] outline-none focus:border-[#B8962E] focus:ring-1 focus:ring-[#B8962E]"
+                className="mt-1.5 h-10 w-full rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] px-3 text-xs text-[#292D29] outline-none focus:border-[#6F776D] focus:ring-1 focus:ring-[#6F776D]"
               />
             </label>
           </div>
 
           <label className="block">
-            <span className="text-sm font-semibold text-[#A89F8C]">Amount (INR)</span>
+            <span className="text-xs font-semibold text-[#747A72]">Amount (INR)</span>
             <input
               required
               type="number"
@@ -145,22 +144,22 @@ export function AddExpenseModal({ onClose, onSuccess }: AddExpenseModalProps) {
               placeholder="Enter amount..."
               value={amount}
               onChange={(e) => setAmount(e.target.value === "" ? "" : Number(e.target.value))}
-              className="mt-2 h-11 w-full rounded-xl border border-[#2E2B24] bg-[#0E0D0B] px-4 text-sm text-[#F5F0E8] outline-none focus:border-[#B8962E] focus:ring-1 focus:ring-[#B8962E] placeholder-[#6B6358]"
+              className="mt-1.5 h-10 w-full rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] px-3 text-xs text-[#292D29] outline-none focus:border-[#6F776D] focus:ring-1 focus:ring-[#6F776D] placeholder-[#747A72]"
             />
           </label>
 
-          <div className="flex gap-3 justify-end pt-2">
+          <div className="flex gap-2 justify-end pt-2">
             <button
               type="button"
               onClick={onClose}
-              className="h-11 rounded-xl border border-[#2E2B24] bg-[#131210] px-4 text-sm font-semibold text-[#A89F8C] hover:border-[#B8962E] hover:text-[#B8962E] hover:bg-[#1F1A0F] transition cursor-pointer"
+              className="h-9 rounded-xl border border-[#E0E4DD] bg-[#FFFFFF] px-4 text-xs font-semibold text-[#747A72] hover:bg-[#F7F7F4] hover:text-[#2F352F] transition cursor-pointer"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={saving}
-              className="h-11 rounded-xl bg-[#B8962E] px-6 text-sm font-bold text-[#0E0D0B] hover:bg-[#D4A935] shadow-[0_4px_16px_rgba(184,150,46,0.25)] transition disabled:opacity-50 cursor-pointer"
+              className="h-9 rounded-xl bg-[#6F776D] px-5 text-xs font-bold text-[#FFFFFF] hover:bg-[#2F352F] transition disabled:opacity-50 cursor-pointer shadow-xs"
             >
               {saving ? "Logging..." : "Save Log"}
             </button>

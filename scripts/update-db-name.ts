@@ -36,8 +36,8 @@ const db = getFirestore(app);
 async function run() {
   try {
     const docRef = doc(db, "settings", "salon-settings");
-    await setDoc(docRef, { salonName: "Demo Salon" }, { merge: true });
-    console.log("Successfully updated settings in Firestore to 'Demo Salon'!");
+    await setDoc(docRef, { salonName: "THEA SALON" }, { merge: true });
+    console.log("Successfully updated settings in Firestore to 'THEA SALON'!");
     process.exit(0);
   } catch (err) {
     console.error("Failed to update Firestore:", err);

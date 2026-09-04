@@ -8,7 +8,7 @@ import {
   doc,
   writeBatch
 } from 'firebase/firestore';
-import { getInvoicePayments, getInvoicePaymentRatio, getServiceCommission } from '../lib/utils/settlements';
+import { getInvoicePayments, getInvoicePaymentRatio, getInvoiceSalesBreakdown } from '../lib/utils/settlements';
 
 // Load environment variables from .env.local
 const dotenvPath = path.resolve(__dirname, '../.env.local');
@@ -98,9 +98,6 @@ async function runMigration() {
           upi: 0,
           card: 0,
           serviceRevenue: 0,
-          productCost: 0,
-          stylistShare: 0,
-          ownerShare: 0,
           totalMembershipAmount: 0,
           retailProductsRevenue: 0
         };
@@ -111,51 +108,37 @@ async function runMigration() {
       dailyStats[dateKey].upi += payments.upi;
       dailyStats[dateKey].card += payments.card;
 
-      (inv.services || []).forEach((s: any) => {
-        const comm = getServiceCommission(s, inv);
-        dailyStats[dateKey].serviceRevenue += comm.serviceRevenue * ratio;
-        dailyStats[dateKey].productCost += comm.productCost * ratio;
-        dailyStats[dateKey].stylistShare += comm.stylistShare * ratio;
-        dailyStats[dateKey].ownerShare += comm.ownerShare * ratio;
-        if (s.serviceId === "membership_fee") {
-          dailyStats[dateKey].totalMembershipAmount += comm.serviceRevenue * ratio;
-        }
-      });
+      const breakdown = getInvoiceSalesBreakdown(inv);
+      dailyStats[dateKey].serviceRevenue += breakdown.serviceSales * ratio;
+      dailyStats[dateKey].retailProductsRevenue += breakdown.retailSales * ratio;
+      dailyStats[dateKey].totalMembershipAmount += breakdown.membershipSales * ratio;
 
-      // Add retail product sales to owner's share
-      const discountFactor = inv.subtotal > 0 ? (inv.grandTotal / inv.subtotal) : 1;
-      (inv.products || []).forEach((p: any) => {
-        const productBaseAmount = p.amount ?? Math.max((p.price || 0) * (p.quantity || 1) - (p.discount || 0), 0);
-        const amount = productBaseAmount * discountFactor;
-        dailyStats[dateKey].ownerShare += amount * ratio;
-        dailyStats[dateKey].retailProductsRevenue += amount * ratio;
-      });
-
-      // Staff monthly splits
+      // Staff monthly splits (informational)
       const staffInvoiceSummary: Record<string, any> = {};
       (inv.services || []).forEach((s: any) => {
+        if (s.serviceId === 'membership_fee' || s.isSystemService === true) return;
         const staffId = s.staffId || 'unassigned';
+        if (staffId === 'system' || staffId === 'unassigned') return;
         if (!staffInvoiceSummary[staffId]) {
-          staffInvoiceSummary[staffId] = { revenue: 0, servicesCount: 0, productCost: 0 };
+          staffInvoiceSummary[staffId] = { revenue: 0, servicesCount: 0 };
         }
-        const serviceBaseAmount = s.amount ?? Math.max((s.price || 0) - (s.discount || 0), 0);
-        const amount = serviceBaseAmount * discountFactor;
-        const cost = s.usedProductCost || 0;
-        staffInvoiceSummary[staffId].revenue += amount;
+        const serviceAmount = s.amount !== undefined 
+          ? Number(s.amount) || 0 
+          : Math.max((Number(s.price) || 0) - (Number(s.discount) || 0), 0);
+        staffInvoiceSummary[staffId].revenue += serviceAmount;
         staffInvoiceSummary[staffId].servicesCount += 1;
-        staffInvoiceSummary[staffId].productCost += cost;
       });
 
       Object.entries(staffInvoiceSummary).forEach(([staffId, summary]) => {
         const staffMonthKey = `${staffId}_${monthKey}`;
         if (!staffStats[staffMonthKey]) {
-          staffStats[staffMonthKey] = { revenue: 0, servicesCount: 0, visits: 0, productCost: 0 };
+          staffStats[staffMonthKey] = { revenue: 0, servicesCount: 0, visits: 0 };
         }
         staffStats[staffMonthKey].revenue += summary.revenue * ratio;
         staffStats[staffMonthKey].servicesCount += summary.servicesCount;
-        staffStats[staffMonthKey].productCost += summary.productCost * ratio;
-        staffStats[staffMonthKey].visits += 1; // 1 visit per invoice worked on
+        staffStats[staffMonthKey].visits += 1;
       });
+
     });
 
     console.log("Aggregation complete. Writing to stats collection in Firestore...");

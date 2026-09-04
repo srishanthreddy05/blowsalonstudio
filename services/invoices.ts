@@ -19,7 +19,7 @@ import {
 import type { Invoice } from "@/types/invoice";
 import { toTitleCase } from "@/lib/utils/text";
 import { toLocalDateString } from "@/lib/utils/date";
-import { getInvoicePayments, getInvoicePaymentRatio, getServiceCommission } from "@/lib/utils/settlements";
+import { getInvoicePayments, getInvoicePaymentRatio, getInvoiceSalesBreakdown } from "@/lib/utils/settlements";
 import { getSettings } from "./settings";
 
 const COLLECTION = "invoices";
@@ -87,20 +87,24 @@ function getInvoiceDateKeys(invoice: any): { dateKey: string; monthKey: string }
   };
 }
 
-function summarizeStaffServices(services: any[], inv: any): Record<string, { revenue: number; servicesCount: number; productCost: number }> {
-  const summary: Record<string, { revenue: number; servicesCount: number; productCost: number }> = {};
-  const discountFactor = inv && inv.subtotal > 0 ? (inv.grandTotal / inv.subtotal) : 1;
+function summarizeStaffServices(services: any[], inv: any): Record<string, { revenue: number; servicesCount: number }> {
+  const summary: Record<string, { revenue: number; servicesCount: number }> = {};
   services.forEach((s: any) => {
-    const staffId = s.staffId || "unassigned";
-    if (!summary[staffId]) {
-      summary[staffId] = { revenue: 0, servicesCount: 0, productCost: 0 };
+    if (s.serviceId === "membership_fee" || s.isSystemService === true) {
+      return;
     }
-    const serviceBaseAmount = s.amount ?? Math.max((s.price || 0) - (s.discount || 0), 0);
-    const amount = serviceBaseAmount * discountFactor;
-    const cost = s.usedProductCost || 0;
-    summary[staffId].revenue += amount;
+    const staffId = s.staffId || "unassigned";
+    if (staffId === "system" || staffId === "unassigned") {
+      return;
+    }
+    if (!summary[staffId]) {
+      summary[staffId] = { revenue: 0, servicesCount: 0 };
+    }
+    const serviceAmount = s.amount !== undefined 
+      ? Number(s.amount) || 0 
+      : Math.max((Number(s.price) || 0) - (Number(s.discount) || 0), 0);
+    summary[staffId].revenue += serviceAmount;
     summary[staffId].servicesCount += 1;
-    summary[staffId].productCost += cost;
   });
   return summary;
 }
@@ -118,16 +122,12 @@ export function applyStatsAndInventoryDiff(
     upi: number;
     card: number;
     serviceRevenue: number;
-    productCost: number;
-    stylistShare: number;
-    ownerShare: number;
-    totalMembershipAmount: number;
     retailProductsRevenue: number;
+    totalMembershipAmount: number;
   }> = {};
-  const staffChanges: Record<string, { revenue: number; servicesCount: number; visits: number; productCost: number }> = {};
+  const staffChanges: Record<string, { revenue: number; servicesCount: number; visits: number }> = {};
 
   const productQuantityChanges: Record<string, number> = {};
-  const productServingsChanges: Record<string, number> = {};
 
   const oldRatio = oldInv ? getInvoicePaymentRatio(oldInv) : 1;
   const newRatio = newInv ? getInvoicePaymentRatio(newInv) : 1;
@@ -149,52 +149,33 @@ export function applyStatsAndInventoryDiff(
     monthlyChanges[monthKey].card -= oldPayments.card;
 
     if (!dailyChanges[dateKey]) {
-      dailyChanges[dateKey] = { totalRevenue: 0, totalVisits: 0, cash: 0, upi: 0, card: 0, serviceRevenue: 0, productCost: 0, stylistShare: 0, ownerShare: 0, totalMembershipAmount: 0, retailProductsRevenue: 0 };
+      dailyChanges[dateKey] = { totalRevenue: 0, totalVisits: 0, cash: 0, upi: 0, card: 0, serviceRevenue: 0, retailProductsRevenue: 0, totalMembershipAmount: 0 };
     }
     dailyChanges[dateKey].totalRevenue -= oldCollected;
     dailyChanges[dateKey].totalVisits -= 1;
     dailyChanges[dateKey].cash -= oldPayments.cash;
     dailyChanges[dateKey].upi -= oldPayments.upi;
     dailyChanges[dateKey].card -= oldPayments.card;
-    (oldInv.services || []).forEach((s: any) => {
-      const comm = getServiceCommission(s, oldInv);
-      dailyChanges[dateKey].serviceRevenue -= comm.serviceRevenue * oldRatio;
-      dailyChanges[dateKey].productCost -= comm.productCost * oldRatio;
-      dailyChanges[dateKey].stylistShare -= comm.stylistShare * oldRatio;
-      dailyChanges[dateKey].ownerShare -= comm.ownerShare * oldRatio;
-      if (s.serviceId === "membership_fee") {
-        dailyChanges[dateKey].totalMembershipAmount -= comm.serviceRevenue * oldRatio;
-      }
-    });
 
-    const oldDiscountFactor = oldInv.subtotal > 0 ? (oldInv.grandTotal / oldInv.subtotal) : 1;
-    (oldInv.products || []).forEach((p: any) => {
-      const productBaseAmount = p.amount ?? Math.max((p.price || 0) * (p.quantity || 1) - (p.discount || 0), 0);
-      const amount = productBaseAmount * oldDiscountFactor;
-      dailyChanges[dateKey].ownerShare -= amount * oldRatio;
-      dailyChanges[dateKey].retailProductsRevenue -= amount * oldRatio;
-    });
+    const oldBreakdown = getInvoiceSalesBreakdown(oldInv);
+    dailyChanges[dateKey].serviceRevenue -= oldBreakdown.serviceSales * oldRatio;
+    dailyChanges[dateKey].retailProductsRevenue -= oldBreakdown.retailSales * oldRatio;
+    dailyChanges[dateKey].totalMembershipAmount -= oldBreakdown.membershipSales * oldRatio;
 
     const staffSummary = summarizeStaffServices(oldInv.services || [], oldInv);
     Object.entries(staffSummary).forEach(([staffId, summary]) => {
       const staffMonthKey = `${staffId}_${monthKey}`;
       if (!staffChanges[staffMonthKey]) {
-        staffChanges[staffMonthKey] = { revenue: 0, servicesCount: 0, visits: 0, productCost: 0 };
+        staffChanges[staffMonthKey] = { revenue: 0, servicesCount: 0, visits: 0 };
       }
       staffChanges[staffMonthKey].revenue -= summary.revenue * oldRatio;
       staffChanges[staffMonthKey].servicesCount -= summary.servicesCount;
       staffChanges[staffMonthKey].visits -= 1;
-      staffChanges[staffMonthKey].productCost -= summary.productCost * oldRatio;
     });
 
     (oldInv.products || []).forEach((p: any) => {
       if (p.productId) {
         productQuantityChanges[p.productId] = (productQuantityChanges[p.productId] || 0) + (p.quantity || 1);
-      }
-    });
-    (oldInv.services || []).forEach((s: any) => {
-      if (s.usedProductId) {
-        productServingsChanges[s.usedProductId] = (productServingsChanges[s.usedProductId] || 0) + 1;
       }
     });
   }
@@ -216,52 +197,33 @@ export function applyStatsAndInventoryDiff(
     monthlyChanges[monthKey].card += newPayments.card;
 
     if (!dailyChanges[dateKey]) {
-      dailyChanges[dateKey] = { totalRevenue: 0, totalVisits: 0, cash: 0, upi: 0, card: 0, serviceRevenue: 0, productCost: 0, stylistShare: 0, ownerShare: 0, totalMembershipAmount: 0, retailProductsRevenue: 0 };
+      dailyChanges[dateKey] = { totalRevenue: 0, totalVisits: 0, cash: 0, upi: 0, card: 0, serviceRevenue: 0, retailProductsRevenue: 0, totalMembershipAmount: 0 };
     }
     dailyChanges[dateKey].totalRevenue += newCollected;
     dailyChanges[dateKey].totalVisits += 1;
     dailyChanges[dateKey].cash += newPayments.cash;
     dailyChanges[dateKey].upi += newPayments.upi;
     dailyChanges[dateKey].card += newPayments.card;
-    (newInv.services || []).forEach((s: any) => {
-      const comm = getServiceCommission(s, newInv);
-      dailyChanges[dateKey].serviceRevenue += comm.serviceRevenue * newRatio;
-      dailyChanges[dateKey].productCost += comm.productCost * newRatio;
-      dailyChanges[dateKey].stylistShare += comm.stylistShare * newRatio;
-      dailyChanges[dateKey].ownerShare += comm.ownerShare * newRatio;
-      if (s.serviceId === "membership_fee") {
-        dailyChanges[dateKey].totalMembershipAmount += comm.serviceRevenue * newRatio;
-      }
-    });
 
-    const newDiscountFactor = newInv.subtotal > 0 ? (newInv.grandTotal / newInv.subtotal) : 1;
-    (newInv.products || []).forEach((p: any) => {
-      const productBaseAmount = p.amount ?? Math.max((p.price || 0) * (p.quantity || 1) - (p.discount || 0), 0);
-      const amount = productBaseAmount * newDiscountFactor;
-      dailyChanges[dateKey].ownerShare += amount * newRatio;
-      dailyChanges[dateKey].retailProductsRevenue += amount * newRatio;
-    });
+    const newBreakdown = getInvoiceSalesBreakdown(newInv);
+    dailyChanges[dateKey].serviceRevenue += newBreakdown.serviceSales * newRatio;
+    dailyChanges[dateKey].retailProductsRevenue += newBreakdown.retailSales * newRatio;
+    dailyChanges[dateKey].totalMembershipAmount += newBreakdown.membershipSales * newRatio;
 
     const staffSummary = summarizeStaffServices(newInv.services || [], newInv);
     Object.entries(staffSummary).forEach(([staffId, summary]) => {
       const staffMonthKey = `${staffId}_${monthKey}`;
       if (!staffChanges[staffMonthKey]) {
-        staffChanges[staffMonthKey] = { revenue: 0, servicesCount: 0, visits: 0, productCost: 0 };
+        staffChanges[staffMonthKey] = { revenue: 0, servicesCount: 0, visits: 0 };
       }
       staffChanges[staffMonthKey].revenue += summary.revenue * newRatio;
       staffChanges[staffMonthKey].servicesCount += summary.servicesCount;
       staffChanges[staffMonthKey].visits += 1;
-      staffChanges[staffMonthKey].productCost += summary.productCost * newRatio;
     });
 
     (newInv.products || []).forEach((p: any) => {
       if (p.productId) {
         productQuantityChanges[p.productId] = (productQuantityChanges[p.productId] || 0) - (p.quantity || 1);
-      }
-    });
-    (newInv.services || []).forEach((s: any) => {
-      if (s.usedProductId) {
-        productServingsChanges[s.usedProductId] = (productServingsChanges[s.usedProductId] || 0) - 1;
       }
     });
   }
@@ -287,9 +249,7 @@ export function applyStatsAndInventoryDiff(
       change.upi === 0 &&
       change.card === 0 &&
       change.serviceRevenue === 0 &&
-      change.productCost === 0 &&
-      change.stylistShare === 0 &&
-      change.ownerShare === 0 &&
+      change.retailProductsRevenue === 0 &&
       change.totalMembershipAmount === 0;
     if (isZero) return;
 
@@ -302,45 +262,28 @@ export function applyStatsAndInventoryDiff(
       upi: increment(change.upi),
       card: increment(change.card),
       serviceRevenue: increment(change.serviceRevenue),
-      productCost: increment(change.productCost),
-      stylistShare: increment(change.stylistShare),
-      ownerShare: increment(change.ownerShare),
+      retailProductsRevenue: increment(change.retailProductsRevenue),
       totalMembershipAmount: increment(change.totalMembershipAmount),
-      retailProductsRevenue: increment(change.retailProductsRevenue)
     }, { merge: true });
   });
 
   Object.entries(staffChanges).forEach(([staffMonthKey, change]) => {
-    if (change.revenue === 0 && change.servicesCount === 0 && change.visits === 0 && change.productCost === 0) return;
+    if (change.revenue === 0 && change.servicesCount === 0 && change.visits === 0) return;
     const [staffId, monthKey] = staffMonthKey.split("_");
     const ref = doc(db, "stats", `staff_${staffId}_${monthKey}`);
     batch.set(ref, {
       revenue: increment(change.revenue),
       servicesCount: increment(change.servicesCount),
       visits: increment(change.visits),
-      productCost: increment(change.productCost)
     }, { merge: true });
   });
 
-  const allProductIds = new Set([
-    ...Object.keys(productQuantityChanges),
-    ...Object.keys(productServingsChanges)
-  ]);
-
-  allProductIds.forEach((prodId) => {
-    const qtyChange = productQuantityChanges[prodId] || 0;
-    const srvChange = productServingsChanges[prodId] || 0;
-    if (qtyChange === 0 && srvChange === 0) return;
-
+  Object.entries(productQuantityChanges).forEach(([prodId, qtyChange]) => {
+    if (qtyChange === 0) return;
     const ref = doc(db, "products", prodId);
-    const updateFields: any = {};
-    if (qtyChange !== 0) {
-      updateFields.quantity = increment(qtyChange);
-    }
-    if (srvChange !== 0) {
-      updateFields.noOfServings = increment(srvChange);
-    }
-    batch.update(ref, updateFields);
+    batch.update(ref, {
+      quantity: increment(qtyChange),
+    });
   });
 }
 

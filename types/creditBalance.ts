@@ -18,8 +18,8 @@ export interface CreditBalance {
   originalServiceId: string;
   originalServiceName: string;
   originalServiceAmount: number;
-  originalServiceCommission: number;
   
+
   // Outstanding Debt Ledgers
   creditAmount: number;
   remainingAmount: number;

@@ -139,13 +139,26 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         setServices(cached);
         return cached;
       }
-      const q = query(
-        collection(db, "services"),
-        where("isActive", "==", true),
-        orderBy("name", "asc")
-      );
-      const snap = await getDocs(q);
-      const result = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Service));
+      let result: Service[] = [];
+      try {
+        const q = query(
+          collection(db, "services"),
+          where("isActive", "==", true),
+          orderBy("name", "asc")
+        );
+        const snap = await getDocs(q);
+        result = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Service));
+      } catch {
+        const fallbackQuery = query(
+          collection(db, "services"),
+          where("isActive", "==", true)
+        );
+        const snap = await getDocs(fallbackQuery);
+        result = snap.docs
+          .map((d) => ({ id: d.id, ...d.data() } as Service))
+          .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+      }
+
       writeCache(CACHE_KEYS.services, result);
       setServices(result);
       return result;
@@ -172,13 +185,26 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         setProducts(cached);
         return cached;
       }
-      const q = query(
-        collection(db, "products"),
-        where("isActive", "==", true),
-        orderBy("name", "asc")
-      );
-      const snap = await getDocs(q);
-      const result = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Product));
+      let result: Product[] = [];
+      try {
+        const q = query(
+          collection(db, "products"),
+          where("isActive", "==", true),
+          orderBy("name", "asc")
+        );
+        const snap = await getDocs(q);
+        result = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Product));
+      } catch {
+        const fallbackQuery = query(
+          collection(db, "products"),
+          where("isActive", "==", true)
+        );
+        const snap = await getDocs(fallbackQuery);
+        result = snap.docs
+          .map((d) => ({ id: d.id, ...d.data() } as Product))
+          .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+      }
+
       writeCache(CACHE_KEYS.products, result);
       setProducts(result);
       return result;

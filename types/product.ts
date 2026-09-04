@@ -2,14 +2,11 @@ export interface Product {
   id?: string;
   name: string;
   price: number;
-  quantity?: number | null; // Stock quantity
-  createdAt?: string;
-  type?: "retail" | "service";
-  amount?: number | null;
-  noOfServings?: number | null;
-  costPerServing?: number | null;
+  quantity?: number | null; // Retail stock quantity
+  lowStockThreshold?: number; // Minimum reorder level
+  description?: string;
   isActive?: boolean;
-  brand?: string;
-  category?: string;
+  createdAt?: string;
 }
+
 

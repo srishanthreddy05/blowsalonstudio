@@ -50,17 +50,17 @@ export function ActionButtons({
   ] as const;
 
   return (
-    <section className="rounded-2xl border border-[#2E2B24] bg-[#1C1A16] p-4 shadow-md text-[#A89F8C]">
-      <div className="grid gap-3">
+    <section className="rounded-2xl border border-[#E0E4DD] bg-[#FFFFFF] p-4 shadow-xs text-[#292D29]">
+      <div className="grid gap-2.5">
         {actions.map((action) => {
           const Icon = action.icon;
           const isPrimary = action.tone === "primary";
           const className =
             action.tone === "primary"
-              ? "border-[#B8962E] bg-[#B8962E] text-[#0E0D0B] hover:bg-[#D4A935] shadow-[0_4px_16px_rgba(184,150,46,0.3)]"
+              ? "border-[#6F776D] bg-[#6F776D] text-[#FFFFFF] hover:bg-[#2F352F] shadow-xs"
               : action.tone === "success"
-                ? "border-[#2E2B24] bg-[#1C1A16] text-[#A89F8C] hover:border-[#B8962E] hover:text-[#B8962E]"
-                : "border-[#2E2B24] bg-[#131210] text-[#A89F8C] hover:border-[#B8962E] hover:text-[#B8962E] hover:bg-[#1F1A0F]";
+                ? "border-[#CCD2C8] bg-[#E8ECE5] text-[#2F352F] hover:bg-[#5F7A62] hover:text-[#FFFFFF] hover:border-[#5F7A62]"
+                : "border-[#E0E4DD] bg-[#F7F7F4] text-[#747A72] hover:border-[#6F776D] hover:text-[#2F352F] hover:bg-[#E8ECE5]";
 
           return (
             <button
@@ -68,9 +68,9 @@ export function ActionButtons({
               disabled={isPrimary && disabled}
               type="button"
               onClick={() => handleActionClick(action.label)}
-              className={`flex h-12 items-center justify-center gap-2 rounded-xl border text-sm font-bold transition hover:-translate-y-0.5 disabled:opacity-50 ${className}`}
+              className={`flex h-11 items-center justify-center gap-2 rounded-xl border text-xs font-bold uppercase tracking-wider transition hover:-translate-y-0.5 cursor-pointer disabled:opacity-50 disabled:pointer-events-none ${className}`}
             >
-              <Icon size={18} />
+              <Icon size={16} />
               {action.label}
             </button>
           );
@@ -79,4 +79,3 @@ export function ActionButtons({
     </section>
   );
 }
-

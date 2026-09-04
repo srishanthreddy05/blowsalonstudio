@@ -12,23 +12,25 @@ interface NavbarProps {
 export function Navbar({ onToggleMobileSidebar }: NavbarProps) {
   return (
     <header
-      className="sticky top-0 z-20 border-b shadow-md"
-      style={{ backgroundColor: "#000000", borderColor: "#2E2B24", height: "80px" }}
+      className="sticky top-0 z-20 border-b border-[#E0E4DD] bg-[#FFFFFF]/90 backdrop-blur-md shadow-2xs"
+      style={{ height: "72px" }}
     >
       {/* Brand Name — centered */}
       <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-        <span className="text-sm sm:text-base md:text-xl font-bold tracking-widest text-[#F5F0E8] uppercase hidden sm:block">
-          Demo Salon ERP
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-sm sm:text-base md:text-lg font-serif font-bold tracking-[0.2em] text-[#2F352F] uppercase hidden sm:block">
+            THEA SALON
+          </span>
+        </div>
       </div>
 
-      {/* Overlay grid on top of banner */}
+      {/* Grid container */}
       <div className="relative h-full grid grid-cols-[1fr_auto_1fr] items-center gap-4 px-4 sm:px-6 lg:px-8">
         {/* Left: Mobile menu toggle */}
         <div className="flex items-center gap-3 lg:hidden">
           <button
             onClick={onToggleMobileSidebar}
-            className="grid size-11 place-items-center rounded-xl border border-[#2E2B24] text-[#A89F8C] transition hover:bg-[#1C1A16] hover:text-[#F5F0E8]"
+            className="grid size-10 place-items-center rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] text-[#747A72] transition hover:bg-[#E8ECE5] hover:text-[#2F352F] hover:border-[#6F776D]"
             aria-label="Open navigation menu"
           >
             <Menu size={18} />
@@ -36,17 +38,16 @@ export function Navbar({ onToggleMobileSidebar }: NavbarProps) {
         </div>
         <div className="hidden lg:block" />
 
-        {/* Center: empty — banner is the branding */}
+        {/* Center */}
         <div />
 
-        {/* Right: Notification Bell & Trackers */}
-        <div className="flex justify-end gap-3">
+        {/* Right: Trackers & Notifications */}
+        <div className="flex justify-end items-center gap-2.5">
           <AdvanceTracker />
           <CreditTracker />
           <DashboardNotifications />
         </div>
       </div>
     </header>
-
   );
 }

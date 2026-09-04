@@ -8,7 +8,7 @@ import { SummaryCard } from "@/components/salon-dashboard/summary-card";
 import type { ProductRow, ServiceRow } from "@/components/salon-dashboard/types";
 import { formatCurrency } from "@/components/salon-dashboard/types";
 import { ClearableNumberInput } from "../ui/ClearableNumberInput";
-import { X, UserX, AlertCircle, Wallet } from "lucide-react";
+import { X, UserX, AlertCircle, Wallet, Search } from "lucide-react";
 import { Timestamp } from "firebase/firestore";
 
 import * as customerService from "@/services/customers";
@@ -19,16 +19,12 @@ import * as advanceBalancesService from "@/services/advanceBalances";
 import type { CreditBalance } from "@/types/creditBalance";
 import { useAppData } from "@/context/AppDataContext";
 import { toLocalDateString } from "@/lib/utils/date";
-import { getServiceCommission } from "@/lib/utils/settlements";
 
 import type { Customer } from "@/types/customer";
 import type { Service } from "@/types/service";
 import type { Product } from "@/types/product";
 import type { Staff } from "@/types/staff";
 import type { Offer } from "@/types/offer";
-
-const GUEST_PHONE = "0000000000";
-const GUEST_NAME = "Guest";
 
 interface BillingTerminalProps {
   onClose?: () => void;
@@ -55,6 +51,69 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
   const [customerMobile, setCustomerMobile] = useState("");
   const [clientStatus, setClientStatus] = useState<"regular" | "membership" | "new" | null>(null);
   const [foundCustomerId, setFoundCustomerId] = useState<string | null>(null);
+
+  // Live Customer Search
+  const [customerSearchQuery, setCustomerSearchQuery] = useState("");
+  const [allCustomers, setAllCustomers] = useState<Customer[]>([]);
+  const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
+  const customerDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Load all customers for instant local search
+  useEffect(() => {
+    let active = true;
+    const loadCustomers = async () => {
+      try {
+        const list = await customerService.getAll();
+        if (active) {
+          setAllCustomers(list);
+        }
+      } catch (err) {
+        console.error("Failed to load customers list for billing search:", err);
+      }
+    };
+    loadCustomers();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // Filter customers live by name (case-insensitive) or phone (partial digits)
+  const filteredCustomers = useMemo(() => {
+    const q = customerSearchQuery.trim().toLowerCase();
+    if (!q) return [];
+    return allCustomers
+      .filter((c) => {
+        const nameMatch = (c.name || "").toLowerCase().includes(q);
+        const phoneMatch = (c.phone || "").toLowerCase().includes(q);
+        return nameMatch || phoneMatch;
+      })
+      .slice(0, 10);
+  }, [customerSearchQuery, allCustomers]);
+
+  // Close dropdown on click outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        customerDropdownRef.current &&
+        !customerDropdownRef.current.contains(e.target as Node)
+      ) {
+        setShowCustomerDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
+
+  const handleSelectCustomer = (customer: Customer) => {
+    setCustomerName(customer.name);
+    setCustomerMobile(customer.phone);
+    setClientStatus((customer.customerType as "regular" | "membership") || "regular");
+    setFoundCustomerId(customer.id || null);
+    setCustomerSearchQuery("");
+    setShowCustomerDropdown(false);
+  };
 
   const [invoiceNumberDisplay, setInvoiceNumberDisplay] = useState("Auto-assigned on save");
 
@@ -335,42 +394,34 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
         if (currentType !== offer.customerType) return false;
       }
 
-      // Minimum bill amount check: if the offer is scoped, check against the subtotal of applicable items.
-      // Otherwise, check against the entire subtotal.
-      if (offer.minBillAmount) {
-        const hasServiceScope = !!offer.applicableServiceIds?.length;
-        const hasProductScope = !!offer.applicableProductIds?.length;
-        const isScoped = hasServiceScope || hasProductScope;
-
-        let eligibleSubtotal = baseSubtotal;
-        if (isScoped) {
-          eligibleSubtotal = 0;
-          if (hasServiceScope) {
-            eligibleSubtotal += services.reduce((sum, row) => {
-              const matched = servicesList.find((s) => s.name === row.service);
-              if (matched?.id && offer.applicableServiceIds!.includes(matched.id)) {
-                return sum + Math.max(Number(row.price) || 0, 0);
-              }
-              return sum;
-            }, 0);
+      // Eligible service amount check: offers apply ONLY to services
+      const hasServiceScope = !!offer.applicableServiceIds?.length;
+      let eligibleServiceSubtotal = 0;
+      if (hasServiceScope) {
+        eligibleServiceSubtotal = services.reduce((sum, row) => {
+          const matched = servicesList.find((s) => s.name === row.service);
+          if (matched?.id && offer.applicableServiceIds!.includes(matched.id)) {
+            return sum + Math.max(Number(row.price) || 0, 0);
           }
-          if (hasProductScope) {
-            eligibleSubtotal += products.reduce((sum, row) => {
-              const matched = productsList.find((p) => p.id === row.productId || p.name === row.product);
-              if (matched?.id && offer.applicableProductIds!.includes(matched.id)) {
-                return sum + Math.max((Number(row.price) || 0) * (Number(row.quantity) || 1), 0);
-              }
-              return sum;
-            }, 0);
-          }
-        }
+          return sum;
+        }, 0);
+      } else {
+        eligibleServiceSubtotal = services.reduce((sum, row) => {
+          return sum + Math.max(Number(row.price) || 0, 0);
+        }, 0);
+      }
 
-        if (eligibleSubtotal < offer.minBillAmount) return false;
+      // If bill has no eligible services, offer cannot apply
+      if (eligibleServiceSubtotal <= 0) return false;
+
+      // Minimum bill amount check: evaluated strictly against eligible SERVICE amount
+      if (offer.minBillAmount && offer.minBillAmount > 0) {
+        if (eligibleServiceSubtotal < offer.minBillAmount) return false;
       }
 
       return true;
     });
-  }, [offersList, dateString, baseSubtotal, services, products, servicesList, productsList]);
+  }, [offersList, dateString, clientStatus, services, servicesList]);
 
   // If the selected offer becomes ineligible, clear it
   useEffect(() => {
@@ -397,67 +448,71 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
     const serviceTotal = services.reduce((sum, s) => sum + Math.max(Number(s.price) || 0, 0), 0);
     const productTotal = products.reduce((sum, p) => sum + Math.max((Number(p.price) || 0) * (Number(p.quantity) || 1), 0), 0);
     
-    // billDiscount applies ONLY to serviceTotal
-    const discountedServiceTotal = Math.max(serviceTotal - billDiscount, 0);
-    const subtotal = discountedServiceTotal + productTotal;
+    // Line discounts on services and products
+    const serviceLineDiscount = services.reduce((sum, s) => sum + (Number(s.discount) || 0), 0);
+    const productLineDiscount = products.reduce((sum, p) => sum + (Number(p.discount) || 0), 0);
+    const lineDiscount = serviceLineDiscount + productLineDiscount;
 
-    const lineDiscount =
-      services.reduce((sum, s) => sum + (Number(s.discount) || 0), 0) +
-      products.reduce((sum, p) => sum + (Number(p.discount) || 0), 0);
-
-    // Compute offer discount
+    // Determine eligible service amount for the selected offer
+    let eligibleServiceAmount = 0;
     let offerDiscount = 0;
+
     if (selectedOffer) {
       const hasServiceScope = !!selectedOffer.applicableServiceIds?.length;
-      const hasProductScope = !!selectedOffer.applicableProductIds?.length;
-      const isScoped = hasServiceScope || hasProductScope;
-
-      let offerBase = subtotal;
-      if (isScoped) {
-        offerBase = 0;
-        if (hasServiceScope) {
-          offerBase += services.reduce((sum, row) => {
-            const matched = servicesList.find((s) => s.name === row.service);
-            if (matched?.id && selectedOffer.applicableServiceIds!.includes(matched.id)) {
-              return sum + Math.max(Number(row.price) || 0, 0);
-            }
-            return sum;
-          }, 0);
-        }
-        if (hasProductScope) {
-          offerBase += products.reduce((sum, row) => {
-            const matched = productsList.find((p) => p.id === row.productId || p.name === row.product);
-            if (matched?.id && selectedOffer.applicableProductIds!.includes(matched.id)) {
-              return sum + Math.max((Number(row.price) || 0) * (Number(row.quantity) || 1), 0);
-            }
-            return sum;
-          }, 0);
-        }
+      if (hasServiceScope) {
+        eligibleServiceAmount = services.reduce((sum, row) => {
+          const matched = servicesList.find((s) => s.name === row.service);
+          if (matched?.id && selectedOffer.applicableServiceIds!.includes(matched.id)) {
+            return sum + Math.max(Number(row.price) || 0, 0);
+          }
+          return sum;
+        }, 0);
+      } else {
+        eligibleServiceAmount = serviceTotal;
       }
 
-      if (selectedOffer.discountType === "percentage") {
-        offerDiscount = (offerBase * selectedOffer.discountValue) / 100;
-      } else {
-        offerDiscount = Math.min(selectedOffer.discountValue, offerBase);
+      if (eligibleServiceAmount > 0) {
+        if (selectedOffer.discountType === "percentage") {
+          offerDiscount = Math.min(
+            eligibleServiceAmount,
+            Math.round(((eligibleServiceAmount * selectedOffer.discountValue) / 100) * 100) / 100
+          );
+        } else {
+          offerDiscount = Math.min(selectedOffer.discountValue, eligibleServiceAmount);
+        }
       }
     }
 
-    const totalDiscount = lineDiscount + offerDiscount;
-    const preTaxTotal = Math.max(subtotal - totalDiscount, 0);
+    // billDiscount applies ONLY to services
+    const totalServiceDiscounts = billDiscount + serviceLineDiscount + offerDiscount;
+    const discountedServiceTotal = Math.max(0, serviceTotal - totalServiceDiscounts);
+    
+    // Subtotal before discounts
+    const subtotal = serviceTotal + productTotal;
+
+    // Total discount applied across the bill
+    const totalDiscount = billDiscount + lineDiscount + offerDiscount;
+
+    // Pre-tax total: discounted services + full retail product total (never discounted by offer)
+    const discountedProductTotal = Math.max(0, productTotal - productLineDiscount);
+    const preTaxTotal = discountedServiceTotal + discountedProductTotal;
+    
     const gstAmount = Math.round(((preTaxTotal * (settings?.taxRate ?? 0)) / 100) * 100) / 100;
     const grandTotal = preTaxTotal + gstAmount;
+
     return {
       serviceTotal,
       productTotal,
       subtotal,
-      totalDiscount: totalDiscount + billDiscount,
-      billDiscount: billDiscount,
-      lineDiscount: lineDiscount,
+      totalDiscount,
+      billDiscount,
+      lineDiscount,
       offerDiscount,
+      eligibleServiceAmount,
       grandTotal,
       gst: gstAmount,
     };
-  }, [services, products, selectedOffer, servicesList, productsList, billDiscount, settings]);
+  }, [services, products, selectedOffer, servicesList, billDiscount, settings]);
 
   // Cap bill discount if serviceTotal decreases below it
   useEffect(() => {
@@ -553,10 +608,19 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
   }, [onClose, services, products, customerName, customerMobile, cashAmount, upiAmount, cardAmount, selectedOfferId]);
 
   const handleSaveBill = async () => {
-    if (!customerName.trim() || !customerMobile.trim()) {
+    const trimmedName = customerName.trim();
+    const trimmedMobile = customerMobile.trim();
+
+    if (!trimmedName || !trimmedMobile) {
       setMessage({ type: "error", text: "Please enter customer name and mobile number." });
       return;
     }
+
+    if (trimmedMobile.length < 10) {
+      setMessage({ type: "error", text: "Please enter a valid 10-digit mobile number." });
+      return;
+    }
+
     if (services.length === 0 && products.length === 0) {
       setMessage({ type: "error", text: "Please add at least one service or product." });
       return;
@@ -568,37 +632,24 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
     try {
       const isOnline = typeof navigator !== "undefined" ? navigator.onLine : true;
 
-      // Step 1: Resolve or create customer
+      // Step 1: Resolve or create customer (real customer only)
       let customerId = foundCustomerId;
       let resolvedCustomerType: "regular" | "membership" | "new" = 
         clientStatus ?? "new";
 
-      const isGuestPhone = customerMobile.trim() === GUEST_PHONE;
-      const isGuestName = customerName.trim() === GUEST_NAME || 
-        customerName.trim() === "";
-
-      if (isGuestPhone || isGuestName) {
-        // Any combination where phone or name is guest
-        // always resolves to the single shared Guest record
-        const existingGuest = await customerService.getByPhone(GUEST_PHONE);
-        if (existingGuest && existingGuest.id) {
-          customerId = existingGuest.id;
+      if (!customerId) {
+        const existing = await customerService.getByPhone(trimmedMobile);
+        if (existing && existing.id) {
+          customerId = existing.id;
+          resolvedCustomerType = existing.customerType || "regular";
         } else {
           customerId = await customerService.create({
-            name: GUEST_NAME,
-            phone: GUEST_PHONE,
+            name: trimmedName,
+            phone: trimmedMobile,
             customerType: "regular",
           });
+          resolvedCustomerType = "regular";
         }
-        resolvedCustomerType = "regular";
-      } else if (!customerId) {
-        // Real customer — phone given, not found in DB yet
-        customerId = await customerService.create({
-          name: customerName.trim(),
-          phone: customerMobile.trim(),
-          customerType: "regular",
-        });
-        resolvedCustomerType = "regular";
       }
 
       if (!customerId) {
@@ -684,20 +735,14 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
         .filter((s) => !s.isCreditSettle)
         .reduce((sum, s) => sum + Math.max((Number(s.price) || 0) - (Number(s.discount) || 0), 0), 0);
       
+      const totalServiceBillDiscount = billDiscount + totals.offerDiscount;
       const serviceBillDiscountFactor = rawNonCreditServiceTotal > 0 
-        ? Math.max(rawNonCreditServiceTotal - billDiscount, 0) / rawNonCreditServiceTotal 
+        ? Math.max(rawNonCreditServiceTotal - totalServiceBillDiscount, 0) / rawNonCreditServiceTotal 
         : 1;
 
       const enrichedServices = services.map((row: any) => {
         const matchedService = servicesList.find((s) => s.name === row.service);
         const matchedStaff = staffContextData.find((s) => s.name === row.staff);
-        let usedProductCost = 0;
-        if (row.usedProductId) {
-          const matchedProduct = productsList.find((p) => p.id === row.usedProductId);
-          if (matchedProduct && typeof matchedProduct.costPerServing === "number") {
-            usedProductCost = matchedProduct.costPerServing;
-          }
-        }
         const serviceBaseAmount = Math.max((Number(row.price) || 0) - (Number(row.discount) || 0), 0);
         const serviceAmount = row.isCreditSettle
           ? serviceBaseAmount
@@ -709,27 +754,7 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
           ? (row.originalStaffRole || (row.staff === "System" ? "Owner" : (matchedStaff?.role || "Stylist")))
           : (row.staff === "System" ? "Owner" : (matchedStaff?.role || "Stylist"));
           
-        const commissionRate = matchedStaff ? (matchedStaff.commissionRate ?? 50) : 50;
-        const isOwner = matchedStaff ? (matchedStaff.isOwner === true) : (row.staff === "System" || staffRole === "Owner");
         const isSystemService = matchedService ? (matchedService.isSystemService === true || matchedService.id === "membership_fee") : (row.service === "Membership Fee");
-
-        const commissionResult = getServiceCommission(
-          {
-            price: Number(row.price) || 0,
-            discount: Number(row.discount) || 0,
-            amount: serviceAmount,
-            usedProductCost,
-            commissionRate,
-            isOwner,
-            isSystemService,
-            isCreditSettle: row.isCreditSettle || false,
-            serviceId: matchedService?.id ?? "",
-          },
-          null
-        );
-
-        const stylistShare = commissionResult.stylistShare;
-        const ownerShare = commissionResult.ownerShare;
 
         return {
           serviceId: matchedService?.id ?? "",
@@ -739,14 +764,7 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
           price: Number(row.price) || 0,
           discount: Number(row.discount) || 0,
           amount: serviceAmount,
-          usedProductId: row.usedProductId ?? null,
-          usedProductName: row.usedProductName ?? null,
-          usedProductCost,
           staffRole,
-          stylistShare,
-          ownerShare,
-          commissionRate,
-          isOwner,
           isSystemService,
           isCreditSettle: row.isCreditSettle || false,
           creditBalanceId: row.creditBalanceId ?? null,
@@ -757,6 +775,7 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
           collectedBy: row.isCreditSettle ? "System" : null,
         };
       });
+
 
       const enrichedProducts = products.map((row: any) => {
         return {
@@ -922,7 +941,6 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
                 originalServiceId: s.serviceId || "",
                 originalServiceName: s.serviceName || "",
                 originalServiceAmount: serviceFinalAmount,
-                originalServiceCommission: s.stylistShare,
                 creditAmount: roundedServiceCredit,
                 remainingAmount: roundedServiceCredit,
                 collectionStatus: "pending",
@@ -957,7 +975,6 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
                 originalServiceId: p.productId || "",
                 originalServiceName: p.productName || "",
                 originalServiceAmount: productFinalAmount,
-                originalServiceCommission: 0,
                 creditAmount: roundedProductCredit,
                 remainingAmount: roundedProductCredit,
                 collectionStatus: "pending",
@@ -1092,7 +1109,7 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
       })
       .join("\n");
 
-    const greeting = `Hello ${customerName},\n\nThank you for choosing Demo Salon ✨\n\n`;
+    const greeting = `Hello ${customerName},\n\nThank you for choosing THEA SALON ✨\n\n`;
 
     let itemsText = "";
     if (formattedServices) {
@@ -1129,7 +1146,7 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
     const closing =
       `Invoice No: ${invoiceNumberDisplay}\n` +
       `We look forward to serving you again.\n\n` +
-      `Demo Salon`;
+      `THEA SALON`;
 
     const msg = `${greeting}${itemsText}${pricingText}${closing}`;
 
@@ -1144,30 +1161,18 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
     category: s.category || "General",
   }));
 
-  const mappedProductsList = productsList
-    .filter((p) => !p.type || p.type === "retail")
-    .map((p) => ({
-      id: p.id,
-      name: p.name,
-      price: p.price,
-    }));
-
-  const serviceProductOptions = useMemo(() => {
-    return productsList
-      .filter((p) => p.type === "service")
-      .map((p) => ({
-        id: p.id || "",
-        name: p.name,
-        noOfServings: p.noOfServings || 0,
-      }));
-  }, [productsList]);
+  const mappedProductsList = productsList.map((p) => ({
+    id: p.id,
+    name: p.name,
+    price: p.price,
+  }));
 
   const staffOptions = staffList.map((s) => s.name);
 
   if (loading || loadingInvoice) {
     return (
       <div className="flex h-[40vh] items-center justify-center">
-        <div className="size-10 animate-spin rounded-full border-4 border-black border-t-transparent" />
+        <div className="size-9 animate-spin rounded-full border-3 border-[#6F776D] border-t-transparent" />
       </div>
     );
   }
@@ -1176,7 +1181,7 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
     <>
       <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-[#F5F0E8]">
+          <h1 className="text-2xl sm:text-3xl font-serif font-bold tracking-tight text-[#2F352F]">
             {editInvoiceId ? `Edit Invoice (${invoiceNumberDisplay})` : "New Billing"}
           </h1>
         </div>
@@ -1184,7 +1189,7 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
           <button
             type="button"
             onClick={handleClose}
-            className="rounded-xl border border-[#2E2B24] bg-[#131210] p-2.5 text-[#A89F8C] hover:text-[#B8962E] hover:border-[#B8962E] hover:-translate-y-0.5 transition shadow-sm cursor-pointer"
+            className="rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] p-2.5 text-[#747A72] hover:text-[#2F352F] hover:border-[#6F776D] hover:bg-[#E8ECE5] transition shadow-xs cursor-pointer"
             title="Close Terminal (ESC)"
           >
             <X size={20} />
@@ -1195,8 +1200,8 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
       {message && (
         <div
           className={`mb-5 rounded-2xl border p-4 text-sm max-w-4xl font-medium ${message.type === "success"
-            ? "border-[#4A3A10] bg-[#2A2310] text-[#D4A935]"
-            : "border-red-900 bg-red-950/20 text-[#E57373]"
+            ? "border-[#CCD2C8] bg-[#E8ECE5] text-[#2F352F]"
+            : "border-[#FBEBEB] bg-[#FBEBEB] text-[#B55B5B]"
             }`}
         >
           {message.text}
@@ -1204,68 +1209,138 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
       )}
 
       {dateString !== toLocalDateString(new Date()) && (
-        <div className="mb-5 rounded-2xl border border-amber-900/40 bg-amber-950/20 p-4 text-sm font-semibold text-[#D4A935] flex items-center gap-2 max-w-4xl">
+        <div className="mb-5 rounded-2xl border border-[#B18A45]/30 bg-[#FAF4E8] p-4 text-sm font-semibold text-[#B18A45] flex items-center gap-2 max-w-4xl">
           <AlertCircle size={16} />
           <span>You are adding/editing a bill for {dateString}. This will not affect today's records.</span>
         </div>
       )}
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,7fr)_minmax(320px,3fr)]">
-        <section className="rounded-2xl border border-[#2E2B24] bg-[#131210] p-4 shadow-md sm:p-5 text-[#A89F8C]">
+        <section className="rounded-2xl border border-[#E0E4DD] bg-[#FFFFFF] p-4 shadow-xs sm:p-5 text-[#292D29]">
+          {/* Quick Customer Search */}
+          <div className="relative mb-4" ref={customerDropdownRef}>
+            <label className="block text-xs font-semibold uppercase tracking-wider text-[#747A72] mb-1.5">
+              Quick Customer Search (Name or Phone)
+            </label>
+            <div className="relative">
+              <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5 text-[#747A72]">
+                <Search size={15} />
+              </div>
+              <input
+                type="text"
+                value={customerSearchQuery}
+                disabled={saved}
+                onChange={(e) => {
+                  setCustomerSearchQuery(e.target.value);
+                  setShowCustomerDropdown(true);
+                }}
+                onFocus={() => {
+                  if (customerSearchQuery.trim().length > 0) {
+                    setShowCustomerDropdown(true);
+                  }
+                }}
+                placeholder="Search customer by name or phone..."
+                className="h-11 w-full rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] pl-10 pr-10 text-xs text-[#292D29] outline-none transition focus:border-[#6F776D] focus:bg-[#FFFFFF] focus:ring-1 focus:ring-[#6F776D] placeholder-[#747A72] disabled:text-[#747A72]"
+              />
+              {customerSearchQuery && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCustomerSearchQuery("");
+                    setShowCustomerDropdown(false);
+                  }}
+                  className="absolute inset-y-0 right-0 flex items-center pr-3 text-[#747A72] hover:text-[#2F352F] cursor-pointer"
+                >
+                  <X size={15} />
+                </button>
+              )}
+            </div>
+
+            {/* Live Dropdown Menu */}
+            {showCustomerDropdown && customerSearchQuery.trim().length > 0 && (
+              <div className="absolute left-0 right-0 top-full z-30 mt-1.5 max-h-60 overflow-y-auto rounded-2xl border border-[#E0E4DD] bg-[#FFFFFF] p-1.5 shadow-xl">
+                {filteredCustomers.length === 0 ? (
+                  <div className="px-4 py-3 text-center text-xs text-[#747A72] italic">
+                    No customers found matching "{customerSearchQuery}"
+                  </div>
+                ) : (
+                  <div className="space-y-0.5">
+                    {filteredCustomers.map((cust) => (
+                      <button
+                        key={cust.id}
+                        type="button"
+                        onClick={() => handleSelectCustomer(cust)}
+                        className="w-full flex items-center justify-between rounded-xl px-3.5 py-2.5 text-left text-xs transition hover:bg-[#F7F7F4] group cursor-pointer"
+                      >
+                        <div>
+                          <div className="font-bold text-[#2F352F] group-hover:text-[#5F7A62]">
+                            {cust.name}
+                          </div>
+                          <div className="text-[11px] font-mono text-[#747A72]">
+                            {cust.phone}
+                          </div>
+                        </div>
+                        <div>
+                          <span
+                            className={`inline-block rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider border ${
+                              cust.customerType === "membership"
+                                ? "bg-[#E8ECE5] text-[#2F352F] border-[#CCD2C8]"
+                                : "bg-[#F7F7F4] text-[#747A72] border-[#E0E4DD]"
+                            }`}
+                          >
+                            {cust.customerType === "membership" ? "Membership" : "Regular"}
+                          </span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             <label className="block">
-              <span className="text-sm font-semibold text-[#A89F8C]">Invoice Number</span>
+              <span className="text-xs font-semibold uppercase tracking-wider text-[#747A72]">Invoice Number</span>
               <input
                 readOnly
                 type="text"
                 value={invoiceNumberDisplay}
-                className="mt-2 h-12 w-full rounded-xl border border-[#2E2B24] bg-[#131210] px-4 text-sm text-[#6B6358] outline-none"
+                className="mt-2 h-11 w-full rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] px-3.5 text-xs font-bold text-[#747A72] outline-none"
               />
             </label>
 
             <label className="block">
-              <span className="text-sm font-semibold text-[#A89F8C]">Date</span>
+              <span className="text-xs font-semibold uppercase tracking-wider text-[#747A72]">Date</span>
               <input
                 type="date"
                 value={dateString}
                 disabled={saved}
                 max={toLocalDateString(new Date())}
                 onChange={(e) => setDateString(e.target.value)}
-                className="mt-2 h-12 w-full rounded-xl border border-[#2E2B24] bg-[#0E0D0B] px-4 text-sm text-[#F5F0E8] outline-none focus:border-[#B8962E] focus:ring-1 focus:ring-[#B8962E] disabled:bg-stone-900 disabled:text-[#6B6358]"
+                className="mt-2 h-11 w-full rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] px-3.5 text-xs text-[#292D29] outline-none focus:border-[#6F776D] focus:ring-1 focus:ring-[#6F776D] disabled:text-[#747A72]"
               />
             </label>
 
             <div className="block">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-semibold text-[#A89F8C]">Customer Mobile</span>
-                <button
-                  type="button"
-                  disabled={saved}
-                  title="Customer didn't share number — use guest number"
-                  onClick={() => setCustomerMobile(GUEST_PHONE)}
-                  className="flex items-center gap-1 rounded-lg border border-[#2E2B24] bg-[#131210] px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.1em] text-[#A89F8C] hover:border-[#B8962E] hover:text-[#B8962E] hover:bg-[#1F1A0F] transition disabled:opacity-50 disabled:pointer-events-none"
-                >
-                  <UserX size={11} />
-                  Guest #
-                </button>
-              </div>
+              <span className="text-xs font-semibold uppercase tracking-wider text-[#747A72]">Customer Mobile</span>
               <input
                 required
                 type="text"
                 value={customerMobile}
                 disabled={saved}
                 onChange={(e) => setCustomerMobile(e.target.value)}
-                placeholder="Type phone number..."
-                className="mt-2 h-12 w-full rounded-xl border border-[#2E2B24] bg-[#0E0D0B] px-4 text-sm text-[#F5F0E8] outline-none focus:border-[#B8962E] focus:ring-1 focus:ring-[#B8962E] placeholder-[#6B6358] disabled:bg-stone-900 disabled:text-[#6B6358]"
+                placeholder="Type 10-digit phone number..."
+                className="mt-2 h-11 w-full rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] px-3.5 text-xs text-[#292D29] outline-none focus:border-[#6F776D] focus:ring-1 focus:ring-[#6F776D] placeholder-[#747A72] disabled:text-[#747A72]"
               />
               {clientStatus && (
                 <div className="mt-2 flex justify-start">
                   <span
-                    className={`inline-block rounded-full px-3 py-1 text-[10px] font-bold tracking-wide uppercase border ${clientStatus === "membership"
-                      ? "bg-[#2A2310] text-[#D4A935] border-[#4A3A10]"
+                    className={`inline-block rounded-full px-2.5 py-0.5 text-[9px] font-bold tracking-wider uppercase border ${clientStatus === "membership"
+                      ? "bg-[#E8ECE5] text-[#2F352F] border-[#CCD2C8]"
                       : clientStatus === "regular"
-                        ? "bg-[#1C1A16] text-[#A89F8C] border-[#2E2B24]"
-                        : "bg-[#1A1C2A] text-[#818CF8] border-[#2E3154] animate-pulse"
+                        ? "bg-[#F7F7F4] text-[#747A72] border-[#E0E4DD]"
+                        : "bg-[#FAF4E8] text-[#B18A45] border-[#B18A45]/30"
                       }`}
                   >
                     {clientStatus === "membership"
@@ -1279,19 +1354,7 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
             </div>
 
             <div className="block">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-semibold text-[#A89F8C]">Customer Name</span>
-                <button
-                  type="button"
-                  disabled={saved}
-                  title="Customer didn't share name — use guest name"
-                  onClick={() => setCustomerName(GUEST_NAME)}
-                  className="flex items-center gap-1 rounded-lg border border-[#2E2B24] bg-[#131210] px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.1em] text-[#A89F8C] hover:border-[#B8962E] hover:text-[#B8962E] hover:bg-[#1F1A0F] transition disabled:opacity-50 disabled:pointer-events-none"
-                >
-                  <UserX size={11} />
-                  Guest Name
-                </button>
-              </div>
+              <span className="text-xs font-semibold uppercase tracking-wider text-[#747A72]">Customer Name</span>
               <input
                 required
                 type="text"
@@ -1299,17 +1362,17 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
                 disabled={saved}
                 onChange={(e) => setCustomerName(e.target.value)}
                 placeholder="Enter customer name..."
-                className="mt-2 h-12 w-full rounded-xl border border-[#2E2B24] bg-[#0E0D0B] px-4 text-sm text-[#F5F0E8] outline-none focus:border-[#B8962E] focus:ring-1 focus:ring-[#B8962E] placeholder-[#6B6358] disabled:bg-stone-900 disabled:text-[#6B6358]"
+                className="mt-2 h-11 w-full rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] px-3.5 text-xs text-[#292D29] outline-none focus:border-[#6F776D] focus:ring-1 focus:ring-[#6F776D] placeholder-[#747A72] disabled:text-[#747A72]"
               />
             </div>
           </div>
 
           {/* Customer Advance Balance Banner */}
           {customerAdvance && customerAdvance.balance > 0 && (
-            <div className="mt-4 rounded-2xl border border-emerald-900 bg-emerald-950/20 p-4 text-sm text-emerald-300 space-y-2">
-              <div className="flex items-center gap-2 font-bold text-emerald-400">
+            <div className="mt-4 rounded-2xl border border-[#CCD2C8] bg-[#E8ECE5] p-4 text-xs text-[#2F352F] space-y-2">
+              <div className="flex items-center gap-2 font-bold text-[#5F7A62]">
                 <Wallet size={16} />
-                <span>💰 Advance Balance Available: {formatCurrency(customerAdvance.balance)}</span>
+                <span>Advance Balance Available: {formatCurrency(customerAdvance.balance)}</span>
               </div>
               <div className="flex items-center justify-between flex-wrap gap-2 pl-6">
                 <span>
@@ -1317,13 +1380,13 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
                 </span>
                 {advanceApplied > 0 ? (
                   <div className="flex items-center gap-2">
-                    <span className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-emerald-800 bg-emerald-950 px-3 text-xs font-bold text-emerald-400">
+                    <span className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#CCD2C8] bg-[#FFFFFF] px-3 text-xs font-bold text-[#2F352F]">
                       Applied: {formatCurrency(advanceApplied)}
                     </span>
                     <button
                       type="button"
                       onClick={() => setAdvanceApplied(0)}
-                      className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-stone-850 border border-stone-705 px-3 text-xs font-bold text-stone-300 hover:bg-stone-800 hover:text-white transition cursor-pointer shadow-sm"
+                      className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#F7F7F4] border border-[#E0E4DD] px-3 text-xs font-bold text-[#747A72] hover:bg-[#FFFFFF] hover:text-[#292D29] transition cursor-pointer shadow-xs"
                     >
                       Remove
                     </button>
@@ -1332,12 +1395,12 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
                   <button
                     type="button"
                     onClick={() => {
-                      const applied = Math.min(customerAdvance.balance, totals.grandTotal);
-                      setAdvanceApplied(applied);
+                      const maxAppliable = Math.min(customerAdvance.balance, totals.grandTotal);
+                      setAdvanceApplied(maxAppliable);
                     }}
-                    className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-xs font-bold text-white hover:bg-emerald-500 transition cursor-pointer shadow-sm"
+                    className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#6F776D] px-3 text-xs font-bold text-[#FFFFFF] hover:bg-[#2F352F] transition cursor-pointer shadow-xs"
                   >
-                    Apply Advance to this Bill
+                    Apply Advance
                   </button>
                 )}
               </div>
@@ -1346,8 +1409,8 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
 
           {/* Outstanding Credit Warning Banner */}
           {!loadingCredits && pendingCreditsToShow.length > 0 && (
-            <div className="mt-4 rounded-2xl border border-amber-900/40 bg-amber-950/20 p-4 text-sm text-[#D4A935] space-y-2">
-              <div className="flex items-center gap-2 font-bold text-amber-500">
+            <div className="mt-4 rounded-2xl border border-[#B18A45]/30 bg-[#FAF4E8] p-4 text-xs text-[#B18A45] space-y-2">
+              <div className="flex items-center gap-2 font-bold text-[#B18A45]">
                 <AlertCircle size={16} />
                 <span>Outstanding Credit Warning</span>
               </div>
@@ -1361,7 +1424,7 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
                     <button
                       type="button"
                       onClick={() => handleCollectCredit(pendingCreditsToShow[0])}
-                      className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#B8962E] px-3 text-xs font-bold text-[#0E0D0B] hover:bg-[#D4A935] transition cursor-pointer shadow-sm"
+                      className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#6F776D] px-3 text-xs font-bold text-[#FFFFFF] hover:bg-[#2F352F] transition cursor-pointer shadow-xs"
                     >
                       <Wallet size={12} />
                       Collect Now
@@ -1376,13 +1439,13 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
                       <button
                         type="button"
                         onClick={() => pendingCreditsToShow.forEach(handleCollectCredit)}
-                        className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#B8962E] px-3 text-xs font-bold text-[#0E0D0B] hover:bg-[#D4A935] transition cursor-pointer shadow-sm animate-pulse"
+                        className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#6F776D] px-3 text-xs font-bold text-[#FFFFFF] hover:bg-[#2F352F] transition cursor-pointer shadow-xs"
                       >
                         <Wallet size={12} />
                         Collect All ({formatCurrency(pendingCreditsToShow.reduce((sum, c) => sum + (c.remainingAmount !== undefined ? c.remainingAmount : (c.amount ?? 0)), 0))})
                       </button>
                     </div>
-                    <ul className="mt-2 space-y-1.5 border-t border-amber-900/20 pt-2 text-xs text-stone-400">
+                    <ul className="mt-2 space-y-1.5 border-t border-[#B18A45]/20 pt-2 text-xs text-[#747A72]">
                       {pendingCreditsToShow.map((credit) => (
                         <li key={credit.id} className="flex items-center justify-between">
                           <span>
@@ -1391,7 +1454,7 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
                           <button
                             type="button"
                             onClick={() => handleCollectCredit(credit)}
-                            className="text-[10px] font-bold text-[#B8962E] hover:text-[#D4A935] underline cursor-pointer"
+                            className="text-[10px] font-bold text-[#6F776D] hover:text-[#2F352F] underline cursor-pointer"
                           >
                             Collect
                           </button>
@@ -1409,7 +1472,6 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
             onRowsChange={setServices}
             serviceOptions={mappedServicesList}
             staffOptions={staffOptions}
-            serviceProductOptions={serviceProductOptions}
             disabled={saved}
           />
 
@@ -1420,15 +1482,15 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
             disabled={saved}
           />
 
-          <div className="grid gap-5 md:grid-cols-2 mt-6 pt-6 border-t border-[#2E2B24]">
+          <div className="grid gap-5 md:grid-cols-2 mt-6 pt-6 border-t border-[#E0E4DD]">
             {/* Offers Selector */}
-            <section className="rounded-2xl border border-[#2E2B24] bg-[#131210] p-5 shadow-sm text-[#A89F8C] flex flex-col justify-between">
+            <section className="rounded-2xl border border-[#E0E4DD] bg-[#FFFFFF] p-5 shadow-xs text-[#292D29] flex flex-col justify-between">
               <div>
-                <h2 className="text-lg font-bold text-[#F5F0E8] mb-3">Apply Offer</h2>
+                <h2 className="text-base font-bold text-[#292D29] mb-3">Apply Offer</h2>
                 {offersList.length === 0 ? (
-                  <p className="text-sm text-[#6B6358]">No offers have been created yet.</p>
+                  <p className="text-xs text-[#747A72]">No offers have been created yet.</p>
                 ) : eligibleOffers.length === 0 ? (
-                  <p className="text-sm text-[#6B6358]">
+                  <p className="text-xs text-[#747A72]">
                     No active offers are eligible for this bill right now.
                   </p>
                 ) : (
@@ -1444,7 +1506,7 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
                         setManuallyDeselected(false);
                       }
                     }}
-                    className="h-11 w-full rounded-xl border border-[#2E2B24] bg-[#0E0D0B] px-3 text-sm text-[#F5F0E8] outline-none transition focus:border-[#B8962E] focus:ring-1 focus:ring-[#B8962E] disabled:bg-stone-900 disabled:text-[#6B6358]"
+                    className="h-10 w-full rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] px-3 text-xs font-semibold text-[#292D29] outline-none transition focus:border-[#6F776D] focus:ring-1 focus:ring-[#6F776D] disabled:text-[#747A72]"
                   >
                     <option value="">No offer applied</option>
                     {eligibleOffers.map((offer) => (
@@ -1460,7 +1522,7 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
                 )}
               </div>
               {selectedOffer && (
-                <p className="mt-3 text-xs font-semibold text-[#B8962E]">
+                <p className="mt-3 text-xs font-semibold text-[#5F7A62]">
                   Discount applied: -{formatCurrency(totals.offerDiscount)}
                 </p>
               )}
@@ -1497,15 +1559,15 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
             advanceApplied={advanceApplied}
           />
 
-          <section className="rounded-2xl border border-[#2E2B24] bg-[#131210] p-5 shadow-md text-[#A89F8C]">
+          <section className="rounded-2xl border border-[#E0E4DD] bg-[#FFFFFF] p-5 shadow-xs text-[#292D29]">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-bold text-[#F5F0E8]">Payment Information</h2>
+              <h2 className="text-base font-bold text-[#292D29]">Payment Details</h2>
               {isSplitEdited && (
                 <button
                   type="button"
                   disabled={saved}
                   onClick={() => setIsSplitEdited(false)}
-                  className="text-xs font-semibold text-[#6B6358] hover:text-[#B8962E] transition underline cursor-pointer disabled:opacity-50 disabled:no-underline"
+                  className="text-xs font-semibold text-[#747A72] hover:text-[#292D29] transition underline cursor-pointer disabled:opacity-50 disabled:no-underline"
                 >
                   Reset to Full UPI
                 </button>
@@ -1513,9 +1575,9 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
             </div>
 
             <div className="space-y-4">
-              <div className="flex items-center justify-between border-b border-[#2E2B24] pb-3">
-                <span className="text-sm font-semibold text-[#A89F8C]">Grand Total</span>
-                <span className="text-lg font-bold text-[#F5F0E8]">{formatCurrency(totals.grandTotal)}</span>
+              <div className="flex items-center justify-between border-b border-[#E0E4DD] pb-3">
+                <span className="text-xs uppercase tracking-wider font-semibold text-[#747A72]">Grand Total</span>
+                <span className="text-base font-extrabold text-[#2F352F]">{formatCurrency(totals.grandTotal)}</span>
               </div>
 
               {/* Horizontal Payment Inputs */}
@@ -1525,8 +1587,8 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
                   const setFn = method === "cash" ? setCashAmount : method === "upi" ? setUpiAmount : setCardAmount;
                   return (
                     <label key={method} className="block">
-                      <span className="text-[10px] uppercase tracking-[0.15em] text-[#6B6358] capitalize">{method} Amount</span>
-                      <div className="mt-1.5 h-10 w-full rounded-xl border border-[#2E2B24] bg-[#0E0D0B] px-2 flex items-center transition focus-within:border-[#B8962E] focus-within:ring-1 focus-within:ring-[#B8962E] disabled:bg-stone-900">
+                      <span className="text-[10px] uppercase tracking-[0.15em] text-[#747A72] font-bold capitalize">{method} Amount</span>
+                      <div className="mt-1.5 h-10 w-full rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] px-2 flex items-center transition focus-within:border-[#6F776D] focus-within:ring-1 focus-within:ring-[#6F776D]">
                         <ClearableNumberInput
                           min="0"
                           value={val}
@@ -1536,7 +1598,7 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
                             setIsSplitEdited(true);
                             setFn(newVal === "" ? "" : Math.max(0, newVal));
                           }}
-                          className="text-[#F5F0E8] text-sm disabled:text-[#6B6358]"
+                          className="text-[#292D29] text-xs font-bold disabled:text-[#747A72]"
                         />
                       </div>
                     </label>
@@ -1545,9 +1607,9 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
               </div>
 
               {/* Mark as Credit Checkbox */}
-              {customerMobile.trim().length >= 10 && customerMobile.trim() !== GUEST_PHONE && (
-                <div className="border-t border-[#2E2B24] pt-3">
-                  <label className="flex items-center gap-2 cursor-pointer select-none text-xs font-semibold text-[#A89F8C] hover:text-[#F5F0E8] transition">
+              {customerMobile.trim().length >= 10 && (
+                <div className="border-t border-[#E0E4DD] pt-3">
+                  <label className="flex items-center gap-2 cursor-pointer select-none text-xs font-semibold text-[#747A72] hover:text-[#292D29] transition">
                     <input
                       type="checkbox"
                       checked={markAsCredit}
@@ -1564,20 +1626,20 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
                           setIsSplitEdited(false);
                         }
                       }}
-                      className="size-4 rounded border-[#2E2B24] bg-[#0E0D0B] text-[#B8962E] focus:ring-0 cursor-pointer accent-[#B8962E]"
+                      className="size-4 rounded border-[#E0E4DD] bg-[#F7F7F4] text-[#6F776D] focus:ring-0 cursor-pointer accent-[#6F776D]"
                     />
                     <span>Mark as Credit (Customer will pay later)</span>
                   </label>
                 </div>
               )}
 
-              <div className="border-t border-[#2E2B24] pt-3 space-y-2.5">
+              <div className="border-t border-[#E0E4DD] pt-3 space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-semibold text-[#A89F8C]">Total Paid</span>
+                  <span className="text-xs font-bold uppercase tracking-wider text-[#747A72]">Total Paid</span>
                   <div className="flex items-center gap-1.5">
-                    <span className="text-sm font-bold text-[#F5F0E8]">{formatCurrency(totalPaid)}</span>
+                    <span className="text-base font-bold text-[#292D29]">{formatCurrency(totalPaid)}</span>
                     {isPaymentValid && (
-                      <span className="inline-flex size-4 items-center justify-center rounded-full bg-[#2A2310] text-[#D4A935] border border-[#4A3A10] text-[10px] font-bold">
+                      <span className="inline-flex size-4 items-center justify-center rounded-full bg-[#E8ECE5] text-[#5F7A62] text-[10px] font-bold">
                         ✓
                       </span>
                     )}
@@ -1586,13 +1648,13 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
                 {totals.grandTotal > 0 && (
                   <div className="text-xs font-semibold text-right">
                     {isPaymentValid ? (
-                      <span className="text-[#B8962E]">
+                      <span className="text-[#5F7A62]">
                         {markAsCredit && paymentDiff > 0 ? `Credit Balance: ${formatCurrency(paymentDiff)}` : "Payment matches bill total"}
                       </span>
                     ) : paymentDiff > 0 ? (
-                      <span className="text-[#B8962E]">Remaining {formatCurrency(paymentDiff)}</span>
+                      <span className="text-[#B18A45]">Remaining {formatCurrency(paymentDiff)}</span>
                     ) : (
-                      <span className="text-[#E57373]">Exceeds total by {formatCurrency(Math.abs(paymentDiff))}</span>
+                      <span className="text-[#B55B5B]">Exceeds total by {formatCurrency(Math.abs(paymentDiff))}</span>
                     )}
                   </div>
                 )}

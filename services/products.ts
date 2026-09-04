@@ -16,14 +16,26 @@ import { toTitleCase } from "@/lib/utils/text";
 
 const COLLECTION = "products";
 
+function sanitizeData<T extends Record<string, unknown>>(data: T): Record<string, unknown> {
+  const clean: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(data)) {
+    if (value !== undefined) {
+      clean[key] = value;
+    }
+  }
+  return clean;
+}
+
 export async function create(product: Omit<Product, "id">): Promise<string> {
   try {
-    const docRef = await addDoc(collection(db, COLLECTION), {
+    const rawData = {
       ...product,
       name: toTitleCase(product.name),
       isActive: true,
       createdAt: serverTimestamp(),
-    });
+    };
+    const cleanData = sanitizeData(rawData);
+    const docRef = await addDoc(collection(db, COLLECTION), cleanData);
     return docRef.id;
   } catch (error) {
     console.error("Error creating product:", error);
@@ -36,13 +48,24 @@ export async function create(product: Omit<Product, "id">): Promise<string> {
  */
 export async function getAll(): Promise<Product[]> {
   try {
-    const q = query(
-      collection(db, COLLECTION),
-      where("isActive", "==", true),
-      orderBy("name", "asc")
-    );
-    const snap = await getDocs(q);
-    return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Product));
+    try {
+      const q = query(
+        collection(db, COLLECTION),
+        where("isActive", "==", true),
+        orderBy("name", "asc")
+      );
+      const snap = await getDocs(q);
+      return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Product));
+    } catch {
+      // Graceful fallback while composite index is building on Firestore
+      const fallbackQuery = query(
+        collection(db, COLLECTION),
+        where("isActive", "==", true)
+      );
+      const snap = await getDocs(fallbackQuery);
+      const list = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Product));
+      return list.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    }
   } catch (error) {
     console.error("Error fetching products:", error);
     throw error;
@@ -69,7 +92,8 @@ export async function update(
     if (normalizedData.name) {
       normalizedData.name = toTitleCase(normalizedData.name);
     }
-    await updateDoc(doc(db, COLLECTION, id), normalizedData as Record<string, unknown>);
+    const cleanData = sanitizeData(normalizedData);
+    await updateDoc(doc(db, COLLECTION, id), cleanData);
   } catch (error) {
     console.error(`Error updating product ${id}:`, error);
     throw error;

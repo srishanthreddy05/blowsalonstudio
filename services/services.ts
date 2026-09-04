@@ -33,23 +33,31 @@ export async function create(service: Omit<Service, "id">): Promise<string> {
 
 export async function getAll(): Promise<Service[]> {
   try {
-    // ── FIX: use isActive == true instead of != false ──────────────────────
-    // Firestore allows a single == filter combined with a single orderBy on a
-    // DIFFERENT field without requiring a composite index. The previous
-    // (!= false + orderBy("isActive") + orderBy("name")) combination required
-    // a manually-created composite index that didn't exist, causing a
-    // FirebaseError at runtime.
-    const q = query(
-      collection(db, COLLECTION_NAME),
-      where("isActive", "==", true),
-      orderBy("name", "asc")
-    );
-    const querySnapshot = await getDocs(q);
-    const services: Service[] = [];
-    querySnapshot.forEach((doc) => {
-      services.push({ id: doc.id, ...doc.data() } as Service);
-    });
-    return services;
+    try {
+      const q = query(
+        collection(db, COLLECTION_NAME),
+        where("isActive", "==", true),
+        orderBy("name", "asc")
+      );
+      const querySnapshot = await getDocs(q);
+      const services: Service[] = [];
+      querySnapshot.forEach((doc) => {
+        services.push({ id: doc.id, ...doc.data() } as Service);
+      });
+      return services;
+    } catch {
+      // Graceful fallback while composite index is building on Firestore
+      const fallbackQuery = query(
+        collection(db, COLLECTION_NAME),
+        where("isActive", "==", true)
+      );
+      const querySnapshot = await getDocs(fallbackQuery);
+      const services: Service[] = [];
+      querySnapshot.forEach((doc) => {
+        services.push({ id: doc.id, ...doc.data() } as Service);
+      });
+      return services.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    }
   } catch (error) {
     console.error("Error getting all services from Firestore:", error);
     throw error;

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Bell, Package, AlertTriangle, UserCheck, UserX, Check, Trash, Sparkles } from "lucide-react";
+import { Bell, Package, UserCheck, UserX, Check, Sparkles } from "lucide-react";
 import * as productService from "@/services/products";
 import * as customerService from "@/services/customers";
 import * as notificationService from "@/services/notifications";
@@ -22,15 +22,9 @@ export default function DashboardNotifications() {
 
   const fetchData = async () => {
     try {
-      // 1. Fetch products and filter low stock / servings
+      // 1. Fetch products and filter low stock (<= 5 units)
       const allProducts = await productService.getAll();
-      const lowStock = allProducts.filter((p) => {
-        if (p.type === "service") {
-          return (p.noOfServings ?? 0) < 3;
-        } else {
-          return (p.quantity ?? 0) < 5;
-        }
-      });
+      const lowStock = allProducts.filter((p) => (p.quantity ?? 0) <= (p.lowStockThreshold || 5));
       setLowStockProducts(lowStock);
 
       // 2. Fetch memberships and filter expiring soon (within 7 days)
@@ -110,8 +104,8 @@ export default function DashboardNotifications() {
 
   if (loading) {
     return (
-      <div className="grid size-11 place-items-center rounded-2xl border border-[#2E2B24] bg-[#131210] text-[#6B6358]">
-        <Bell size={18} className="animate-pulse" />
+      <div className="grid size-10 place-items-center rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] text-[#747A72]">
+        <Bell size={17} className="animate-pulse" />
       </div>
     );
   }
@@ -121,13 +115,13 @@ export default function DashboardNotifications() {
       <button
         ref={buttonRef}
         onClick={handleToggle}
-        className="relative grid size-11 place-items-center rounded-2xl border border-[#2E2B24] bg-[#131210] text-[#A89F8C] transition hover:border-[#B8962E] hover:text-[#B8962E] hover:bg-[#1C1A16] cursor-pointer"
+        className="relative grid size-10 place-items-center rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] text-[#747A72] transition hover:border-[#6F776D] hover:text-[#2F352F] hover:bg-[#E8ECE5] cursor-pointer"
         aria-label="Notifications"
         title="Notifications"
       >
-        <Bell size={18} className={totalAlertsCount > 0 ? "animate-swing" : ""} />
+        <Bell size={17} className={totalAlertsCount > 0 ? "text-[#B55B5B]" : ""} />
         {totalAlertsCount > 0 && (
-          <span className="absolute -top-1 -right-1 flex size-5 items-center justify-center rounded-full bg-red-600 text-[10px] font-bold text-white shadow-sm ring-2 ring-[#131210]">
+          <span className="absolute -top-1 -right-1 flex size-4.5 items-center justify-center rounded-full bg-[#B55B5B] text-[9px] font-bold text-[#FFFFFF] shadow-xs">
             {totalAlertsCount}
           </span>
         )}
@@ -141,34 +135,34 @@ export default function DashboardNotifications() {
             onClick={() => setIsOpen(false)}
           />
 
-          {/* Dropdown panel — rendered on <body> to escape header stacking context */}
+          {/* Dropdown panel */}
           <div
-            className="fixed z-[9999] w-80 sm:w-96 rounded-2xl border border-[#2E2B24] bg-[#1C1A16] p-5 shadow-xl animate-in fade-in slide-in-from-top-2 duration-200 space-y-4 text-[#A89F8C]"
+            className="fixed z-[9999] w-80 sm:w-96 rounded-2xl border border-[#E0E4DD] bg-[#FFFFFF] p-5 shadow-xl animate-in fade-in slide-in-from-top-2 duration-200 space-y-4 text-[#292D29]"
             style={{ top: dropdownPos.top, right: dropdownPos.right }}
           >
-            <div className="flex items-center justify-between border-b border-[#2E2B24] pb-3">
-              <div className="flex items-center gap-2">
-                <div className="grid size-9 place-items-center rounded-xl bg-[#131210] text-[#B8962E] border border-[#2E2B24]">
+            <div className="flex items-center justify-between border-b border-[#E0E4DD] pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="grid size-8 place-items-center rounded-lg bg-[#E8ECE5] text-[#6F776D]">
                   <Bell size={16} />
                 </div>
                 <div>
-                  <h2 className="text-sm font-bold text-[#F5F0E8] text-left">Notifications & Alerts</h2>
-                  <p className="text-[10px] text-[#6B6358] font-semibold mt-0.5 text-left">Critical stock and membership updates</p>
+                  <h2 className="text-sm font-bold text-[#292D29] text-left">Notifications & Alerts</h2>
+                  <p className="text-[10px] text-[#747A72] font-medium mt-0.5 text-left">Stock and membership updates</p>
                 </div>
               </div>
               {totalAlertsCount > 0 && (
-                <span className="inline-flex items-center justify-center bg-[#131210] text-[#B8962E] text-[10px] font-bold px-2 py-0.5 rounded-full select-none shrink-0 border border-[#2E2B24]">
+                <span className="inline-flex items-center justify-center bg-[#FBEBEB] text-[#B55B5B] text-[10px] font-bold px-2.5 py-0.5 rounded-full select-none shrink-0 border border-[#B55B5B]/20">
                   {totalAlertsCount} Alert{totalAlertsCount > 1 ? "s" : ""}
                 </span>
               )}
             </div>
 
-            <div className="space-y-3 max-h-[320px] overflow-y-auto pr-1">
+            <div className="space-y-2.5 max-h-[320px] overflow-y-auto pr-1">
               {totalAlertsCount === 0 ? (
-                <div className="flex flex-col items-center justify-center py-8 text-center text-[#6B6358]">
-                  <Sparkles size={24} className="text-[#6B6358] mb-2 animate-pulse" />
-                  <p className="text-xs font-semibold text-[#A89F8C]">All caught up!</p>
-                  <p className="text-[10px] text-[#6B6358] mt-0.5">No pending stock or membership alerts.</p>
+                <div className="flex flex-col items-center justify-center py-8 text-center text-[#747A72]">
+                  <Sparkles size={22} className="text-[#5F7A62] mb-2" />
+                  <p className="text-xs font-semibold text-[#292D29]">All caught up!</p>
+                  <p className="text-[10px] text-[#747A72] mt-0.5">No pending stock or membership alerts.</p>
                 </div>
               ) : (
                 <>
@@ -176,32 +170,29 @@ export default function DashboardNotifications() {
                   {lowStockProducts.map((p) => (
                     <div
                       key={p.id}
-                      className="flex items-center justify-between gap-4 p-3 bg-[#1F1315] border border-rose-950/50 rounded-2xl text-xs text-rose-300"
+                      className="flex items-center justify-between gap-4 p-3 bg-[#FBEBEB] border border-[#B55B5B]/30 rounded-xl text-xs text-[#B55B5B]"
                     >
                       <div className="flex items-center gap-2.5 min-w-0">
-                        <Package size={14} className="text-rose-400 shrink-0" />
+                        <Package size={14} className="text-[#B55B5B] shrink-0" />
                         <div className="min-w-0 text-left">
-                          <span className="font-bold text-rose-100 truncate block mr-1">{p.name}</span>
-                          <span className="font-medium text-rose-300">
-                            {p.type === "service" ? (
-                              <>Only <b>{p.noOfServings ?? 0}</b> servings left.</>
-                            ) : (
-                              <>Only <b>{p.quantity}</b> remaining.</>
-                            )}
+                          <span className="font-bold text-[#292D29] truncate block mr-1">{p.name}</span>
+                          <span className="font-medium text-[#747A72]">
+                            Only <b>{p.quantity ?? 0}</b> units remaining.
                           </span>
+
                         </div>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         <Link
                           href="/products"
                           onClick={() => setIsOpen(false)}
-                          className="font-bold text-rose-400 hover:text-rose-200 hover:underline transition px-2 py-1 rounded-lg hover:bg-rose-950/60"
+                          className="font-bold text-[#B55B5B] hover:underline transition px-2 py-1 rounded-lg"
                         >
                           Reorder
                         </Link>
                         <button
                           onClick={() => p.id && handleDismissProduct(p.id)}
-                          className="p-1 rounded-lg hover:bg-rose-950/60 text-rose-400 hover:text-rose-200 cursor-pointer"
+                          className="p-1 rounded-lg hover:bg-[#FFFFFF] text-[#747A72] hover:text-[#292D29] cursor-pointer"
                           title="Dismiss warning"
                         >
                           <Check size={14} />
@@ -219,13 +210,13 @@ export default function DashboardNotifications() {
                     return (
                       <div
                         key={c.id}
-                        className="flex items-center justify-between gap-4 p-3 bg-[#1F1911] border border-amber-950/50 rounded-2xl text-xs text-amber-300"
+                        className="flex items-center justify-between gap-4 p-3 bg-[#FAF4E8] border border-[#B18A45]/30 rounded-xl text-xs text-[#B18A45]"
                       >
                         <div className="flex items-center gap-2.5 min-w-0">
-                          <UserCheck size={14} className="text-amber-400 shrink-0" />
+                          <UserCheck size={14} className="text-[#B18A45] shrink-0" />
                           <div className="min-w-0 text-left">
-                            <span className="font-bold text-amber-100 truncate block mr-1">{c.name}</span>
-                            <span className="font-medium text-amber-300">
+                            <span className="font-bold text-[#292D29] truncate block mr-1">{c.name}</span>
+                            <span className="font-medium text-[#747A72]">
                               Expiring in <b>{daysLeft} days</b>.
                             </span>
                           </div>
@@ -234,13 +225,13 @@ export default function DashboardNotifications() {
                           <Link
                             href="/customers"
                             onClick={() => setIsOpen(false)}
-                            className="font-bold text-amber-400 hover:text-amber-200 hover:underline transition px-2 py-1 rounded-lg hover:bg-amber-950/60"
+                            className="font-bold text-[#B18A45] hover:underline transition px-2 py-1 rounded-lg"
                           >
                             Renew
                           </Link>
                           <button
                             onClick={() => c.id && handleDismissMembership(c.id)}
-                            className="p-1 rounded-lg hover:bg-amber-950/60 text-amber-400 hover:text-amber-200 cursor-pointer"
+                            className="p-1 rounded-lg hover:bg-[#FFFFFF] text-[#747A72] hover:text-[#292D29] cursor-pointer"
                             title="Dismiss warning"
                           >
                             <Check size={14} />
@@ -254,18 +245,18 @@ export default function DashboardNotifications() {
                   {dbNotifications.map((n) => (
                     <div
                       key={n.id}
-                      className="flex items-center justify-between gap-4 p-3 bg-[#131210] border border-[#2E2B24] rounded-2xl text-xs text-[#A89F8C]"
+                      className="flex items-center justify-between gap-4 p-3 bg-[#F7F7F4] border border-[#E0E4DD] rounded-xl text-xs text-[#292D29]"
                     >
                       <div className="flex items-center gap-2.5 min-w-0 text-left">
-                        <UserX size={14} className="text-[#6B6358] shrink-0" />
+                        <UserX size={14} className="text-[#747A72] shrink-0" />
                         <div className="min-w-0">
-                          <span className="font-bold text-[#F5F0E8] truncate block mr-1">{n.title}</span>
-                          <span className="font-medium text-[#A89F8C]">{n.message}</span>
+                          <span className="font-bold text-[#292D29] truncate block mr-1">{n.title}</span>
+                          <span className="font-medium text-[#747A72]">{n.message}</span>
                         </div>
                       </div>
                       <button
                         onClick={() => n.id && handleMarkAsRead(n.id)}
-                        className="p-1 rounded-lg hover:bg-[#1C1A16] text-[#6B6358] hover:text-[#B8962E] cursor-pointer shrink-0"
+                        className="p-1 rounded-lg hover:bg-[#E8ECE5] text-[#747A72] hover:text-[#2F352F] cursor-pointer shrink-0"
                         title="Mark as read"
                       >
                         <Check size={14} />

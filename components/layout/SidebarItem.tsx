@@ -7,7 +7,7 @@ import { LucideIcon } from "lucide-react";
 interface SidebarItemProps {
   label: string;
   href: string;
-  icon: LucideIcon;
+  icon: LucideIcon | React.ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
   collapsed: boolean;
   onClick?: () => void;
 }
@@ -26,15 +26,16 @@ export function SidebarItem({
     <Link
       href={href}
       onClick={onClick}
-      className={`group flex h-12 w-full items-center gap-3 rounded-xl px-3 text-sm font-bold transition duration-200 ${
+      className={`group flex h-11 w-full items-center gap-3 rounded-xl px-3 text-sm font-semibold transition-all duration-200 ${
         isActive
-          ? "border-l-2 border-[#B8962E] bg-[#1C1A16] text-[#F5F0E8]"
-          : "text-[#6B6358] hover:bg-[#1C1A16] hover:text-[#F5F0E8]"
+          ? "bg-[#E8ECE5] text-[#2F352F] font-bold shadow-xs"
+          : "text-[#747A72] hover:bg-[#F7F7F4] hover:text-[#292D29]"
       } ${collapsed ? "justify-center" : "justify-start"}`}
     >
       <Icon
-        size={20}
-        className={isActive ? "text-[#B8962E]" : "transition text-[#6B6358] group-hover:text-[#F5F0E8]"}
+        size={19}
+        strokeWidth={isActive ? 2.3 : 1.9}
+        className={isActive ? "text-[#6F776D]" : "transition-colors text-[#747A72] group-hover:text-[#292D29]"}
       />
       {!collapsed && <span className="truncate">{label}</span>}
     </Link>

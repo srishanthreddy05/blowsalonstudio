@@ -237,12 +237,26 @@ export async function checkAndExpireMemberships(): Promise<Customer[]> {
     }
 
     const nowStr = new Date().toISOString();
-    const q = query(
-      collection(db, COLLECTION_NAME),
-      where("customerType", "==", "membership"),
-      where("membershipEnd", "<", nowStr)
-    );
-    const snap = await getDocs(q);
+    let snap: any;
+    try {
+      const q = query(
+        collection(db, COLLECTION_NAME),
+        where("customerType", "==", "membership"),
+        where("membershipEnd", "<", nowStr)
+      );
+      snap = await getDocs(q);
+    } catch {
+      const fallbackQuery = query(
+        collection(db, COLLECTION_NAME),
+        where("customerType", "==", "membership")
+      );
+      const allMemberships = await getDocs(fallbackQuery);
+      const docs = allMemberships.docs.filter((d) => {
+        const data = d.data() as Customer;
+        return data.membershipEnd && data.membershipEnd < nowStr;
+      });
+      snap = { empty: docs.length === 0, docs };
+    }
     const expiredCustomers: Customer[] = [];
     
     if (!snap.empty) {

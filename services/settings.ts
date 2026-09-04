@@ -8,7 +8,7 @@ const COLLECTION_NAME = "settings";
 const DOCUMENT_ID = "salon-settings";
 
 const defaultSettings: Settings = {
-  salonName: "Demo Salon",
+  salonName: "THEA SALON",
   phoneNumber: "+91 98765 43210",
   invoicePrefix: "INV",
   currencyCode: "INR",
@@ -25,9 +25,16 @@ export async function getSettings(): Promise<Settings> {
     const docRef = doc(db, COLLECTION_NAME, DOCUMENT_ID);
     const docSnap = await getDoc(docRef);
     if (docSnap.exists()) {
+      const data = docSnap.data();
+      let salonName = data.salonName || "THEA SALON";
+      if (!salonName || salonName.toLowerCase().includes("demo")) {
+        salonName = "THEA SALON";
+        setDoc(docRef, { salonName: "THEA SALON" }, { merge: true }).catch(() => {});
+      }
       const settings = {
         ...defaultSettings,
-        ...docSnap.data(),
+        ...data,
+        salonName,
       } as Settings;
       writeCache(CACHE_KEYS.settings, [settings]);
       return settings;

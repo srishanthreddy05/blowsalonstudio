@@ -20,7 +20,6 @@ import {
 import { toTitleCase } from "@/lib/utils/text";
 import { toLocalDateString } from "@/lib/utils/date";
 
-
 export default function CustomersPage() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
@@ -81,27 +80,38 @@ export default function CustomersPage() {
       setLoadingMoreRegular(true);
     }
     try {
-      let q = query(
-        collection(db, "customers"),
-        where("customerType", "==", "regular"),
-        orderBy("name", "asc"),
-        limit(10)
-      );
-
-      if (isLoadMore && lastRegularDoc) {
-        q = query(
+      let snap;
+      try {
+        let q = query(
           collection(db, "customers"),
           where("customerType", "==", "regular"),
           orderBy("name", "asc"),
-          startAfter(lastRegularDoc),
           limit(10)
         );
+
+        if (isLoadMore && lastRegularDoc) {
+          q = query(
+            collection(db, "customers"),
+            where("customerType", "==", "regular"),
+            orderBy("name", "asc"),
+            startAfter(lastRegularDoc),
+            limit(10)
+          );
+        }
+        snap = await getDocs(q);
+      } catch {
+        // In-code fallback while composite index is building on Firestore
+        const fallbackQuery = query(
+          collection(db, "customers"),
+          where("customerType", "==", "regular")
+        );
+        snap = await getDocs(fallbackQuery);
       }
 
-      const snap = await getDocs(q);
       const docs = snap.docs.map(
         (d) => ({ id: d.id, ...d.data() }) as Customer
       );
+      docs.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
 
       if (isLoadMore) {
         setRegularCustomers((prev) => [...prev, ...docs]);
@@ -114,7 +124,7 @@ export default function CustomersPage() {
       } else if (!isLoadMore) {
         setLastRegularDoc(null);
       }
-      setHasMoreRegular(snap.docs.length === 10);
+      setHasMoreRegular(snap.docs.length >= 10);
     } catch (error) {
       console.error("Error loading regular customers:", error);
     } finally {
@@ -129,27 +139,38 @@ export default function CustomersPage() {
       setLoadingMoreMembership(true);
     }
     try {
-      let q = query(
-        collection(db, "customers"),
-        where("customerType", "==", "membership"),
-        orderBy("name", "asc"),
-        limit(10)
-      );
-
-      if (isLoadMore && lastMembershipDoc) {
-        q = query(
+      let snap;
+      try {
+        let q = query(
           collection(db, "customers"),
           where("customerType", "==", "membership"),
           orderBy("name", "asc"),
-          startAfter(lastMembershipDoc),
           limit(10)
         );
+
+        if (isLoadMore && lastMembershipDoc) {
+          q = query(
+            collection(db, "customers"),
+            where("customerType", "==", "membership"),
+            orderBy("name", "asc"),
+            startAfter(lastMembershipDoc),
+            limit(10)
+          );
+        }
+        snap = await getDocs(q);
+      } catch {
+        // In-code fallback while composite index is building on Firestore
+        const fallbackQuery = query(
+          collection(db, "customers"),
+          where("customerType", "==", "membership")
+        );
+        snap = await getDocs(fallbackQuery);
       }
 
-      const snap = await getDocs(q);
       const docs = snap.docs.map(
         (d) => ({ id: d.id, ...d.data() }) as Customer
       );
+      docs.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
 
       if (isLoadMore) {
         setMembershipCustomers((prev) => [...prev, ...docs]);
@@ -162,7 +183,7 @@ export default function CustomersPage() {
       } else if (!isLoadMore) {
         setLastMembershipDoc(null);
       }
-      setHasMoreMembership(snap.docs.length === 10);
+      setHasMoreMembership(snap.docs.length >= 10);
     } catch (error) {
       console.error("Error loading membership customers:", error);
     } finally {
@@ -372,50 +393,61 @@ export default function CustomersPage() {
     : `Membership Customers (${stats.membershipCount})`;
 
   return (
-    <div className="w-full text-[#A89F8C]">
+    <div className="w-full text-[#292D29]">
       <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#A89F8C]">
-            CRM
+          <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#747A72]">
+            Client Management
           </p>
-          <h1 className="mt-2 text-3xl font-extrabold tracking-[-0.03em] text-[#F5F0E8]">
+          <h1 className="mt-1 font-serif text-2xl sm:text-3xl font-bold tracking-tight text-[#2F352F]">
             Customers ({stats.regularCount + stats.membershipCount})
           </h1>
         </div>
-
+        <button
+          onClick={handleOpenAdd}
+          className="inline-flex h-11 items-center gap-2 rounded-xl bg-[#6F776D] hover:bg-[#2F352F] px-5 text-xs font-bold text-white shadow-xs transition duration-150 cursor-pointer"
+        >
+          <Plus size={16} />
+          Add Customer
+        </button>
       </div>
 
       {loading ? (
         <div className="flex h-[40vh] items-center justify-center">
-          <div className="size-10 animate-spin rounded-full border-4 border-[#B8962E] border-t-transparent" />
+          <div className="size-9 animate-spin rounded-full border-3 border-[#6F776D] border-t-transparent" />
         </div>
       ) : (stats.regularCount + stats.membershipCount) === 0 ? (
-        // Empty State UI
-        <div className="flex flex-col items-center justify-center rounded-2xl border border-[#2E2B24] bg-[#131210] p-12 text-center shadow-md">
-          <div className="grid size-16 place-items-center rounded-2xl bg-[#0E0D0B] text-[#B8962E] border border-[#2E2B24] mb-4">
-            <Users size={32} />
+        <div className="flex flex-col items-center justify-center rounded-2xl border border-[#E0E4DD] bg-[#FFFFFF] p-12 text-center shadow-xs">
+          <div className="grid size-14 place-items-center rounded-2xl bg-[#F7F7F4] text-[#6F776D] border border-[#E0E4DD] mb-4">
+            <Users size={28} />
           </div>
-          <h2 className="text-xl font-bold text-[#F5F0E8]">No Customers Found</h2>
-          <p className="mt-2 max-w-sm text-sm text-[#A89F8C]">
+          <h2 className="text-lg font-serif font-bold text-[#2F352F]">No Customers Found</h2>
+          <p className="mt-1.5 max-w-sm text-xs text-[#747A72]">
             Create profiles to track salon memberships and schedule visits.
           </p>
-
+          <button
+            onClick={handleOpenAdd}
+            className="mt-6 inline-flex h-10 items-center gap-2 rounded-xl bg-[#6F776D] hover:bg-[#2F352F] px-5 text-xs font-bold text-white shadow-xs transition duration-150 cursor-pointer"
+          >
+            <Plus size={16} />
+            Add Customer
+          </button>
         </div>
       ) : (
         <>
           {/* Search bar */}
-          <div className="mb-6 flex max-w-md items-center rounded-xl border border-[#2E2B24] bg-[#131210] px-4 h-12 shadow-sm focus-within:border-[#B8962E] transition">
+          <div className="mb-6 flex max-w-md items-center rounded-xl border border-[#E0E4DD] bg-[#FFFFFF] px-4 h-11 shadow-xs focus-within:border-[#6F776D] focus-within:ring-1 focus-within:ring-[#6F776D] transition">
             {searchLoading ? (
-              <div className="size-4 animate-spin rounded-full border-2 border-[#B8962E] border-t-transparent mr-2 shrink-0" />
+              <div className="size-3.5 animate-spin rounded-full border-2 border-[#6F776D] border-t-transparent mr-2 shrink-0" />
             ) : (
-              <Search size={18} className="text-[#6B6358] mr-2 shrink-0" />
+              <Search size={16} className="text-[#747A72] mr-2 shrink-0" />
             )}
             <input
               type="text"
               placeholder="Search by name or phone..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-transparent text-sm text-[#F5F0E8] outline-none placeholder:text-[#6B6358]"
+              className="w-full bg-transparent text-xs text-[#292D29] outline-none placeholder:text-[#747A72]"
             />
           </div>
 
@@ -423,24 +455,24 @@ export default function CustomersPage() {
           <div className="grid gap-6 lg:grid-cols-2">
             {/* Regular Customers Section */}
             <div className="space-y-4">
-              <div className="flex items-center justify-between border-b border-[#2E2B24] pb-2">
-                <h2 className="text-lg font-bold text-[#F5F0E8]">
+              <div className="flex items-center justify-between border-b border-[#E0E4DD] pb-2">
+                <h2 className="font-serif text-base font-bold text-[#2F352F]">
                   {regularHeader}
                 </h2>
               </div>
-              <div className="overflow-x-auto rounded-2xl border border-[#2E2B24] bg-[#131210] shadow-md">
-                <table className="w-full min-w-[340px] border-collapse text-left text-sm text-[#A89F8C]">
-                  <thead className="bg-[#0E0D0B] text-[10px] font-bold uppercase tracking-[0.18em] text-[#A89F8C] border-b border-[#2E2B24]">
+              <div className="overflow-x-auto rounded-2xl border border-[#E0E4DD] bg-[#FFFFFF] shadow-xs">
+                <table className="w-full min-w-[340px] border-collapse text-left text-xs text-[#292D29]">
+                  <thead className="bg-[#F7F7F4] text-[10px] font-bold uppercase tracking-wider text-[#747A72] border-b border-[#E0E4DD]">
                     <tr>
-                      <th className="px-4 py-3.5 font-bold">Name</th>
-                      <th className="px-4 py-3.5 font-bold">Phone</th>
-                      <th className="px-4 py-3.5 font-bold text-right">Actions</th>
+                      <th className="px-4 py-3 font-bold">Name</th>
+                      <th className="px-4 py-3 font-bold">Phone</th>
+                      <th className="px-4 py-3 font-bold text-right">Actions</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-[#2E2B24]">
+                  <tbody className="divide-y divide-[#E0E4DD]">
                     {regularToDisplay.length === 0 ? (
                       <tr>
-                        <td colSpan={3} className="px-4 py-8 text-center text-[#6B6358] font-medium italic bg-transparent">
+                        <td colSpan={3} className="px-4 py-8 text-center text-[#747A72] font-medium italic bg-transparent">
                           {debouncedQuery.trim()
                             ? "No matching regular customers."
                             : "No regular customers."}
@@ -448,28 +480,28 @@ export default function CustomersPage() {
                       </tr>
                     ) : (
                       regularToDisplay.map((customer) => (
-                        <tr key={customer.id} className="hover:bg-[#1C1A16] transition bg-transparent text-[#A89F8C]">
-                          <td className="px-4 py-3 font-semibold text-[#F5F0E8]">{customer.name}</td>
-                          <td className="px-4 py-3 font-medium">{customer.phone}</td>
+                        <tr key={customer.id} className="hover:bg-[#F7F7F4]/60 transition bg-transparent">
+                          <td className="px-4 py-3 font-semibold text-[#2F352F]">{customer.name}</td>
+                          <td className="px-4 py-3 font-medium text-[#747A72]">{customer.phone}</td>
                           <td className="px-4 py-3 text-right">
                             <div className="flex justify-end gap-1.5">
                               <button
                                 onClick={() => handleOpenDetail(customer)}
-                                className="grid size-8 place-items-center rounded-lg border border-[#2E2B24] bg-[#131210] text-[#A89F8C] hover:text-[#B8962E] hover:border-[#B8962E] transition cursor-pointer"
+                                className="grid size-8 place-items-center rounded-lg border border-[#E0E4DD] bg-[#FFFFFF] text-[#747A72] hover:text-[#2F352F] hover:border-[#6F776D] hover:bg-[#E8ECE5] transition cursor-pointer shadow-xs"
                                 title="View Details"
                               >
                                 <Eye size={13} />
                               </button>
                               <button
                                 onClick={() => handleOpenEdit(customer)}
-                                className="grid size-8 place-items-center rounded-lg bg-[#131210] border border-[#2E2B24] text-[#B8962E] hover:bg-[#1F1A0F] hover:border-[#B8962E] transition cursor-pointer"
+                                className="grid size-8 place-items-center rounded-lg bg-[#E8ECE5] border border-[#CCD2C8] text-[#2F352F] hover:bg-[#6F776D] hover:text-[#FFFFFF] transition cursor-pointer shadow-xs"
                                 title="Edit"
                               >
                                 <Edit2 size={13} />
                               </button>
                               <button
                                 onClick={() => customer.id && handleDeleteTrigger(customer.id)}
-                                className="grid size-8 place-items-center rounded-lg bg-[#131210] border border-[#2E2B24] text-[#E57373] hover:bg-[#131210] hover:border-[#E57373] transition cursor-pointer"
+                                className="grid size-8 place-items-center rounded-lg bg-[#FFFFFF] border border-[#E0E4DD] text-[#B55B5B] hover:bg-[#FBEBEB] hover:border-[#FBEBEB] transition cursor-pointer shadow-xs"
                                 title="Delete"
                               >
                                 <Trash2 size={13} />
@@ -486,10 +518,10 @@ export default function CustomersPage() {
                 <button
                   onClick={() => loadRegular(true)}
                   disabled={loadingMoreRegular}
-                  className="w-full h-11 border border-[#2E2B24] bg-[#131210] hover:border-[#B8962E] hover:text-[#B8962E] hover:bg-[#1F1A0F] rounded-2xl text-sm font-semibold text-[#A89F8C] transition flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
+                  className="w-full h-10 border border-[#E0E4DD] bg-[#FFFFFF] hover:border-[#6F776D] hover:bg-[#E8ECE5] rounded-xl text-xs font-bold text-[#2F352F] transition flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer shadow-xs"
                 >
                   {loadingMoreRegular && (
-                    <div className="size-4 animate-spin rounded-full border-2 border-[#B8962E] border-t-transparent" />
+                    <div className="size-3.5 animate-spin rounded-full border-2 border-[#6F776D] border-t-transparent" />
                   )}
                   {loadingMoreRegular ? "Loading..." : "Load More"}
                 </button>
@@ -498,24 +530,24 @@ export default function CustomersPage() {
 
             {/* Membership Customers Section */}
             <div className="space-y-4">
-              <div className="flex items-center justify-between border-b border-[#2E2B24] pb-2">
-                <h2 className="text-lg font-bold text-[#B8962E]">
+              <div className="flex items-center justify-between border-b border-[#E0E4DD] pb-2">
+                <h2 className="font-serif text-base font-bold text-[#2F352F]">
                   {membershipHeader}
                 </h2>
               </div>
-              <div className="overflow-x-auto rounded-2xl border border-[#2E2B24] bg-[#131210] shadow-md">
-                <table className="w-full min-w-[340px] border-collapse text-left text-sm text-[#A89F8C]">
-                  <thead className="bg-[#0E0D0B] text-[10px] font-bold uppercase tracking-[0.18em] text-[#A89F8C] border-b border-[#2E2B24]">
+              <div className="overflow-x-auto rounded-2xl border border-[#E0E4DD] bg-[#FFFFFF] shadow-xs">
+                <table className="w-full min-w-[340px] border-collapse text-left text-xs text-[#292D29]">
+                  <thead className="bg-[#F7F7F4] text-[10px] font-bold uppercase tracking-wider text-[#747A72] border-b border-[#E0E4DD]">
                     <tr>
-                      <th className="px-4 py-3.5 font-bold">Name</th>
-                      <th className="px-4 py-3.5 font-bold">Phone</th>
-                      <th className="px-4 py-3.5 font-bold text-right">Actions</th>
+                      <th className="px-4 py-3 font-bold">Name</th>
+                      <th className="px-4 py-3 font-bold">Phone</th>
+                      <th className="px-4 py-3 font-bold text-right">Actions</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-[#2E2B24]">
+                  <tbody className="divide-y divide-[#E0E4DD]">
                     {membershipToDisplay.length === 0 ? (
                       <tr>
-                        <td colSpan={3} className="px-4 py-8 text-center text-[#6B6358] font-medium italic bg-transparent">
+                        <td colSpan={3} className="px-4 py-8 text-center text-[#747A72] font-medium italic bg-transparent">
                           {debouncedQuery.trim()
                             ? "No matching membership customers."
                             : "No membership customers."}
@@ -523,28 +555,28 @@ export default function CustomersPage() {
                       </tr>
                     ) : (
                       membershipToDisplay.map((customer) => (
-                        <tr key={customer.id} className="hover:bg-[#1C1A16] transition bg-transparent text-[#A89F8C]">
-                          <td className="px-4 py-3 font-semibold text-[#F5F0E8]">{customer.name}</td>
-                          <td className="px-4 py-3 font-medium">{customer.phone}</td>
+                        <tr key={customer.id} className="hover:bg-[#F7F7F4]/60 transition bg-transparent">
+                          <td className="px-4 py-3 font-semibold text-[#2F352F]">{customer.name}</td>
+                          <td className="px-4 py-3 font-medium text-[#747A72]">{customer.phone}</td>
                           <td className="px-4 py-3 text-right">
                             <div className="flex justify-end gap-1.5">
                               <button
                                 onClick={() => handleOpenDetail(customer)}
-                                className="grid size-8 place-items-center rounded-lg border border-[#2E2B24] bg-[#131210] text-[#A89F8C] hover:text-[#B8962E] hover:border-[#B8962E] transition cursor-pointer"
+                                className="grid size-8 place-items-center rounded-lg border border-[#E0E4DD] bg-[#FFFFFF] text-[#747A72] hover:text-[#2F352F] hover:border-[#6F776D] hover:bg-[#E8ECE5] transition cursor-pointer shadow-xs"
                                 title="View Details"
                               >
                                 <Eye size={13} />
                               </button>
                               <button
                                 onClick={() => handleOpenEdit(customer)}
-                                className="grid size-8 place-items-center rounded-lg bg-[#131210] border border-[#2E2B24] text-[#B8962E] hover:bg-[#1F1A0F] hover:border-[#B8962E] transition cursor-pointer"
+                                className="grid size-8 place-items-center rounded-lg bg-[#E8ECE5] border border-[#CCD2C8] text-[#2F352F] hover:bg-[#6F776D] hover:text-[#FFFFFF] transition cursor-pointer shadow-xs"
                                 title="Edit"
                               >
                                 <Edit2 size={13} />
                               </button>
                               <button
                                 onClick={() => customer.id && handleDeleteTrigger(customer.id)}
-                                className="grid size-8 place-items-center rounded-lg bg-[#131210] border border-[#2E2B24] text-[#E57373] hover:bg-[#131210] hover:border-[#E57373] transition cursor-pointer"
+                                className="grid size-8 place-items-center rounded-lg bg-[#FFFFFF] border border-[#E0E4DD] text-[#B55B5B] hover:bg-[#FBEBEB] hover:border-[#FBEBEB] transition cursor-pointer shadow-xs"
                                 title="Delete"
                               >
                                 <Trash2 size={13} />
@@ -561,10 +593,10 @@ export default function CustomersPage() {
                 <button
                   onClick={() => loadMembership(true)}
                   disabled={loadingMoreMembership}
-                  className="w-full h-11 border border-[#2E2B24] bg-[#131210] hover:border-[#B8962E] hover:text-[#B8962E] hover:bg-[#1F1A0F] rounded-2xl text-sm font-semibold text-[#A89F8C] transition flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
+                  className="w-full h-10 border border-[#E0E4DD] bg-[#FFFFFF] hover:border-[#6F776D] hover:bg-[#E8ECE5] rounded-xl text-xs font-bold text-[#2F352F] transition flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer shadow-xs"
                 >
                   {loadingMoreMembership && (
-                    <div className="size-4 animate-spin rounded-full border-2 border-[#B8962E] border-t-transparent" />
+                    <div className="size-3.5 animate-spin rounded-full border-2 border-[#6F776D] border-t-transparent" />
                   )}
                   {loadingMoreMembership ? "Loading..." : "Load More"}
                 </button>
@@ -577,42 +609,42 @@ export default function CustomersPage() {
       {/* Modal Overlay Dialog */}
       {modalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setModalOpen(false)} />
-          <div className="relative w-full max-w-md rounded-3xl border border-[#2E2B24] bg-[#1C1A16] p-6 shadow-2xl text-[#A89F8C] animate-in zoom-in-95 duration-200 z-10 max-h-[90vh] overflow-y-auto">
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-xs" onClick={() => setModalOpen(false)} />
+          <div className="relative w-full max-w-md rounded-3xl border border-[#E0E4DD] bg-[#FFFFFF] p-6 shadow-xl text-[#292D29] animate-in zoom-in-95 duration-200 z-10 max-h-[90vh] overflow-y-auto">
             <button
               onClick={() => setModalOpen(false)}
-              className="absolute top-4 right-4 text-[#A89F8C] hover:text-[#B8962E] transition cursor-pointer"
+              className="absolute top-4 right-4 text-[#747A72] hover:text-[#2F352F] transition cursor-pointer"
             >
-              <X size={20} />
+              <X size={18} />
             </button>
-            <h2 className="text-xl font-bold text-[#F5F0E8] mb-4">
+            <h2 className="font-serif text-lg font-bold text-[#2F352F] mb-4">
               {editingCustomer ? "Edit Customer Details" : "Add Customer"}
             </h2>
             <form onSubmit={handleSubmit} className="space-y-4">
               <label className="block">
-                <span className="text-sm font-semibold text-[#A89F8C]">Name</span>
+                <span className="text-xs font-semibold text-[#747A72]">Name</span>
                 <input
                   required
                   type="text"
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  className="mt-2 h-11 w-full rounded-xl border border-[#2E2B24] bg-[#0E0D0B] px-4 text-sm text-[#F5F0E8] outline-none focus:border-[#B8962E] focus:ring-1 focus:ring-[#B8962E] placeholder-[#6B6358]"
+                  className="mt-1.5 h-10 w-full rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] px-3 text-xs text-[#292D29] outline-none focus:border-[#6F776D] focus:ring-1 focus:ring-[#6F776D] placeholder-[#747A72]"
                 />
               </label>
 
               <label className="block">
-                <span className="text-sm font-semibold text-[#A89F8C]">Phone Number</span>
+                <span className="text-xs font-semibold text-[#747A72]">Phone Number</span>
                 <input
                   required
                   type="text"
                   value={formData.phone}
                   onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                  className="mt-2 h-11 w-full rounded-xl border border-[#2E2B24] bg-[#0E0D0B] px-4 text-sm text-[#F5F0E8] outline-none focus:border-[#B8962E] focus:ring-1 focus:ring-[#B8962E] placeholder-[#6B6358]"
+                  className="mt-1.5 h-10 w-full rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] px-3 text-xs text-[#292D29] outline-none focus:border-[#6F776D] focus:ring-1 focus:ring-[#6F776D] placeholder-[#747A72]"
                 />
               </label>
 
               <label className="block">
-                <span className="text-sm font-semibold text-[#A89F8C]">Customer Type</span>
+                <span className="text-xs font-semibold text-[#747A72]">Customer Type</span>
                 <select
                   value={formData.customerType}
                   onChange={(e) => {
@@ -623,7 +655,7 @@ export default function CustomersPage() {
                       recordInvoice: newType === "membership" ? (editingCustomer?.customerType !== "membership") : false
                     });
                   }}
-                  className="mt-2 h-11 w-full rounded-xl border border-[#2E2B24] bg-[#0E0D0B] px-4 text-sm text-[#F5F0E8] outline-none focus:border-[#B8962E] focus:ring-1 focus:ring-[#B8962E]"
+                  className="mt-1.5 h-10 w-full rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] px-3 text-xs text-[#292D29] outline-none focus:border-[#6F776D] focus:ring-1 focus:ring-[#6F776D]"
                 >
                   <option value="regular">Regular</option>
                   <option value="membership">Membership</option>
@@ -631,48 +663,48 @@ export default function CustomersPage() {
               </label>
 
               {formData.customerType === "membership" && (
-                <div className="space-y-4 border-l-2 border-[#2E2B24] pl-3 mt-3 animate-in slide-in-from-left-2 duration-200">
+                <div className="space-y-3.5 border-l-2 border-[#6F776D] pl-3 mt-3 animate-in slide-in-from-left-2 duration-200">
                   <label className="block">
-                    <span className="text-sm font-semibold text-[#A89F8C]">Membership Amount (₹)</span>
+                    <span className="text-xs font-semibold text-[#747A72]">Membership Amount (₹)</span>
                     <input
                       required
                       type="number"
                       placeholder="e.g. 5000"
                       value={formData.membershipAmount}
                       onChange={(e) => setFormData({ ...formData, membershipAmount: e.target.value })}
-                      className="mt-2 h-11 w-full rounded-xl border border-[#2E2B24] bg-[#0E0D0B] px-4 text-sm text-[#F5F0E8] outline-none focus:border-[#B8962E] focus:ring-1 focus:ring-[#B8962E]"
+                      className="mt-1.5 h-10 w-full rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] px-3 text-xs text-[#292D29] outline-none focus:border-[#6F776D] focus:ring-1 focus:ring-[#6F776D]"
                     />
                   </label>
 
                   <label className="block">
-                    <span className="text-sm font-semibold text-[#A89F8C]">Duration (in months)</span>
+                    <span className="text-xs font-semibold text-[#747A72]">Duration (in months)</span>
                     <input
                       required
                       type="number"
                       placeholder="e.g. 3"
                       value={formData.membershipDuration}
                       onChange={(e) => setFormData({ ...formData, membershipDuration: e.target.value })}
-                      className="mt-2 h-11 w-full rounded-xl border border-[#2E2B24] bg-[#0E0D0B] px-4 text-sm text-[#F5F0E8] outline-none focus:border-[#B8962E] focus:ring-1 focus:ring-[#B8962E]"
+                      className="mt-1.5 h-10 w-full rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] px-3 text-xs text-[#292D29] outline-none focus:border-[#6F776D] focus:ring-1 focus:ring-[#6F776D]"
                     />
                   </label>
 
                   <label className="block">
-                    <span className="text-sm font-semibold text-[#A89F8C]">Start Date</span>
+                    <span className="text-xs font-semibold text-[#747A72]">Start Date</span>
                     <input
                       required
                       type="date"
                       value={formData.membershipStart}
                       onChange={(e) => setFormData({ ...formData, membershipStart: e.target.value })}
-                      className="mt-2 h-11 w-full rounded-xl border border-[#2E2B24] bg-[#0E0D0B] px-4 text-sm text-[#F5F0E8] outline-none focus:border-[#B8962E] focus:ring-1 focus:ring-[#B8962E]"
+                      className="mt-1.5 h-10 w-full rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] px-3 text-xs text-[#292D29] outline-none focus:border-[#6F776D] focus:ring-1 focus:ring-[#6F776D]"
                     />
                   </label>
 
                   <label className="block">
-                    <span className="text-sm font-semibold text-[#A89F8C]">Payment Method</span>
+                    <span className="text-xs font-semibold text-[#747A72]">Payment Method</span>
                     <select
                       value={formData.paymentMethod}
                       onChange={(e) => setFormData({ ...formData, paymentMethod: e.target.value as "UPI" | "Cash" | "Card" })}
-                      className="mt-2 h-11 w-full rounded-xl border border-[#2E2B24] bg-[#0E0D0B] px-4 text-sm text-[#F5F0E8] outline-none focus:border-[#B8962E] focus:ring-1 focus:ring-[#B8962E]"
+                      className="mt-1.5 h-10 w-full rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] px-3 text-xs text-[#292D29] outline-none focus:border-[#6F776D] focus:ring-1 focus:ring-[#6F776D]"
                     >
                       <option value="UPI">UPI</option>
                       <option value="Cash">Cash</option>
@@ -680,32 +712,32 @@ export default function CustomersPage() {
                     </select>
                   </label>
 
-                  <div className="flex items-center gap-2.5 pt-2">
+                  <div className="flex items-center gap-2.5 pt-1">
                     <input
                       type="checkbox"
                       id="recordInvoice"
                       checked={formData.recordInvoice}
                       onChange={(e) => setFormData({ ...formData, recordInvoice: e.target.checked })}
-                      className="size-4 rounded border-[#2E2B24] bg-[#0E0D0B] text-[#B8962E] focus:ring-[#B8962E] accent-[#B8962E] cursor-pointer"
+                      className="size-4 rounded border-[#E0E4DD] bg-[#F7F7F4] text-[#6F776D] focus:ring-0 accent-[#6F776D] cursor-pointer"
                     />
-                    <label htmlFor="recordInvoice" className="text-sm font-semibold text-[#A89F8C] cursor-pointer select-none">
+                    <label htmlFor="recordInvoice" className="text-xs font-semibold text-[#292D29] cursor-pointer select-none">
                       Record payment & generate membership invoice
                     </label>
                   </div>
                 </div>
               )}
 
-              <div className="flex gap-3 justify-end pt-2">
+              <div className="flex gap-2 justify-end pt-2">
                 <button
                   type="button"
                   onClick={() => setModalOpen(false)}
-                  className="h-11 rounded-xl border border-[#2E2B24] bg-[#131210] px-4 text-sm font-semibold text-[#A89F8C] hover:border-[#B8962E] hover:text-[#B8962E] hover:bg-[#1F1A0F] transition cursor-pointer"
+                  className="h-9 rounded-xl border border-[#E0E4DD] bg-[#FFFFFF] px-4 text-xs font-semibold text-[#747A72] hover:bg-[#F7F7F4] hover:text-[#292D29] transition cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="h-11 rounded-xl bg-[#B8962E] px-6 text-sm font-bold text-[#0E0D0B] hover:bg-[#D4A935] shadow-[0_4px_16px_rgba(184,150,46,0.25)] transition disabled:opacity-50 cursor-pointer"
+                  className="h-9 rounded-xl bg-[#6F776D] px-5 text-xs font-bold text-[#FFFFFF] hover:bg-[#2F352F] transition cursor-pointer shadow-xs"
                 >
                   Save Profile
                 </button>
@@ -718,20 +750,20 @@ export default function CustomersPage() {
       {/* Delete Confirmation Modal */}
       {deleteConfirmOpen && (
         <div className="fixed inset-0 z-55 flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setDeleteConfirmOpen(false)} />
-          <div className="relative w-full max-w-sm rounded-3xl border border-[#2E2B24] bg-[#1C1A16] p-6 shadow-2xl text-[#A89F8C] z-10 animate-in zoom-in-95 duration-200">
-            <h3 className="text-lg font-bold text-[#F5F0E8]">Are you sure you want to delete this record?</h3>
-            <p className="mt-2 text-sm text-[#A89F8C]">This action cannot be undone and will remove the record immediately.</p>
-            <div className="mt-6 flex gap-3 justify-end">
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-xs" onClick={() => setDeleteConfirmOpen(false)} />
+          <div className="relative w-full max-w-sm rounded-3xl border border-[#E0E4DD] bg-[#FFFFFF] p-6 shadow-xl text-[#292D29] z-10 animate-in zoom-in-95 duration-200">
+            <h3 className="font-serif text-base font-bold text-[#2F352F]">Are you sure you want to delete this customer?</h3>
+            <p className="mt-1.5 text-xs text-[#747A72]">This action cannot be undone and will remove the record immediately.</p>
+            <div className="mt-5 flex gap-2 justify-end">
               <button
                 onClick={() => setDeleteConfirmOpen(false)}
-                className="h-10 rounded-xl border border-[#2E2B24] bg-[#131210] px-4 text-xs font-semibold text-[#A89F8C] hover:border-[#B8962E] hover:text-[#B8962E] transition cursor-pointer"
+                className="h-9 rounded-xl border border-[#E0E4DD] bg-[#FFFFFF] px-3.5 text-xs font-semibold text-[#747A72] hover:bg-[#F7F7F4] transition cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 onClick={handleConfirmDelete}
-                className="h-10 rounded-xl bg-[#E57373] hover:bg-[#ef5350] px-4 text-xs font-bold text-[#0E0D0B] shadow-sm transition cursor-pointer"
+                className="h-9 rounded-xl bg-[#B55B5B] hover:bg-[#9E4D4D] px-4 text-xs font-bold text-[#FFFFFF] shadow-xs transition cursor-pointer"
               >
                 Delete
               </button>

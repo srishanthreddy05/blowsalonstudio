@@ -5,11 +5,9 @@ export type ServiceRow = {
   price: number | "";
   quantity: number | "";
   discount: number | "";
-  usedProductId?: string;
-  usedProductName?: string;
-  usedProductCost?: number;
   isCreditSettle?: boolean;
 };
+
 
 export type ProductRow = {
   id: number;
@@ -28,6 +26,8 @@ export type BillTotals = {
   billDiscount: number;
   lineDiscount?: number;
   offerDiscount: number; // discount contributed by the selected offer
+  eligibleServiceAmount?: number;
+  totalDiscount?: number;
   gst: number;
   grandTotal: number;
 };

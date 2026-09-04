@@ -40,7 +40,7 @@ import { AddExpenseModal } from "@/components/expenses/AddExpenseModal";
 import * as customerService from "@/services/customers";
 import * as expensesService from "@/services/expenses";
 import { toLocalDateString } from "@/lib/utils/date";
-import { getInvoicePayments, getInvoicePaymentRatio, getServiceCommission } from "@/lib/utils/settlements";
+import { getInvoicePayments, getInvoicePaymentRatio, getInvoiceSalesBreakdown } from "@/lib/utils/settlements";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 interface Invoice {
@@ -74,7 +74,6 @@ interface ServiceItem {
   price?: number | "";
   amount?: number;
   discount?: number | "";
-  usedProductCost?: number;
 }
 
 interface ProductItem {
@@ -84,31 +83,21 @@ interface ProductItem {
   amount?: number;
 }
 
-interface StaffDetail {
-  staffId: string;
-  name: string;
-  role: string;
-  serviceRevenue: number;
-  productCost: number;
-  staffShare: number;
-  ownerShareContribution: number;
-  collectedCredits?: any[];
-  collectedCreditsShare?: number;
+interface TodaySettlement {
+  serviceSales: number;
+  retailSales: number;
+  membershipSales: number;
+  totalSales: number;
+  cash: number;
+  upi: number;
+  card: number;
+  credit: number;
+  billsCount: number;
+  serviceTxnCount: number;
+  retailTxnCount: number;
+  membershipTxnCount: number;
 }
 
-interface TodaySettlement {
-  totalServiceRevenue: number;
-  totalMembershipAmount: number;
-  totalProductCost: number;
-  totalStaffShare: number;
-  totalOwnerShare: number;
-  ownerDirectRevenue: number;
-  staffRevenueContribution: number;
-  staffProductReimbursement: number;
-  retailProductsRevenue: number;
-  staffDetails: Record<string, StaffDetail>;
-  collectedCredits: any[];
-}
 
 // ── Utilities ──────────────────────────────────────────────────────────────
 function parseTimestamp(ts: any): Date | null {
@@ -187,7 +176,7 @@ function StatCard({
   value,
   subtitle,
   icon: Icon,
-  accent = "gold",
+  accent = "olive",
   children,
   className = "",
 }: {
@@ -195,27 +184,27 @@ function StatCard({
   value: string | number;
   subtitle?: string;
   icon: React.ElementType;
-  accent?: "gold" | "green" | "blue" | "purple";
+  accent?: "olive" | "green" | "amber" | "charcoal";
   children?: React.ReactNode;
   className?: string;
 }) {
   const accentColors = {
-    gold: "text-[#B8962E] border-[#B8962E]/20 bg-[#B8962E]/5",
-    green: "text-[#4ADE80] border-[#4ADE80]/20 bg-[#4ADE80]/5",
-    blue: "text-[#60A5FA] border-[#60A5FA]/20 bg-[#60A5FA]/5",
-    purple: "text-[#A78BFA] border-[#A78BFA]/20 bg-[#A78BFA]/5",
+    olive: "text-[#6F776D] bg-[#E8ECE5]",
+    green: "text-[#5F7A62] bg-[#E8ECE5]",
+    amber: "text-[#B18A45] bg-[#FAF4E8]",
+    charcoal: "text-[#2F352F] bg-[#F7F7F4]",
   };
 
   return (
     <div
-      className={`group relative overflow-hidden rounded-2xl border border-[#2E2B24] bg-[#1C1A16] p-5 shadow-sm transition-all duration-300 hover:border-[#4A4535] hover:shadow-[0_8px_30px_rgba(184,150,46,0.06)] hover:-translate-y-0.5 ${className}`}
+      className={`group relative overflow-hidden rounded-2xl border border-[#E0E4DD] bg-[#FFFFFF] p-5 shadow-xs transition-all duration-300 hover:border-[#6F776D] hover:shadow-sm ${className}`}
     >
       <div className="flex items-start justify-between">
         <div className="space-y-1">
-          <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#6B6358]">
+          <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#747A72]">
             {title}
           </span>
-          <p className="text-[1.75rem] font-extrabold tracking-[-0.03em] text-[#F5F0E8]">
+          <p className="text-[1.75rem] font-extrabold tracking-[-0.03em] text-[#2F352F]">
             {value}
           </p>
         </div>
@@ -224,7 +213,7 @@ function StatCard({
         </div>
       </div>
       {subtitle && (
-        <p className="mt-3 text-[11px] font-medium text-[#6B6358]">{subtitle}</p>
+        <p className="mt-3 text-[11px] font-medium text-[#747A72]">{subtitle}</p>
       )}
       {children && <div className="mt-4">{children}</div>}
     </div>
@@ -235,25 +224,29 @@ function PaymentBreakdown({
   cash,
   upi,
   card,
+  credit,
   advance,
 }: {
   cash: number;
   upi: number;
   card: number;
+  credit?: number;
   advance?: number;
 }) {
   const advVal = advance || 0;
-  const total = cash + upi + card + advVal || 1;
+  const creditVal = credit || 0;
+  const total = cash + upi + card + creditVal + advVal || 1;
   const items = [
-    { label: "Cash", value: cash, color: "bg-[#4ADE80]" },
-    { label: "UPI", value: upi, color: "bg-[#60A5FA]" },
-    { label: "Card", value: card, color: "bg-[#A78BFA]" },
-    ...(advVal > 0 ? [{ label: "Advance", value: advVal, color: "bg-[#059669]" }] : []),
+    { label: "Cash", value: cash, color: "bg-[#5F7A62]" },
+    { label: "UPI", value: upi, color: "bg-[#6F776D]" },
+    { label: "Card", value: card, color: "bg-[#B18A45]" },
+    ...(creditVal > 0 ? [{ label: "Credit", value: creditVal, color: "bg-[#B55B5B]" }] : []),
+    ...(advVal > 0 ? [{ label: "Advance", value: advVal, color: "bg-[#2F352F]" }] : []),
   ];
 
   return (
     <div className="mt-4 space-y-3">
-      <div className="flex h-1.5 overflow-hidden rounded-full bg-[#131210]">
+      <div className="flex h-1.5 overflow-hidden rounded-full bg-[#F7F7F4]">
         {items.map((item) => (
           <div
             key={item.label}
@@ -262,13 +255,13 @@ function PaymentBreakdown({
           />
         ))}
       </div>
-      <div className={`grid gap-2 ${advVal > 0 ? "grid-cols-4" : "grid-cols-3"}`}>
+      <div className={`grid gap-2 ${items.length >= 4 ? "grid-cols-4" : "grid-cols-3"}`}>
         {items.map((item) => (
           <div key={item.label} className="text-center">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-[#6B6358]">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-[#747A72]">
               {item.label}
             </p>
-            <p className="mt-0.5 text-xs font-bold text-[#F5F0E8]">
+            <p className={`mt-0.5 text-xs font-bold ${item.label === "Credit" ? "text-[#B55B5B]" : "text-[#292D29]"}`}>
               {formatCurrency(item.value)}
             </p>
           </div>
@@ -276,6 +269,61 @@ function PaymentBreakdown({
       </div>
     </div>
   );
+}
+
+export function getStylistAttendanceForDate(
+  staffMember?: Staff | null,
+  dateKey?: string,
+  isToday = false
+): { inTime: string; outTime: string } {
+  if (!staffMember || !staffMember.clockLogs || staffMember.clockLogs.length === 0 || !dateKey) {
+    if (staffMember && isToday && staffMember.dutyStatus === "onDuty") {
+      return { inTime: "On Duty", outTime: "Still Working" };
+    }
+    return { inTime: "—", outTime: "—" };
+  }
+
+  const logsForDate = staffMember.clockLogs
+    .map((log) => {
+      let d: Date | null = null;
+      if (log.timestamp && typeof (log.timestamp as any).toDate === "function") {
+        d = (log.timestamp as any).toDate();
+      } else if (log.timestamp) {
+        d = new Date(log.timestamp);
+      }
+      return { event: log.event, date: d };
+    })
+    .filter((log): log is { event: "clockIn" | "clockOut"; date: Date } => {
+      if (!log.date || isNaN(log.date.getTime())) return false;
+      return toLocalDateString(log.date) === dateKey;
+    })
+    .sort((a, b) => a.date.getTime() - b.date.getTime());
+
+  if (logsForDate.length === 0) {
+    if (isToday && staffMember.dutyStatus === "onDuty") {
+      return { inTime: "On Duty", outTime: "Still Working" };
+    }
+    return { inTime: "—", outTime: "—" };
+  }
+
+  const firstIn = logsForDate.find((l) => l.event === "clockIn");
+  const lastOut = [...logsForDate].reverse().find((l) => l.event === "clockOut");
+  const lastEvent = logsForDate[logsForDate.length - 1];
+
+  const formatTime = (d: Date) => {
+    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: true });
+  };
+
+  const inTimeStr = firstIn ? formatTime(firstIn.date) : "—";
+  let outTimeStr = "—";
+
+  if (lastEvent.event === "clockIn" || (isToday && staffMember.dutyStatus === "onDuty")) {
+    outTimeStr = "Still Working";
+  } else if (lastOut) {
+    outTimeStr = formatTime(lastOut.date);
+  }
+
+  return { inTime: inTimeStr, outTime: outTimeStr };
 }
 
 function StaffCard({
@@ -291,50 +339,54 @@ function StaffCard({
 
   return (
     <div
-      className={`group relative overflow-hidden rounded-2xl border bg-[#131210] p-4 transition-all duration-300 hover:-translate-y-0.5 ${isOnDuty
-        ? "border-[#B8962E]/30 shadow-[0_4px_20px_rgba(184,150,46,0.08)]"
-        : "border-[#2E2B24] hover:border-[#4A4535]"
-        }`}
+      className={`group relative overflow-hidden rounded-2xl border bg-[#FFFFFF] p-4 transition-all duration-300 hover:shadow-xs ${
+        isOnDuty
+          ? "border-[#CCD2C8] shadow-xs"
+          : "border-[#E0E4DD]"
+      }`}
     >
       <div className="flex items-start justify-between">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <h3 className="truncate text-sm font-bold text-[#F5F0E8]">
+            <h3 className="truncate text-sm font-bold text-[#292D29]">
               {member.name}
             </h3>
             <span
-              className={`shrink-0 rounded-full px-2 py-0.5 text-[9px] font-bold tracking-[0.1em] uppercase border ${isOnDuty
-                ? "border-[#4A3A10] bg-[#2A2310] text-[#D4A935]"
-                : "border-[#2E2B24] bg-[#1C1A16] text-[#6B6358]"
-                }`}
+              className={`shrink-0 rounded-full px-2 py-0.5 text-[9px] font-bold tracking-[0.1em] uppercase border ${
+                isOnDuty
+                  ? "border-[#CCD2C8] bg-[#E8ECE5] text-[#2F352F]"
+                  : "border-[#E0E4DD] bg-[#F7F7F4] text-[#747A72]"
+              }`}
             >
               {isOnDuty ? "On Duty" : "Off Duty"}
             </span>
           </div>
-          <p className="mt-0.5 text-[10px] font-semibold tracking-[0.12em] uppercase text-[#6B6358]">
+          <p className="mt-0.5 text-[10px] font-semibold tracking-[0.12em] uppercase text-[#747A72]">
             {member.role}
           </p>
         </div>
         <div
-          className={`size-2 rounded-full shrink-0 mt-1.5 ${isOnDuty ? "bg-[#4ADE80] shadow-[0_0_8px_rgba(74,222,128,0.4)]" : "bg-[#6B6358]"
-            }`}
+          className={`size-2 rounded-full shrink-0 mt-1.5 ${
+            isOnDuty ? "bg-[#5F7A62]" : "bg-[#CCD2C8]"
+          }`}
         />
       </div>
 
-      <div className="mt-3 flex items-center justify-between border-t border-[#2E2B24] pt-3">
-        <div className="flex items-center gap-1.5 text-[#6B6358]">
+      <div className="mt-3 flex items-center justify-between border-t border-[#E0E4DD] pt-3">
+        <div className="flex items-center gap-1.5 text-[#747A72]">
           <Clock size={12} strokeWidth={2.5} />
           <span className="text-[11px] font-medium">Active today</span>
         </div>
-        <span className="text-xs font-bold text-[#F5F0E8]">{activeTime}</span>
+        <span className="text-xs font-bold text-[#292D29]">{activeTime}</span>
       </div>
 
       <button
         onClick={() => onToggle(member)}
-        className={`mt-3 h-9 w-full rounded-xl text-[11px] font-bold tracking-wide transition-all duration-200 ${isOnDuty
-          ? "border border-[#2E2B24] bg-transparent text-[#A89F8C] hover:border-[#B8962E] hover:text-[#B8962E]"
-          : "bg-[#B8962E] text-[#0E0D0B] hover:bg-[#D4A935] shadow-[0_2px_12px_rgba(184,150,46,0.2)]"
-          }`}
+        className={`mt-3 h-9 w-full rounded-xl text-[11px] font-bold tracking-wide transition-all duration-200 cursor-pointer ${
+          isOnDuty
+            ? "border border-[#E0E4DD] bg-[#F7F7F4] text-[#747A72] hover:border-[#6F776D] hover:text-[#2F352F] hover:bg-[#E8ECE5]"
+            : "bg-[#6F776D] text-[#FFFFFF] hover:bg-[#2F352F] shadow-xs"
+        }`}
       >
         {isOnDuty ? "Clock Out" : "Clock In"}
       </button>
@@ -357,34 +409,34 @@ function InvoiceRow({ invoice }: { invoice: Invoice }) {
   const typeConfig = {
     membership: {
       label: "Membership",
-      class: "bg-[#2A2310] text-[#D4A935] border-[#4A3A10]",
+      class: "bg-[#E8ECE5] text-[#2F352F] border-[#CCD2C8]",
     },
     regular: {
       label: "Regular",
-      class: "bg-[#1C1A16] text-[#A89F8C] border-[#2E2B24]",
+      class: "bg-[#F7F7F4] text-[#747A72] border-[#E0E4DD]",
     },
     new: {
       label: "New",
-      class: "bg-[#1A1C2A] text-[#818CF8] border-[#2E3154]",
+      class: "bg-[#FAF4E8] text-[#B18A45] border-[#B18A45]/30",
     },
   };
 
   const config = typeConfig[customerType as keyof typeof typeConfig] || typeConfig.regular;
 
   return (
-    <tr className="group transition-colors hover:bg-[#1F1A0F]/50">
+    <tr className="group transition-colors hover:bg-[#F7F7F4]">
       <td className="px-4 py-3.5">
-        <span className="font-mono text-xs font-bold text-[#F5F0E8]">
+        <span className="font-mono text-xs font-bold text-[#292D29]">
           #{invoice.invoiceNumber}
         </span>
       </td>
       <td className="px-4 py-3.5">
         <div className="flex flex-col">
-          <span className="text-sm font-semibold text-[#F5F0E8]">
+          <span className="text-sm font-semibold text-[#292D29]">
             {invoice.customerName}
           </span>
           {invoice.customerPhone && invoice.customerPhone !== "0000000000" && (
-            <span className="text-[10px] text-[#6B6358]">{invoice.customerPhone}</span>
+            <span className="text-[10px] text-[#747A72]">{invoice.customerPhone}</span>
           )}
         </div>
       </td>
@@ -395,12 +447,12 @@ function InvoiceRow({ invoice }: { invoice: Invoice }) {
           {config.label}
         </span>
       </td>
-      <td className="px-4 py-3.5 text-sm text-[#A89F8C]">
-        {staffListStr || <span className="italic text-[#6B6358]">Unassigned</span>}
+      <td className="px-4 py-3.5 text-sm text-[#747A72]">
+        {staffListStr || <span className="italic text-[#747A72]">Unassigned</span>}
       </td>
-      <td className="px-4 py-3.5 text-xs font-medium text-[#6B6358]">{time}</td>
+      <td className="px-4 py-3.5 text-xs font-medium text-[#747A72]">{time}</td>
       <td className="px-4 py-3.5 text-right">
-        <span className="text-sm font-bold text-[#F5F0E8]">
+        <span className="text-sm font-bold text-[#292D29]">
           {formatCurrency(invoice.grandTotal)}
         </span>
       </td>
@@ -408,13 +460,13 @@ function InvoiceRow({ invoice }: { invoice: Invoice }) {
         <div className="flex justify-end gap-2 opacity-0 transition-opacity group-hover:opacity-100">
           <Link
             href={`/invoices/${invoice.id}`}
-            className="inline-flex h-8 items-center justify-center rounded-lg border border-[#2E2B24] bg-[#131210] px-3 text-xs font-semibold text-[#A89F8C] transition hover:border-[#B8962E] hover:text-[#B8962E]"
+            className="inline-flex h-7 items-center justify-center rounded-lg border border-[#E0E4DD] bg-[#FFFFFF] px-2.5 text-xs font-semibold text-[#292D29] transition hover:border-[#6F776D] hover:bg-[#E8ECE5]"
           >
             View
           </Link>
           <Link
             href={`/billing?edit=${invoice.id}`}
-            className="inline-flex h-8 items-center justify-center rounded-lg border border-[#B8962E]/30 bg-[#B8962E]/10 px-3 text-xs font-semibold text-[#B8962E] transition hover:bg-[#B8962E]/20"
+            className="inline-flex h-7 items-center justify-center rounded-lg border border-[#CCD2C8] bg-[#E8ECE5] px-2.5 text-xs font-semibold text-[#2F352F] transition hover:bg-[#6F776D] hover:text-[#FFFFFF]"
           >
             Edit
           </Link>
@@ -439,11 +491,11 @@ function ModalOverlay({
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-[#292D29]/40 backdrop-blur-xs p-4 animate-in fade-in duration-200"
       onClick={onClose}
     >
       <div
-        className={`relative w-full ${maxWidth} max-h-[90vh] overflow-y-auto rounded-3xl border border-[#2E2B24] bg-[#1C1A16] shadow-2xl animate-in zoom-in-95 duration-200`}
+        className={`relative w-full ${maxWidth} max-h-[90vh] overflow-y-auto rounded-3xl border border-[#E0E4DD] bg-[#FFFFFF] shadow-2xl animate-in zoom-in-95 duration-200`}
         onClick={(e) => e.stopPropagation()}
       >
         {children}
@@ -452,339 +504,7 @@ function ModalOverlay({
   );
 }
 
-function SettlementCard({
-  title,
-  value,
-  icon: Icon,
-  items,
-  isOwner = false,
-  collectedCredits,
-}: {
-  title: string;
-  value: number;
-  icon: React.ElementType;
-  items: { label: string; value: number; negative?: boolean }[];
-  isOwner?: boolean;
-  collectedCredits?: {
-    originalBillDate?: string;
-    originalInvoiceNumber?: string;
-    collectionDate?: string;
-    collectionMethod?: string;
-    collectedBy?: string;
-    amount: number;
-    serviceOrProductName: string;
-    type?: string;
-    share: number;
-  }[];
-}) {
-  const cardBorder = isOwner
-    ? "border-[#4A3A10]/60 hover:border-[#D4A935]/40"
-    : "border-[#2E2B24] hover:border-[#60A5FA]/30";
-  const cardBg = isOwner
-    ? "bg-gradient-to-r from-[#1E1700]/95 via-[#120E01]/98 to-[#0E0B01]/98"
-    : "bg-gradient-to-b from-[#181613] to-[#11100E]";
-  const shadowEffect = isOwner
-    ? "hover:shadow-[0_8px_30px_rgba(212,169,53,0.08)] hover:-translate-y-0.5"
-    : "hover:shadow-[0_8px_30px_rgba(96,165,250,0.06)] hover:-translate-y-0.5";
-  const iconWrapperBg = isOwner ? "bg-[#D4A935]/10 text-[#D4A935]" : "bg-[#60A5FA]/10 text-[#60A5FA]";
-  const heroTextColor = isOwner ? "text-[#D4A935]" : "text-[#F5F0E8]";
-  const badgeText = isOwner ? "Owner" : "Stylist";
-  const badgeClass = isOwner
-    ? "border-[#D4A935]/20 bg-[#D4A935]/5 text-[#D4A935]"
-    : "border-[#60A5FA]/20 bg-[#60A5FA]/5 text-[#60A5FA]";
 
-  const hasCredits = collectedCredits && collectedCredits.length > 0;
-
-  if (isOwner) {
-    // Horizontal layout for Owner
-    return (
-      <div
-        className={`relative overflow-hidden rounded-3xl border p-6 transition-all duration-300 ${cardBorder} ${cardBg} ${shadowEffect}`}
-      >
-        {/* Subtle background glow */}
-        <div
-          className="absolute -right-20 -top-20 size-40 rounded-full blur-[80px] pointer-events-none opacity-15 transition-all duration-300 bg-[#D4A935]"
-        />
-
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-stretch">
-          {/* Left Section: Info & Net Share */}
-          <div className="md:col-span-4 flex flex-col justify-between space-y-4">
-            <div className="flex items-center gap-3">
-              <div className={`rounded-xl p-2.5 shrink-0 ${iconWrapperBg}`}>
-                <Icon size={18} strokeWidth={2.5} />
-              </div>
-              <div className="min-w-0">
-                <h4 className="font-extrabold text-base tracking-tight text-[#F5F0E8] truncate">
-                  {title}
-                </h4>
-                <span
-                  className={`inline-block rounded-full border px-2.5 py-0.5 text-[9px] font-bold uppercase tracking-wider mt-1 ${badgeClass}`}
-                >
-                  {badgeText}
-                </span>
-              </div>
-            </div>
-
-            <div className="rounded-2xl border border-[#2E2B24] bg-[#0E0D0B]/80 p-4 flex flex-col justify-center space-y-1.5 shadow-inner">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-[#6B6358]">
-                Today's Net Share
-              </span>
-              <div className="flex items-baseline justify-between gap-2">
-                <p className={`font-black text-2xl tracking-tight ${heroTextColor}`}>
-                  {formatCurrency(value)}
-                </p>
-                <span className="text-[8px] font-extrabold uppercase tracking-widest px-1.5 py-0.5 rounded bg-[#131210] border border-[#4ADE80]/20 text-[#4ADE80]">
-                  SURPLUS
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Middle Section: Breakdown */}
-          <div className="md:col-span-4 border-t md:border-t-0 md:border-l border-[#2E2B24] pt-4 md:pt-0 md:pl-6 flex flex-col justify-between">
-            <div className="space-y-3">
-              <h5 className="text-[10px] font-bold uppercase tracking-wider text-[#6B6358] border-b border-[#2E2B24] pb-1.5">
-                Settlement Breakdown
-              </h5>
-              <div className="space-y-2">
-                {items.map((item, i) => {
-                  const isNegative = item.negative;
-                  const isTotal = item.label.toLowerCase().includes("gross") || item.label.toLowerCase().includes("total");
-                  return (
-                    <div 
-                      key={i} 
-                      className={`flex justify-between items-center text-xs py-0.5 ${
-                        isTotal ? "border-t border-[#2E2B24]/60 pt-2 font-bold mt-1" : ""
-                      }`}
-                    >
-                      <div className="flex items-center gap-2 text-[#A89F8C]">
-                        {!isTotal && (
-                          <div 
-                            className={`size-1.5 rounded-full shrink-0 ${
-                              isNegative ? "bg-[#E57373]" : "bg-[#4ADE80]"
-                            }`} 
-                          />
-                        )}
-                        <span className={`${isTotal ? "text-[#F5F0E8] font-semibold" : "font-medium"}`}>{item.label}</span>
-                      </div>
-                      <span
-                        className={`font-mono font-bold ${
-                          isTotal 
-                            ? "text-[#D4A935]" 
-                            : isNegative 
-                              ? "text-[#E57373]" 
-                              : "text-[#4ADE80]"
-                        }`}
-                      >
-                        {isNegative ? "−" : "+"}
-                        {formatCurrency(Math.abs(item.value))}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-
-          {/* Right Section: Credit Collections */}
-          <div className="md:col-span-4 border-t md:border-t-0 md:border-l border-[#2E2B24] pt-4 md:pt-0 md:pl-6 flex flex-col justify-between">
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <h5 className="text-[10px] font-bold uppercase tracking-wider text-[#B8962E]">
-                  Collected Credits
-                </h5>
-                <span className="text-[8px] font-bold text-[#6B6358] uppercase tracking-wider">Cash Basis</span>
-              </div>
-              
-              {hasCredits ? (
-                <div className="space-y-2 max-h-[140px] overflow-y-auto pr-1">
-                  {collectedCredits.map((c, idx) => {
-                    const method = c.collectionMethod?.toUpperCase() || "UPI";
-                    let methodBadge = "border-[#60A5FA]/20 bg-[#60A5FA]/5 text-[#60A5FA]";
-                    if (method === "UPI") {
-                      methodBadge = "border-[#A78BFA]/20 bg-[#A78BFA]/5 text-[#A78BFA]";
-                    } else if (method === "CASH") {
-                      methodBadge = "border-[#4ADE80]/20 bg-[#4ADE80]/5 text-[#4ADE80]";
-                    }
-
-                    return (
-                      <div 
-                        key={idx} 
-                        className="rounded-xl bg-[#0E0D0B]/60 border border-[#2E2B24]/60 p-2.5 space-y-2 text-[11px] transition hover:bg-[#0E0D0B]"
-                      >
-                        <div className="flex justify-between items-start font-semibold">
-                          <span className="text-[#F5F0E8] truncate max-w-[145px] font-medium" title={c.serviceOrProductName}>
-                            {c.serviceOrProductName}
-                          </span>
-                          <span className="text-emerald-500 font-bold font-mono">
-                            +{formatCurrency(c.share)}
-                          </span>
-                        </div>
-                        
-                        <div className="flex flex-wrap items-center justify-between gap-1 text-[10px] text-[#6B6358]">
-                          <div className="flex items-center gap-1.5">
-                            <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold tracking-wider border ${methodBadge}`}>
-                              {method}
-                            </span>
-                            <span>Amt: <span className="font-semibold text-[#A89F8C]">{formatCurrency(c.amount)}</span></span>
-                          </div>
-                          <span className="font-semibold text-[#D4A935] bg-[#2A2310] px-1.5 py-0.5 rounded text-[8px] border border-[#D4A935]/15">
-                            INV #{c.originalInvoiceNumber || "—"}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center py-6 border border-dashed border-[#2E2B24] rounded-2xl bg-[#0E0D0B]/20 text-[#6B6358]">
-                  <span className="text-[10px] font-semibold italic">No credit collections today</span>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // Vertical layout for Staff card (3 columns side-by-side in grid)
-  return (
-    <div
-      className={`relative overflow-hidden rounded-3xl border p-5 space-y-4 transition-all duration-300 ${cardBorder} ${cardBg} ${shadowEffect} flex flex-col justify-between h-full`}
-    >
-      {/* Subtle Glow backdrop */}
-      <div
-        className="absolute -right-20 -top-20 size-40 rounded-full blur-[80px] pointer-events-none opacity-20 transition-all duration-300 bg-[#60A5FA]"
-      />
-
-      <div className="space-y-4">
-        {/* Header Info */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className={`rounded-xl p-2 shrink-0 ${iconWrapperBg}`}>
-              <Icon size={16} strokeWidth={2.5} />
-            </div>
-            <div className="min-w-0">
-              <h4 className="font-extrabold text-[14px] tracking-tight text-[#F5F0E8] truncate">
-                {title}
-              </h4>
-              <span
-                className={`inline-block rounded-full border px-2 py-0.5 text-[8px] font-bold uppercase tracking-wider mt-0.5 ${badgeClass}`}
-              >
-                {badgeText}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* Hero Wallet Display */}
-        <div className="rounded-2xl border border-[#2E2B24] bg-[#0E0D0B]/80 p-4 flex justify-between items-center shadow-inner">
-          <div className="space-y-0.5">
-            <span className="text-[9px] font-bold uppercase tracking-wider text-[#6B6358]">
-              Today's Net Share
-            </span>
-            <p className={`font-black text-xl tracking-tight ${heroTextColor}`}>
-              {formatCurrency(value)}
-            </p>
-          </div>
-          <div className="shrink-0">
-            <span className={`text-[8px] font-extrabold uppercase tracking-widest px-1.5 py-0.5 rounded-lg bg-[#131210] border ${
-              value >= 0 
-                ? "border-[#4ADE80]/20 text-[#4ADE80]" 
-                : "border-[#E57373]/20 text-[#E57373]"
-            }`}>
-              {value >= 0 ? "SURPLUS" : "DEFICIT"}
-            </span>
-          </div>
-        </div>
-
-        {/* Itemized Splits */}
-        <div className="space-y-2">
-          <h5 className="text-[9px] font-bold uppercase tracking-wider text-[#6B6358] border-b border-[#2E2B24] pb-1">
-            Settlement Breakdown
-          </h5>
-          <div className="space-y-1.5">
-            {items.map((item, i) => {
-              const isNegative = item.negative;
-              const isTotal = item.label.toLowerCase().includes("gross") || item.label.toLowerCase().includes("total");
-              return (
-                <div 
-                  key={i} 
-                  className="flex justify-between items-center text-xs py-0.5"
-                >
-                  <div className="flex items-center gap-2 text-[#A89F8C]">
-                    <div 
-                      className={`size-1.5 rounded-full shrink-0 ${
-                        isNegative ? "bg-[#E57373]" : "bg-[#4ADE80]"
-                      }`} 
-                    />
-                    <span className="font-medium text-[11px]">{item.label}</span>
-                  </div>
-                  <span
-                    className={`font-mono font-bold text-[11px] ${
-                      isNegative ? "text-[#E57373]" : "text-[#4ADE80]"
-                    }`}
-                  >
-                    {isNegative ? "−" : "+"}
-                    {formatCurrency(Math.abs(item.value))}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-
-      {/* Credit Collections */}
-      {hasCredits && (
-        <div className="space-y-2 border-t border-[#2E2B24]/80 pt-3 mt-auto">
-          <div className="flex items-center justify-between">
-            <h5 className="text-[9px] font-bold uppercase tracking-wider text-[#B8962E]">
-              Collected Credits ({collectedCredits.length})
-            </h5>
-          </div>
-          <div className="space-y-1.5 max-h-[120px] overflow-y-auto pr-1">
-            {collectedCredits.map((c, idx) => {
-              const method = c.collectionMethod?.toUpperCase() || "UPI";
-              let methodBadge = "border-[#60A5FA]/20 bg-[#60A5FA]/5 text-[#60A5FA]";
-              if (method === "UPI") {
-                methodBadge = "border-[#A78BFA]/20 bg-[#A78BFA]/5 text-[#A78BFA]";
-              } else if (method === "CASH") {
-                methodBadge = "border-[#4ADE80]/20 bg-[#4ADE80]/5 text-[#4ADE80]";
-              }
-
-              return (
-                <div 
-                  key={idx} 
-                  className="rounded-xl bg-[#0E0D0B]/60 border border-[#2E2B24]/60 p-2 space-y-1.5 text-[10px] transition hover:bg-[#0E0D0B]"
-                >
-                  <div className="flex justify-between items-start font-semibold px-1">
-                    <span className="text-[#F5F0E8] truncate max-w-[120px] font-medium" title={c.serviceOrProductName}>
-                      {c.serviceOrProductName}
-                    </span>
-                    <span className="text-emerald-500 font-bold font-mono">
-                      +{formatCurrency(c.share)}
-                    </span>
-                  </div>
-                  
-                  <div className="flex items-center justify-between gap-1 text-[9px] text-[#6B6358] px-1 pb-0.5">
-                    <span className={`px-1.5 py-0.2 rounded text-[7px] font-bold tracking-wider border ${methodBadge}`}>
-                      {method}
-                    </span>
-                    <span className="font-semibold text-[#D4A935] text-[9px]">
-                      INV #{c.originalInvoiceNumber || "—"}
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
 
 // ── Main Dashboard ─────────────────────────────────────────────────────────
 
@@ -921,10 +641,13 @@ export default function DashboardPage() {
   useEffect(() => {
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
+    const endOfToday = new Date();
+    endOfToday.setHours(23, 59, 59, 999);
 
     const qInvoices = query(
       collection(db, "invoices"),
-      where("billDate", "==", Timestamp.fromDate(startOfToday))
+      where("date", ">=", Timestamp.fromDate(startOfToday)),
+      where("date", "<=", Timestamp.fromDate(endOfToday))
     );
 
     const unsub = onSnapshot(
@@ -978,68 +701,21 @@ export default function DashboardPage() {
     });
   }, [staff, tick]);
 
-  const stats = useMemo(() => {
-    const todayStr = toLocalDateString(new Date());
-    let todayRevenue = 0;
-    let cashToday = 0;
-    let upiToday = 0;
-    let cardToday = 0;
-    let advanceToday = 0;
-    const uniqueCustomerIds = new Set<string>();
-
-    invoices.forEach((inv) => {
-      const cash =
-        inv.paymentSplit?.cash ??
-        inv.payments?.cash ??
-        (inv.paymentMethod === "Cash" ? inv.grandTotal || 0 : 0);
-      const upi =
-        inv.paymentSplit?.upi ??
-        inv.payments?.upi ??
-        (inv.paymentMethod === "UPI" ? inv.grandTotal || 0 : 0);
-      const card =
-        inv.paymentSplit?.card ??
-        inv.payments?.card ??
-        (inv.paymentMethod === "Card" ? inv.grandTotal || 0 : 0);
-      const advance = inv.advanceUsed || 0;
-
-      const invDateStr = inv.dateKey || toLocalDateString(inv.date);
-
-      if (invDateStr === todayStr) {
-        todayRevenue += cash + upi + card + advance;
-
-        const isGuest =
-          inv.customerPhone === "0000000000" || inv.customerName === "Guest";
-        const identifier = isGuest
-          ? inv.id || inv.invoiceNumber || Math.random().toString()
-          : inv.customerId || inv.customerPhone || inv.customerName || inv.id || Math.random().toString();
-        uniqueCustomerIds.add(identifier);
-
-        cashToday += cash;
-        upiToday += upi;
-        cardToday += card;
-        advanceToday += advance;
-      }
-    });
-
-    return {
-      todayRevenue,
-      monthlyRevenue: monthlyStats?.totalRevenue ?? 0,
-      todayVisits: uniqueCustomerIds.size,
-      cashToday,
-      upiToday,
-      cardToday,
-      advanceToday,
-      onDutyCount: staff.filter((s) => s.dutyStatus === "onDuty").length,
-    };
-  }, [invoices, staff, monthlyStats]);
-
   const todayStr = toLocalDateString(new Date());
+
+  const getInvoiceDateKey = (inv: any): string => {
+    if (inv.billDate) {
+      return toLocalDateString(inv.billDate);
+    }
+    if (inv.date) {
+      return toLocalDateString(inv.date);
+    }
+    return inv.dateKey || todayStr;
+  };
+
   const todayInvoices = useMemo(() => {
     return invoices
-      .filter((inv) => {
-        const d = inv.dateKey || toLocalDateString(inv.date);
-        return d === todayStr;
-      })
+      .filter((inv) => getInvoiceDateKey(inv) === todayStr)
       .sort((a, b) => {
         const getTime = (x: any) => {
           if (x?.toMillis) return x.toMillis();
@@ -1053,242 +729,156 @@ export default function DashboardPage() {
   }, [invoices, todayStr]);
 
   const todaySettlement = useMemo<TodaySettlement>(() => {
-    const dayObj: TodaySettlement = {
-      totalServiceRevenue: 0,
-      totalMembershipAmount: 0,
-      totalProductCost: 0,
-      totalStaffShare: 0,
-      totalOwnerShare: 0,
-      ownerDirectRevenue: 0,
-      staffRevenueContribution: 0,
-      staffProductReimbursement: 0,
-      retailProductsRevenue: 0,
-      staffDetails: {},
-      collectedCredits: [],
-    };
+    let serviceSales = 0;
+    let retailSales = 0;
+    let membershipSales = 0;
+    let totalSales = 0;
+    let cash = 0;
+    let upi = 0;
+    let card = 0;
+    let credit = 0;
+    let serviceTxnCount = 0;
+    let retailTxnCount = 0;
+    let membershipTxnCount = 0;
 
     todayInvoices.forEach((inv) => {
-      const discountFactor = inv.subtotal > 0 ? inv.grandTotal / inv.subtotal : 1;
+      const breakdown = getInvoiceSalesBreakdown(inv);
+      const payments = getInvoicePayments(inv);
+      const advance = inv.advanceUsed || 0;
+      const collected = (payments.cash || 0) + (payments.upi || 0) + (payments.card || 0) + advance;
+      const uncollectedCredit = Math.max(0, (inv.grandTotal || breakdown.totalSales || 0) - collected);
 
-      const ratio = getInvoicePaymentRatio(inv);
+      serviceSales += breakdown.serviceSales;
+      retailSales += breakdown.retailSales;
+      membershipSales += breakdown.membershipSales;
+      totalSales += breakdown.totalSales;
 
-      (inv.products || []).forEach((p: any) => {
-        const base = p.amount ?? Math.max((p.price || 0) * (p.quantity || 1) - (p.discount || 0), 0);
-        const amount = base * discountFactor;
-
-        if (p.isCreditSettle) {
-          dayObj.collectedCredits.push({
-            originalBillDate: p.originalBillDate || "",
-            originalInvoiceNumber: p.originalInvoiceNumber || "",
-            collectionDate: p.collectionDate || todayStr,
-            collectionMethod: p.collectionMethod || inv.paymentMethod || "UPI",
-            collectedBy: p.collectedBy || "System",
-            amount: amount * ratio,
-            staffName: "System",
-            staffId: "system",
-            serviceOrProductName: p.productName || p.product || "Credit Settle (Product)",
-            type: "product",
-          });
-          dayObj.ownerDirectRevenue += amount * ratio;
-          dayObj.totalOwnerShare += amount * ratio;
-          return;
-        }
-
-        dayObj.retailProductsRevenue += amount * ratio;
-        dayObj.totalOwnerShare += amount * ratio;
-      });
+      cash += payments.cash;
+      upi += payments.upi;
+      card += payments.card;
+      credit += uncollectedCredit;
 
       (inv.services || []).forEach((s: any) => {
-        const base = s.amount ?? Math.max((s.price || 0) - (s.discount || 0), 0);
-        const amount = base * discountFactor;
-        const cost = s.usedProductCost || 0;
-        const staffId = s.staffId || "unassigned";
-        const staffName = s.staffName || "Unassigned";
-
-        const staffMember = staff.find(
-          (st) => st.id === staffId || st.name === staffName
-        );
-        const role = s.staffRole || staffMember?.role || "Stylist";
-
-        const commissionRate = staffMember ? (staffMember.commissionRate ?? 50) : (s.commissionRate ?? 50);
-        const isOwner = staffMember ? (staffMember.isOwner === true) : (s.isOwner === true || role === "Owner");
-        const isSystemService = s.isSystemService === true || s.serviceId === "membership_fee";
-
-        const commissionResult = getServiceCommission(
-          {
-            ...s,
-            amount,
-            usedProductCost: cost,
-            commissionRate,
-            isOwner,
-            isSystemService,
-          },
-          null
-        );
-
-        const stylistShare = commissionResult.stylistShare;
-        const ownerShare = commissionResult.ownerShare;
-
-        if (isSystemService) {
-          dayObj.totalMembershipAmount += amount * ratio;
-          dayObj.totalOwnerShare += amount * ratio;
-          return;
-        }
-
-        if (s.isCreditSettle) {
-          dayObj.collectedCredits.push({
-            originalBillDate: s.originalBillDate || "",
-            originalInvoiceNumber: s.originalInvoiceNumber || "",
-            collectionDate: s.collectionDate || todayStr,
-            collectionMethod: s.collectionMethod || inv.paymentMethod || "UPI",
-            collectedBy: s.collectedBy || "System",
-            amount: amount * ratio,
-            staffName,
-            staffId,
-            serviceOrProductName: s.serviceName || s.service || "Credit Settle",
-            type: "service",
-          });
-
-          const key = staffId !== "unassigned" ? staffId : staffName;
-          if (!dayObj.staffDetails[key]) {
-            dayObj.staffDetails[key] = {
-              staffId,
-              name: staffName,
-              role,
-              serviceRevenue: 0,
-              productCost: 0,
-              staffShare: 0,
-              ownerShareContribution: 0,
-              collectedCredits: [],
-              collectedCreditsShare: 0,
-            };
-          }
-          const sd = dayObj.staffDetails[key];
-          if (!sd.collectedCredits) {
-            sd.collectedCredits = [];
-            sd.collectedCreditsShare = 0;
-          }
-
-          sd.collectedCredits.push({
-            originalBillDate: s.originalBillDate || "",
-            originalInvoiceNumber: s.originalInvoiceNumber || "",
-            collectionDate: s.collectionDate || todayStr,
-            collectionMethod: s.collectionMethod || inv.paymentMethod || "UPI",
-            collectedBy: s.collectedBy || "System",
-            amount: amount * ratio,
-            serviceOrProductName: s.serviceName || s.service || "Credit Settle",
-            type: "service",
-          });
-
-          if (isOwner) {
-            dayObj.ownerDirectRevenue += amount * ratio;
-            dayObj.totalOwnerShare += amount * ratio;
-            sd.ownerShareContribution += amount * ratio;
-          } else {
-            dayObj.totalOwnerShare += ownerShare * ratio;
-            dayObj.staffRevenueContribution += stylistShare * ratio;
-            sd.collectedCreditsShare = (sd.collectedCreditsShare || 0) + stylistShare * ratio;
-            sd.ownerShareContribution += ownerShare * ratio;
-          }
-          return;
-        }
-
-        const key = staffId !== "unassigned" ? staffId : staffName;
-        if (!dayObj.staffDetails[key]) {
-          dayObj.staffDetails[key] = {
-            staffId,
-            name: staffName,
-            role,
-            serviceRevenue: 0,
-            productCost: 0,
-            staffShare: 0,
-            ownerShareContribution: 0,
-            collectedCredits: [],
-            collectedCreditsShare: 0,
-          };
-        }
-        const sd = dayObj.staffDetails[key];
-
-        if (isOwner) {
-          dayObj.ownerDirectRevenue += amount * ratio;
-          dayObj.totalServiceRevenue += amount * ratio;
-          dayObj.totalOwnerShare += amount * ratio;
-          sd.serviceRevenue += amount * ratio;
-          sd.productCost += cost * ratio;
-          sd.ownerShareContribution += amount * ratio;
+        if (s.serviceId === "membership_fee" || s.isSystemService) {
+          membershipTxnCount += 1;
         } else {
-          dayObj.totalServiceRevenue += amount * ratio;
-          dayObj.totalProductCost += cost * ratio;
-          dayObj.totalStaffShare += stylistShare * ratio;
-          dayObj.totalOwnerShare += ownerShare * ratio;
-          dayObj.staffRevenueContribution += ((commissionRate / 100) * amount) * ratio;
-          dayObj.staffProductReimbursement += cost * ratio;
-          sd.serviceRevenue += amount * ratio;
-          sd.productCost += cost * ratio;
-          sd.staffShare += stylistShare * ratio;
-          sd.ownerShareContribution += ownerShare * ratio;
+          serviceTxnCount += 1;
         }
+      });
+
+      (inv.products || []).forEach(() => {
+        retailTxnCount += 1;
       });
     });
 
-    return dayObj;
-  }, [todayInvoices, staff, todayStr]);
+    return {
+      serviceSales,
+      retailSales,
+      membershipSales,
+      totalSales,
+      cash,
+      upi,
+      card,
+      credit,
+      billsCount: todayInvoices.length,
+      serviceTxnCount,
+      retailTxnCount,
+      membershipTxnCount,
+    };
+  }, [todayInvoices]);
 
-  const staffSplits = useMemo(() => {
-    const stylistStaff = staff.filter(
-      (st) => st.isOwner !== true && st.id !== "system" && st.name !== "System"
-    );
+  const stats = useMemo(() => {
+    let todayCollected = 0;
+    let cashToday = 0;
+    let upiToday = 0;
+    let cardToday = 0;
+    let creditToday = 0;
+    let advanceToday = 0;
+    const uniqueCustomerIds = new Set<string>();
 
-    return stylistStaff.map((member) => {
-      let todayShare = 0;
-      invoices.forEach((inv) => {
-        const dateKeyStr = inv.dateKey || toLocalDateString(inv.date);
-        const isToday = dateKeyStr === todayStr;
-        const discountFactor = inv.subtotal > 0 ? inv.grandTotal / inv.subtotal : 1;
+    todayInvoices.forEach((inv) => {
+      const breakdown = getInvoiceSalesBreakdown(inv);
+      const payments = getInvoicePayments(inv);
+      const advance = inv.advanceUsed || 0;
+      const collected = (payments.cash || 0) + (payments.upi || 0) + (payments.card || 0) + advance;
+      const uncollectedCredit = Math.max(0, (inv.grandTotal || breakdown.totalSales || 0) - collected);
 
-        const ratio = getInvoicePaymentRatio(inv);
+      todayCollected += collected;
+      cashToday += payments.cash;
+      upiToday += payments.upi;
+      cardToday += payments.card;
+      creditToday += uncollectedCredit;
+      advanceToday += advance;
 
-        (inv.services || []).forEach((s: any) => {
-          if (s.staffId === member.id || s.staffName === member.name) {
-            const commissionRate = member.commissionRate ?? s.commissionRate ?? 50;
-            const isOwner = member.isOwner ?? s.isOwner ?? false;
-            const isSystemService = s.isSystemService ?? s.serviceId === "membership_fee";
+      const identifier = inv.customerId || inv.customerPhone || inv.customerName || inv.id || Math.random().toString();
+      uniqueCustomerIds.add(identifier);
+    });
 
-            if (!isSystemService) {
-              const base = s.amount ?? Math.max((s.price || 0) - (s.discount || 0), 0);
-              const amount = base * discountFactor;
-              const cost = s.usedProductCost || 0;
-              if (isToday) {
-                const commissionResult = getServiceCommission(
-                  {
-                    ...s,
-                    amount,
-                    usedProductCost: cost,
-                    commissionRate,
-                    isOwner,
-                    isSystemService,
-                  },
-                  null
-                );
-                todayShare += commissionResult.stylistShare * ratio;
-              }
-            }
-          }
-        });
-      });
+    return {
+      todayRevenue: todayCollected,
+      monthlyRevenue: monthlyStats?.totalRevenue ?? 0,
+      todayVisits: uniqueCustomerIds.size,
+      cashToday,
+      upiToday,
+      cardToday,
+      creditToday,
+      advanceToday,
+      onDutyCount: staff.filter((s) => s.dutyStatus === "onDuty").length,
+    };
+  }, [todayInvoices, staff, monthlyStats]);
 
-      const stStats = member.id ? staffMonthlyStats[member.id] : null;
-      const rateMultiplier = (member.commissionRate ?? 50) / 100;
-      const monthlyShare = rateMultiplier * (stStats?.revenue ?? 0) - (stStats?.productCost ?? 0);
+  const todayStylistPerformance = useMemo(() => {
+    const stylistMap: Record<string, {
+      stylistName: string;
+      servicesDone: number;
+      serviceRevenue: number;
+      inTime: string;
+      outTime: string;
+    }> = {};
 
-      return {
-        id: member.id,
-        name: member.name,
-        todayShare,
-        monthlyShare,
+    staff.forEach((member) => {
+      const att = getStylistAttendanceForDate(member, todayStr, true);
+      stylistMap[member.name] = {
+        stylistName: member.name,
+        servicesDone: 0,
+        serviceRevenue: 0,
+        inTime: att.inTime,
+        outTime: att.outTime,
       };
     });
-  }, [invoices, staff, staffMonthlyStats, todayStr]);
+
+    todayInvoices.forEach((inv) => {
+      (inv.services || []).forEach((s: any) => {
+        if (s.serviceId === "membership_fee" || s.isSystemService === true) return;
+        const name = s.staffName || s.staff;
+        if (!name || name === "System" || name === "unassigned") return;
+
+        const amount = s.amount !== undefined 
+          ? Number(s.amount) || 0 
+          : Math.max((Number(s.price) || 0) - (Number(s.discount) || 0), 0);
+
+        if (!stylistMap[name]) {
+          const matchedStaff = staff.find((m) => m.name === name || m.id === s.staffId);
+          const att = getStylistAttendanceForDate(matchedStaff, todayStr, true);
+          stylistMap[name] = {
+            stylistName: name,
+            servicesDone: 0,
+            serviceRevenue: 0,
+            inTime: att.inTime,
+            outTime: att.outTime,
+          };
+        }
+
+        stylistMap[name].servicesDone += 1;
+        stylistMap[name].serviceRevenue += amount;
+      });
+    });
+
+    return Object.values(stylistMap).filter(
+      (st) => st.servicesDone > 0 || st.inTime !== "—" || st.outTime !== "—"
+    ).sort((a, b) => b.serviceRevenue - a.serviceRevenue);
+  }, [todayInvoices, staff, todayStr]);
+
 
   // ── Handlers ───────────────────────────────────────────────────────────
 
@@ -1341,8 +931,8 @@ export default function DashboardPage() {
     return (
       <div className="flex h-[50vh] items-center justify-center">
         <div className="flex flex-col items-center gap-3">
-          <div className="size-10 animate-spin rounded-full border-4 border-[#B8962E] border-t-transparent" />
-          <span className="text-xs font-medium text-[#6B6358] animate-pulse">
+          <div className="size-9 animate-spin rounded-full border-3 border-[#6F776D] border-t-transparent" />
+          <span className="text-xs font-medium text-[#747A72]">
             Loading dashboard...
           </span>
         </div>
@@ -1351,26 +941,26 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="min-h-screen space-y-8 pb-8 text-[#A89F8C]">
+    <div className="space-y-8 pb-8 text-[#292D29]">
       {/* Header */}
-      <header className="flex flex-wrap items-end justify-between gap-4 border-b border-[#2E2B24] pb-6">
+      <header className="flex flex-wrap items-end justify-between gap-4 border-b border-[#E0E4DD] pb-6">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <Sparkles size={14} className="text-[#B8962E]" />
-            <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#B8962E]">
-              Analytics
+            <Sparkles size={14} className="text-[#6F776D]" />
+            <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#6F776D]">
+              Overview
             </span>
           </div>
-          <h1 className="text-[2rem] font-extrabold tracking-[-0.03em] text-[#F5F0E8]">
-            Dashboard Overview
+          <h1 className="text-[2rem] font-serif font-extrabold tracking-[-0.02em] text-[#2F352F]">
+            Salon Dashboard
           </h1>
-          <p className="mt-1 text-sm text-[#6B6358]">
+          <p className="mt-1 text-xs text-[#747A72]">
             {format(new Date(), "EEEE, dd MMMM yyyy")}
           </p>
         </div>
-        <div className="flex items-center gap-2 rounded-xl border border-[#2E2B24] bg-[#131210] px-4 py-2">
-          <Store size={14} className="text-[#B8962E]" />
-          <span className="text-xs font-bold text-[#A89F8C]">
+        <div className="flex items-center gap-2 rounded-xl border border-[#E0E4DD] bg-[#FFFFFF] px-3.5 py-2 shadow-2xs">
+          <Store size={14} className="text-[#6F776D]" />
+          <span className="text-xs font-bold text-[#292D29]">
             {stats.onDutyCount} Staff On Duty
           </span>
         </div>
@@ -1385,12 +975,13 @@ export default function DashboardPage() {
               title="Today's Collection"
               value={formatCurrency(stats.todayRevenue)}
               icon={TrendingUp}
-              accent="gold"
+              accent="olive"
             >
               <PaymentBreakdown
                 cash={stats.cashToday}
                 upi={stats.upiToday}
                 card={stats.cardToday}
+                credit={stats.creditToday}
                 advance={stats.advanceToday}
               />
             </StatCard>
@@ -1408,32 +999,32 @@ export default function DashboardPage() {
               value={stats.todayVisits}
               subtitle="Unique customers served today"
               icon={CalendarDays}
-              accent="blue"
+              accent="amber"
             />
           </div>
 
           {/* Quick Actions */}
-          <section className="rounded-2xl border border-[#2E2B24] bg-[#1C1A16] p-6 shadow-sm">
+          <section className="rounded-2xl border border-[#E0E4DD] bg-[#FFFFFF] p-6 shadow-xs">
             <div className="mb-5 flex items-center justify-between">
-              <h2 className="text-base font-bold tracking-[-0.01em] text-[#F5F0E8]">
+              <h2 className="text-base font-bold tracking-tight text-[#2F352F]">
                 Quick Actions
               </h2>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-[#6B6358]">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#747A72]">
                 Shortcuts
               </span>
             </div>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <button
                 onClick={() => openModal("billing")}
-                className="group flex flex-col items-center justify-center gap-2 rounded-xl bg-[#B8962E] p-4 text-[13px] font-extrabold tracking-wide uppercase text-[#0E0D0B] transition-all hover:bg-[#D4A935] hover:shadow-[0_8px_24px_rgba(184,150,46,0.25)] active:scale-[0.98]"
+                className="group flex flex-col items-center justify-center gap-2 rounded-xl bg-[#6F776D] p-4 text-[12px] font-bold tracking-wide uppercase text-[#FFFFFF] transition-all hover:bg-[#2F352F] shadow-xs active:scale-[0.98] cursor-pointer"
               >
-                <Receipt size={24} strokeWidth={2} />
+                <Receipt size={22} strokeWidth={2} />
                 <span>Open Billing</span>
               </button>
 
               <button
                 onClick={() => openModal("settlements")}
-                className="group flex flex-col items-center justify-center gap-2 rounded-xl border border-[#2E2B24] bg-[#131210] p-4 text-[12px] font-semibold tracking-wide text-[#A89F8C] transition-all hover:border-[#B8962E] hover:text-[#B8962E] hover:bg-[#1F1A0F] active:scale-[0.98]"
+                className="group flex flex-col items-center justify-center gap-2 rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] p-4 text-[12px] font-semibold tracking-wide text-[#292D29] transition-all hover:border-[#6F776D] hover:bg-[#E8ECE5] active:scale-[0.98] cursor-pointer"
               >
                 <BarChart2 size={22} strokeWidth={2} />
                 <span>Settlements</span>
@@ -1441,7 +1032,7 @@ export default function DashboardPage() {
 
               <button
                 onClick={() => openModal("customer")}
-                className="group flex flex-col items-center justify-center gap-2 rounded-xl border border-[#2E2B24] bg-[#131210] p-4 text-[12px] font-semibold tracking-wide text-[#A89F8C] transition-all hover:border-[#B8962E] hover:text-[#B8962E] hover:bg-[#1F1A0F] active:scale-[0.98]"
+                className="group flex flex-col items-center justify-center gap-2 rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] p-4 text-[12px] font-semibold tracking-wide text-[#292D29] transition-all hover:border-[#6F776D] hover:bg-[#E8ECE5] active:scale-[0.98] cursor-pointer"
               >
                 <UserPlus size={22} strokeWidth={2} />
                 <span>Add Customer</span>
@@ -1449,7 +1040,7 @@ export default function DashboardPage() {
 
               <button
                 onClick={() => openModal("expense")}
-                className="group flex flex-col items-center justify-center gap-2 rounded-xl border border-[#2E2B24] bg-[#131210] p-4 text-[12px] font-semibold tracking-wide text-[#A89F8C] transition-all hover:border-[#B8962E] hover:text-[#B8962E] hover:bg-[#1F1A0F] active:scale-[0.98]"
+                className="group flex flex-col items-center justify-center gap-2 rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] p-4 text-[12px] font-semibold tracking-wide text-[#292D29] transition-all hover:border-[#6F776D] hover:bg-[#E8ECE5] active:scale-[0.98] cursor-pointer"
               >
                 <PiggyBank size={22} strokeWidth={2} />
                 <span>Add Expense</span>
@@ -1459,14 +1050,14 @@ export default function DashboardPage() {
             <div className="mt-3 flex gap-3">
               <Link
                 href="/staff"
-                className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-[#2E2B24] bg-[#131210] py-2.5 text-xs font-semibold text-[#A89F8C] transition hover:border-[#B8962E] hover:text-[#B8962E]"
+                className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] py-2.5 text-xs font-semibold text-[#292D29] transition hover:border-[#6F776D] hover:bg-[#E8ECE5]"
               >
                 <UsersRound size={14} />
                 Manage Staff
               </Link>
               <Link
                 href="/invoices"
-                className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-[#2E2B24] bg-[#131210] py-2.5 text-xs font-semibold text-[#A89F8C] transition hover:border-[#B8962E] hover:text-[#B8962E]"
+                className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] py-2.5 text-xs font-semibold text-[#292D29] transition hover:border-[#6F776D] hover:bg-[#E8ECE5]"
               >
                 <Receipt size={14} />
                 All Invoices
@@ -1475,56 +1066,56 @@ export default function DashboardPage() {
           </section>
 
           {/* Today's Invoices */}
-          <section className="rounded-2xl border border-[#2E2B24] bg-[#1C1A16] shadow-sm overflow-hidden">
-            <div className="flex items-center justify-between border-b border-[#2E2B24] px-6 py-4">
+          <section className="rounded-2xl border border-[#E0E4DD] bg-[#FFFFFF] shadow-xs overflow-hidden">
+            <div className="flex items-center justify-between border-b border-[#E0E4DD] px-6 py-4">
               <div>
-                <h2 className="text-base font-bold tracking-[-0.01em] text-[#F5F0E8]">
+                <h2 className="text-base font-bold tracking-tight text-[#2F352F]">
                   Today's Invoices
                 </h2>
-                <p className="mt-0.5 text-xs text-[#6B6358]">
+                <p className="mt-0.5 text-xs text-[#747A72]">
                   {todayInvoices.length} transactions recorded
                 </p>
               </div>
-              <div className="rounded-lg bg-[#131210] px-3 py-1.5 text-xs font-bold text-[#B8962E] border border-[#2E2B24]">
+              <div className="rounded-lg bg-[#E8ECE5] px-3 py-1 text-xs font-bold text-[#2F352F] border border-[#CCD2C8]">
                 {todayStr}
               </div>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[600px] text-left">
                 <thead>
-                  <tr className="border-b border-[#2E2B24] bg-[#131210]/50">
-                    <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-[0.2em] text-[#6B6358]">
+                  <tr className="border-b border-[#E0E4DD] bg-[#F7F7F4]">
+                    <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-[0.2em] text-[#747A72]">
                       Invoice
                     </th>
-                    <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-[0.2em] text-[#6B6358]">
+                    <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-[0.2em] text-[#747A72]">
                       Customer
                     </th>
-                    <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-[0.2em] text-[#6B6358]">
+                    <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-[0.2em] text-[#747A72]">
                       Type
                     </th>
-                    <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-[0.2em] text-[#6B6358]">
+                    <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-[0.2em] text-[#747A72]">
                       Staff
                     </th>
-                    <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-[0.2em] text-[#6B6358]">
+                    <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-[0.2em] text-[#747A72]">
                       Time
                     </th>
-                    <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-[0.2em] text-[#6B6358]">
+                    <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-[0.2em] text-[#747A72]">
                       Amount
                     </th>
-                    <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-[0.2em] text-[#6B6358]">
+                    <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-[0.2em] text-[#747A72]">
                       Actions
                     </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-[#242118]">
+                <tbody className="divide-y divide-[#E0E4DD]">
                   {todayInvoices.length === 0 ? (
                     <tr>
                       <td
                         colSpan={7}
-                        className="px-4 py-12 text-center text-sm text-[#6B6358]"
+                        className="px-4 py-12 text-center text-sm text-[#747A72]"
                       >
                         <div className="flex flex-col items-center gap-2">
-                          <Receipt size={32} className="text-[#2E2B24]" />
+                          <Receipt size={30} className="text-[#CCD2C8]" />
                           <span className="italic">No bills recorded today</span>
                         </div>
                       </td>
@@ -1540,20 +1131,20 @@ export default function DashboardPage() {
           </section>
         </div>
 
-        {/* Right Column — Staff */}
-        <section className="rounded-2xl border border-[#2E2B24] bg-[#1C1A16] p-6 shadow-sm">
+        {/* Right Column — Staff Floor Board */}
+        <section className="rounded-2xl border border-[#E0E4DD] bg-[#FFFFFF] p-6 shadow-xs">
           <div className="mb-5 flex items-center justify-between">
             <div>
-              <h2 className="text-base font-bold tracking-[-0.01em] text-[#F5F0E8]">
+              <h2 className="text-base font-bold tracking-tight text-[#2F352F]">
                 Stylists Floor Board
               </h2>
-              <p className="mt-0.5 text-xs text-[#6B6358]">
+              <p className="mt-0.5 text-xs text-[#747A72]">
                 Real-time status and floor hours
               </p>
             </div>
-            <div className="flex items-center gap-1.5 rounded-lg bg-[#131210] px-2.5 py-1.5 border border-[#2E2B24]">
-              <div className="size-1.5 rounded-full bg-[#4ADE80]" />
-              <span className="text-[10px] font-bold text-[#6B6358]">
+            <div className="flex items-center gap-1.5 rounded-lg bg-[#E8ECE5] px-2.5 py-1 border border-[#CCD2C8]">
+              <div className="size-1.5 rounded-full bg-[#5F7A62]" />
+              <span className="text-[10px] font-bold text-[#2F352F]">
                 {staff.filter((s) => s.dutyStatus === "onDuty").length} Active
               </span>
             </div>
@@ -1561,13 +1152,13 @@ export default function DashboardPage() {
 
           {staff.length === 0 ? (
             <div className="flex flex-col items-center gap-3 py-12 text-center">
-              <Users size={32} className="text-[#2E2B24]" />
-              <p className="text-sm text-[#6B6358] italic">
+              <Users size={32} className="text-[#CCD2C8]" />
+              <p className="text-sm text-[#747A72] italic">
                 No registered staff found
               </p>
               <Link
                 href="/staff"
-                className="text-xs font-bold text-[#B8962E] hover:underline"
+                className="text-xs font-bold text-[#6F776D] hover:underline"
               >
                 Add staff members
               </Link>
@@ -1625,98 +1216,211 @@ export default function DashboardPage() {
       >
         <div className="p-6 md:p-8">
           {/* Settlements Header */}
-          <div className="flex items-center justify-between pb-5 border-b border-[#2E2B24]">
+          <div className="flex items-center justify-between pb-5 border-b border-[#E0E4DD]">
             <div>
-              <h3 className="text-xl font-bold text-[#F5F0E8]">
+              <h3 className="text-xl font-bold text-[#2F352F]">
                 Today's Settlements
               </h3>
-              <p className="mt-1 text-xs font-medium text-[#6B6358]">
+              <p className="mt-1 text-xs font-medium text-[#747A72]">
                 Detailed revenue splits for {format(new Date(), "dd MMM yyyy")}
               </p>
             </div>
             <button
               onClick={() => closeModal("settlements")}
-              className="grid size-10 place-items-center rounded-xl border border-[#2E2B24] bg-[#131210] text-[#A89F8C] transition hover:border-[#B8962E] hover:text-[#B8962E]"
+              className="grid size-9 place-items-center rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] text-[#747A72] transition hover:border-[#6F776D] hover:text-[#2F352F] cursor-pointer"
             >
               <X size={16} strokeWidth={2.5} />
             </button>
           </div>
 
           {/* Settlements Content */}
-          <div className="mt-6">
+          <div className="mt-6 space-y-6">
             {todayInvoices.length === 0 ? (
-              <div className="flex flex-col items-center gap-3 py-16 border border-dashed border-[#2E2B24] rounded-2xl bg-[#131210]">
-                <BarChart2 size={40} className="text-[#2E2B24]" />
-                <p className="text-sm font-semibold text-[#6B6358]">
+              <div className="flex flex-col items-center gap-3 py-16 border border-dashed border-[#E0E4DD] rounded-2xl bg-[#F7F7F4]">
+                <BarChart2 size={36} className="text-[#CCD2C8]" />
+                <p className="text-sm font-semibold text-[#747A72]">
                   No sales or settlements recorded today
                 </p>
               </div>
             ) : (
-              <div className="flex flex-col gap-6">
-                {/* Owner Card (Horizontal Layout) */}
-                <SettlementCard
-                  title="Owner Settlement"
-                  value={todaySettlement.totalOwnerShare - todayExpensesTotal}
-                  icon={ShieldCheck}
-                  isOwner
-                  items={[
-                    { label: "Owner Direct Services", value: todaySettlement.ownerDirectRevenue },
-                    { label: "Stylists 50% Share", value: todaySettlement.staffRevenueContribution },
-                    { label: "Stylists Product Costs", value: todaySettlement.staffProductReimbursement },
-                    { label: "Membership Invoices", value: todaySettlement.totalMembershipAmount },
-                    { label: "Retail Product Sales", value: todaySettlement.retailProductsRevenue },
-                    { label: "Gross Share", value: todaySettlement.totalOwnerShare },
-                    { label: "Today's Expenses", value: todayExpensesTotal, negative: true },
-                  ]}
-                  collectedCredits={(todaySettlement.collectedCredits || []).map((c: any) => {
-                    let share = 0;
-                    if (c.staffName === "System" || c.role === "Owner") {
-                      share = c.amount;
-                    } else {
-                      share = 0.5 * c.amount;
-                    }
-                    return {
-                      ...c,
-                      share,
-                    };
-                  })}
-                />
+              <div className="space-y-6">
+                {/* Sales Summary Grid */}
+                <div>
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-[#747A72] mb-3">
+                    Sales Summary
+                  </h4>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div className="rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] p-3.5">
+                      <span className="text-[10px] text-[#747A72] block">Service Sales</span>
+                      <span className="text-base font-bold text-[#2F352F]">
+                        {formatCurrency(todaySettlement.serviceSales)}
+                      </span>
+                    </div>
+                    <div className="rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] p-3.5">
+                      <span className="text-[10px] text-[#747A72] block">Retail Product Sales</span>
+                      <span className="text-base font-bold text-[#2F352F]">
+                        {formatCurrency(todaySettlement.retailSales)}
+                      </span>
+                    </div>
+                    <div className="rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] p-3.5">
+                      <span className="text-[10px] text-[#747A72] block">Membership Sales</span>
+                      <span className="text-base font-bold text-[#2F352F]">
+                        {formatCurrency(todaySettlement.membershipSales)}
+                      </span>
+                    </div>
+                    <div className="rounded-xl border border-[#CCD2C8] bg-[#E8ECE5] p-3.5">
+                      <span className="text-[10px] font-bold text-[#2F352F] block">Total Sales</span>
+                      <span className="text-base font-bold text-[#2F352F]">
+                        {formatCurrency(todaySettlement.totalSales)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
 
-                {/* Stylist Cards (3 Vertical Columns side-by-side) */}
-                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                  {Object.values(todaySettlement.staffDetails)
-                    .filter((sd) => sd.role !== "Owner")
-                    .map((sd) => {
-                      const collectedCredits = sd.collectedCredits || [];
-                      const collectedCreditsShare = sd.collectedCreditsShare || 0;
-                      const totalShare = sd.staffShare + collectedCreditsShare;
+                {/* Payment Collections Grid */}
+                <div>
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-[#747A72] mb-3">
+                    Payment Collection Breakdown
+                  </h4>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div className="rounded-xl border border-[#E0E4DD] bg-[#FFFFFF] p-3.5 shadow-xs">
+                      <span className="text-[10px] text-[#747A72] block">Cash</span>
+                      <span className="text-base font-bold text-[#2F352F]">
+                        {formatCurrency(todaySettlement.cash)}
+                      </span>
+                    </div>
+                    <div className="rounded-xl border border-[#E0E4DD] bg-[#FFFFFF] p-3.5 shadow-xs">
+                      <span className="text-[10px] text-[#747A72] block">UPI</span>
+                      <span className="text-base font-bold text-[#2F352F]">
+                        {formatCurrency(todaySettlement.upi)}
+                      </span>
+                    </div>
+                    <div className="rounded-xl border border-[#E0E4DD] bg-[#FFFFFF] p-3.5 shadow-xs">
+                      <span className="text-[10px] text-[#747A72] block">Card</span>
+                      <span className="text-base font-bold text-[#2F352F]">
+                        {formatCurrency(todaySettlement.card)}
+                      </span>
+                    </div>
+                    <div className="rounded-xl border border-[#E0E4DD] bg-[#FFFFFF] p-3.5 shadow-xs">
+                      <span className="text-[10px] text-[#B55B5B] block">Credit (Pending)</span>
+                      <span className="text-base font-bold text-[#B55B5B]">
+                        {formatCurrency(todaySettlement.credit)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
 
-                      const mappedCollectedCredits = collectedCredits.map((c: any) => ({
-                        ...c,
-                        share: 0.5 * c.amount,
-                      }));
+                {/* Expenses & Net */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="rounded-2xl border border-[#FBEBEB] bg-[#FBEBEB] p-4 text-[#B55B5B]">
+                    <span className="text-[10px] font-bold uppercase tracking-wider block mb-1">
+                      Today's Operational Expenses
+                    </span>
+                    <span className="text-xl font-serif font-bold">
+                      {formatCurrency(todayExpensesTotal)}
+                    </span>
+                  </div>
+                  <div className="rounded-2xl border border-[#6F776D] bg-[#2F352F] p-4 text-white">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-[#CCD2C8] block mb-1">
+                      Today's Net (Total Sales - Expenses)
+                    </span>
+                    <span className="text-xl font-serif font-bold text-white">
+                      {formatCurrency(todaySettlement.totalSales - todayExpensesTotal)}
+                    </span>
+                  </div>
+                </div>
 
-                      return (
-                        <SettlementCard
-                          key={sd.staffId}
-                          title={sd.name}
-                          value={totalShare}
-                          icon={Users}
-                          items={[
-                            { label: "Service Revenue", value: sd.serviceRevenue },
-                            { label: "50% Base Share", value: 0.5 * sd.serviceRevenue },
-                            { label: "Product Cost Used", value: sd.productCost, negative: true },
-                          ]}
-                          collectedCredits={mappedCollectedCredits}
-                        />
-                      );
-                    })}
+                {/* Volume Summary */}
+                <div className="border-t border-[#E0E4DD] pt-4">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-[#747A72] mb-3">
+                    Transaction Volume
+                  </h4>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                    <div className="p-3 rounded-xl bg-[#F7F7F4] border border-[#E0E4DD]">
+                      <span className="text-[#747A72] block text-[10px]">Total Invoices</span>
+                      <span className="font-bold text-[#2F352F]">{todaySettlement.billsCount}</span>
+                    </div>
+                    <div className="p-3 rounded-xl bg-[#F7F7F4] border border-[#E0E4DD]">
+                      <span className="text-[#747A72] block text-[10px]">Service Items</span>
+                      <span className="font-bold text-[#2F352F]">{todaySettlement.serviceTxnCount}</span>
+                    </div>
+                    <div className="p-3 rounded-xl bg-[#F7F7F4] border border-[#E0E4DD]">
+                      <span className="text-[#747A72] block text-[10px]">Retail Products Sold</span>
+                      <span className="font-bold text-[#2F352F]">{todaySettlement.retailTxnCount}</span>
+                    </div>
+                    <div className="p-3 rounded-xl bg-[#F7F7F4] border border-[#E0E4DD]">
+                      <span className="text-[#747A72] block text-[10px]">Memberships Sold</span>
+                      <span className="font-bold text-[#2F352F]">{todaySettlement.membershipTxnCount}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Stylist Performance */}
+                <div className="border-t border-[#E0E4DD] pt-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-[#747A72]">
+                      Stylist Performance
+                    </h4>
+                    <span className="text-[10px] text-[#747A72] font-semibold">
+                      {todayStylistPerformance.length} specialist{todayStylistPerformance.length === 1 ? "" : "s"} active
+                    </span>
+                  </div>
+
+                  {todayStylistPerformance.length === 0 ? (
+                    <div className="rounded-xl border border-dashed border-[#E0E4DD] bg-[#F7F7F4] p-4 text-center text-xs text-[#747A72] italic">
+                      No stylist activity recorded today.
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto rounded-xl border border-[#E0E4DD] bg-[#FFFFFF] shadow-xs max-h-56 overflow-y-auto">
+                      <table className="w-full min-w-[500px] border-collapse text-left text-xs">
+                        <thead className="bg-[#F7F7F4] text-[10px] font-bold uppercase tracking-wider text-[#747A72] border-b border-[#E0E4DD] sticky top-0 z-10">
+                          <tr>
+                            <th className="px-3.5 py-2.5 font-bold">Stylist Name</th>
+                            <th className="px-3.5 py-2.5 font-bold text-center">Services Done</th>
+                            <th className="px-3.5 py-2.5 font-bold">Service Revenue</th>
+                            <th className="px-3.5 py-2.5 font-bold">In Time</th>
+                            <th className="px-3.5 py-2.5 font-bold">Out Time</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[#E0E4DD]">
+                          {todayStylistPerformance.map((st) => (
+                            <tr key={st.stylistName} className="hover:bg-[#F7F7F4]/60 transition">
+                              <td className="px-3.5 py-2.5 font-semibold text-[#2F352F]">
+                                {st.stylistName}
+                              </td>
+                              <td className="px-3.5 py-2.5 text-center font-bold text-[#292D29]">
+                                {st.servicesDone}
+                              </td>
+                              <td className="px-3.5 py-2.5 font-bold text-[#5F7A62]">
+                                {formatCurrency(st.serviceRevenue)}
+                              </td>
+                              <td className="px-3.5 py-2.5 text-[#747A72] font-medium">
+                                {st.inTime}
+                              </td>
+                              <td className="px-3.5 py-2.5">
+                                <span
+                                  className={
+                                    st.outTime === "Still Working"
+                                      ? "inline-block rounded-full bg-[#E8ECE5] px-2 py-0.5 text-[9px] font-bold text-[#2F352F] border border-[#CCD2C8]"
+                                      : "text-[#747A72] font-medium"
+                                  }
+                                >
+                                  {st.outTime}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
           </div>
         </div>
       </ModalOverlay>
+
     </div>
   );
 }

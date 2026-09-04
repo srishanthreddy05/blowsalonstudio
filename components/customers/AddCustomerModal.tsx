@@ -6,7 +6,6 @@ import * as customerService from "@/services/customers";
 import * as invoicesService from "@/services/invoices";
 import { toLocalDateString } from "@/lib/utils/date";
 
-
 interface AddCustomerModalProps {
   onClose: () => void;
   onSuccess: () => void;
@@ -86,24 +85,24 @@ export function AddCustomerModal({ onClose, onSuccess }: AddCustomerModalProps) 
 
   return (
     <div 
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-in fade-in duration-200"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-in fade-in duration-200"
       onClick={onClose}
     >
       <div 
-        className="relative w-full max-w-md rounded-3xl border border-[#2E2B24] bg-[#1C1A16] p-6 shadow-2xl text-[#A89F8C] my-auto animate-in zoom-in-95 duration-200"
+        className="relative w-full max-w-md rounded-3xl border border-[#E0E4DD] bg-[#FFFFFF] p-6 shadow-2xl text-[#292D29] my-auto animate-in zoom-in-95 duration-200"
         onClick={(e) => e.stopPropagation()}
       >
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 text-[#A89F8C] hover:text-[#B8962E] cursor-pointer transition"
+          className="absolute top-4 right-4 text-[#747A72] hover:text-[#2F352F] cursor-pointer transition"
           title="Close Modal (ESC)"
         >
-          <X size={20} />
+          <X size={18} />
         </button>
-        <h2 className="text-xl font-bold text-[#F5F0E8] mb-4">Add Customer</h2>
+        <h2 className="font-serif text-lg font-bold text-[#2F352F] mb-4">Add Customer</h2>
         
         {error && (
-          <div className="mb-4 text-xs font-semibold text-[#E57373] bg-[#131210] border border-[#2E2B24] rounded-lg p-2.5">
+          <div className="mb-4 text-xs font-semibold text-[#B55B5B] bg-[#FBEBEB] border border-[#FBEBEB] rounded-lg p-2.5">
             {error}
           </div>
         )}
@@ -111,37 +110,37 @@ export function AddCustomerModal({ onClose, onSuccess }: AddCustomerModalProps) 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <label className="block">
-              <span className="text-sm font-semibold text-[#A89F8C]">Name</span>
+              <span className="text-xs font-semibold text-[#747A72]">Name</span>
               <input
                 required
                 autoFocus
                 type="text"
-                placeholder="Customer's full name..."
+                placeholder="Customer's name..."
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="mt-2 h-11 w-full rounded-xl border border-[#2E2B24] bg-[#0E0D0B] px-4 text-sm text-[#F5F0E8] outline-none focus:border-[#B8962E] focus:ring-1 focus:ring-[#B8962E] placeholder-[#6B6358]"
+                className="mt-1.5 h-10 w-full rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] px-3 text-xs text-[#292D29] outline-none focus:border-[#6F776D] focus:ring-1 focus:ring-[#6F776D] placeholder-[#747A72]"
               />
             </label>
 
             <label className="block">
-              <span className="text-sm font-semibold text-[#A89F8C]">Phone Number</span>
+              <span className="text-xs font-semibold text-[#747A72]">Phone Number</span>
               <input
                 required
                 type="text"
                 placeholder="e.g. 9876543210"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
-                className="mt-2 h-11 w-full rounded-xl border border-[#2E2B24] bg-[#0E0D0B] px-4 text-sm text-[#F5F0E8] outline-none focus:border-[#B8962E] focus:ring-1 focus:ring-[#B8962E] placeholder-[#6B6358]"
+                className="mt-1.5 h-10 w-full rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] px-3 text-xs text-[#292D29] outline-none focus:border-[#6F776D] focus:ring-1 focus:ring-[#6F776D] placeholder-[#747A72]"
               />
             </label>
           </div>
 
           <label className="block">
-            <span className="text-sm font-semibold text-[#A89F8C]">Customer Type</span>
+            <span className="text-xs font-semibold text-[#747A72]">Customer Type</span>
             <select
               value={customerType}
               onChange={(e) => setCustomerType(e.target.value as "regular" | "membership")}
-              className="mt-2 h-11 w-full rounded-xl border border-[#2E2B24] bg-[#0E0D0B] px-4 text-sm text-[#F5F0E8] outline-none focus:border-[#B8962E] focus:ring-1 focus:ring-[#B8962E]"
+              className="mt-1.5 h-10 w-full rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] px-3 text-xs text-[#292D29] outline-none focus:border-[#6F776D] focus:ring-1 focus:ring-[#6F776D]"
             >
               <option value="regular">Regular</option>
               <option value="membership">Membership</option>
@@ -149,50 +148,50 @@ export function AddCustomerModal({ onClose, onSuccess }: AddCustomerModalProps) 
           </label>
 
           {customerType === "membership" && (
-            <div className="space-y-4 border-l-2 border-[#2E2B24] pl-3 mt-3 animate-in slide-in-from-left-2 duration-200">
+            <div className="space-y-3.5 border-l-2 border-[#6F776D] pl-3 mt-3 animate-in slide-in-from-left-2 duration-200">
               <div className="grid grid-cols-2 gap-3">
                 <label className="block">
-                  <span className="text-sm font-semibold text-[#A89F8C]">Membership Amount (₹)</span>
+                  <span className="text-xs font-semibold text-[#747A72]">Membership Amount (₹)</span>
                   <input
                     required
                     type="number"
                     placeholder="e.g. 5000"
                     value={membershipAmount}
                     onChange={(e) => setMembershipAmount(e.target.value)}
-                    className="mt-2 h-11 w-full rounded-xl border border-[#2E2B24] bg-[#0E0D0B] px-4 text-sm text-[#F5F0E8] outline-none focus:border-[#B8962E] focus:ring-1 focus:ring-[#B8962E]"
+                    className="mt-1.5 h-10 w-full rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] px-3 text-xs text-[#292D29] outline-none focus:border-[#6F776D] focus:ring-1 focus:ring-[#6F776D]"
                   />
                 </label>
 
                 <label className="block">
-                  <span className="text-sm font-semibold text-[#A89F8C]">Duration (months)</span>
+                  <span className="text-xs font-semibold text-[#747A72]">Duration (months)</span>
                   <input
                     required
                     type="number"
                     placeholder="e.g. 3"
                     value={membershipDuration}
                     onChange={(e) => setMembershipDuration(e.target.value)}
-                    className="mt-2 h-11 w-full rounded-xl border border-[#2E2B24] bg-[#0E0D0B] px-4 text-sm text-[#F5F0E8] outline-none focus:border-[#B8962E] focus:ring-1 focus:ring-[#B8962E]"
+                    className="mt-1.5 h-10 w-full rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] px-3 text-xs text-[#292D29] outline-none focus:border-[#6F776D] focus:ring-1 focus:ring-[#6F776D]"
                   />
                 </label>
               </div>
 
               <label className="block">
-                <span className="text-sm font-semibold text-[#A89F8C]">Start Date</span>
+                <span className="text-xs font-semibold text-[#747A72]">Start Date</span>
                 <input
                   required
                   type="date"
                   value={membershipStart}
                   onChange={(e) => setMembershipStart(e.target.value)}
-                  className="mt-2 h-11 w-full rounded-xl border border-[#2E2B24] bg-[#0E0D0B] px-4 text-sm text-[#F5F0E8] outline-none focus:border-[#B8962E] focus:ring-1 focus:ring-[#B8962E]"
+                  className="mt-1.5 h-10 w-full rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] px-3 text-xs text-[#292D29] outline-none focus:border-[#6F776D] focus:ring-1 focus:ring-[#6F776D]"
                 />
               </label>
 
               <label className="block">
-                <span className="text-sm font-semibold text-[#A89F8C]">Payment Method</span>
+                <span className="text-xs font-semibold text-[#747A72]">Payment Method</span>
                 <select
                   value={paymentMethod}
                   onChange={(e) => setPaymentMethod(e.target.value as "UPI" | "Cash" | "Card")}
-                  className="mt-2 h-11 w-full rounded-xl border border-[#2E2B24] bg-[#0E0D0B] px-4 text-sm text-[#F5F0E8] outline-none focus:border-[#B8962E] focus:ring-1 focus:ring-[#B8962E]"
+                  className="mt-1.5 h-10 w-full rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] px-3 text-xs text-[#292D29] outline-none focus:border-[#6F776D] focus:ring-1 focus:ring-[#6F776D]"
                 >
                   <option value="UPI">UPI</option>
                   <option value="Cash">Cash</option>
@@ -202,18 +201,18 @@ export function AddCustomerModal({ onClose, onSuccess }: AddCustomerModalProps) 
             </div>
           )}
 
-          <div className="flex gap-3 justify-end pt-2">
+          <div className="flex gap-2 justify-end pt-2">
             <button
               type="button"
               onClick={onClose}
-              className="h-11 rounded-xl border border-[#2E2B24] bg-[#131210] px-4 text-sm font-semibold text-[#A89F8C] hover:border-[#B8962E] hover:text-[#B8962E] hover:bg-[#1F1A0F] transition cursor-pointer"
+              className="h-9 rounded-xl border border-[#E0E4DD] bg-[#FFFFFF] px-4 text-xs font-semibold text-[#747A72] hover:bg-[#F7F7F4] hover:text-[#292D29] transition cursor-pointer"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={saving}
-              className="h-11 rounded-xl bg-[#B8962E] px-6 text-sm font-bold text-[#0E0D0B] hover:bg-[#D4A935] shadow-[0_4px_16px_rgba(184,150,46,0.25)] transition disabled:opacity-50 cursor-pointer"
+              className="h-9 rounded-xl bg-[#6F776D] px-5 text-xs font-bold text-[#FFFFFF] hover:bg-[#2F352F] transition disabled:opacity-50 cursor-pointer shadow-xs"
             >
               {saving ? "Saving..." : "Save Profile"}
             </button>
