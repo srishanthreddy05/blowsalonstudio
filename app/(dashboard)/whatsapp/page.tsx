@@ -81,7 +81,7 @@ export default function WhatsAppPage() {
         </div>
 
         {/* Action Button (Disabled state) */}
-        <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+        <div className="flex items-center justify-center">
           <button
             type="button"
             disabled
@@ -90,12 +90,6 @@ export default function WhatsAppPage() {
             <Lock size={14} />
             Feature Locked
           </button>
-          <a
-            href="mailto:support@theasalon.com?subject=WhatsApp%20Business%20API%20Configuration%20Request"
-            className="inline-flex h-11 items-center gap-2 rounded-xl bg-[#6F776D] hover:bg-[#2F352F] text-white px-6 text-xs font-bold shadow-xs transition duration-150 cursor-pointer"
-          >
-            Contact Admin
-          </a>
         </div>
       </div>
     </div>

@@ -541,25 +541,12 @@ export default function SettlementsPage() {
                       </span>
                     </td>
                     <td className="px-5 py-3.5 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          onClick={() => setSelectedDayDetails(day)}
-                          className="inline-flex h-8 items-center gap-1 rounded-lg border border-[#CCD2C8] bg-[#E8ECE5] px-3 text-[11px] font-bold text-[#2F352F] hover:bg-[#6F776D] hover:text-[#FFFFFF] transition cursor-pointer shadow-xs"
-                        >
-                          Details
-                        </button>
-                        <button
-                          disabled={settlingDate === day.dateKey}
-                          onClick={() => handleToggleSettle(day)}
-                          className={`inline-flex h-8 items-center gap-1 rounded-lg px-3 text-[11px] font-bold transition cursor-pointer shadow-xs ${
-                            day.status === "Settled"
-                              ? "bg-[#F7F7F4] border border-[#E0E4DD] text-[#747A72] hover:bg-[#E8ECE5] hover:text-[#2F352F]"
-                              : "bg-[#6F776D] text-white hover:bg-[#2F352F]"
-                          }`}
-                        >
-                          {day.status === "Settled" ? "Reopen" : "Settle"}
-                        </button>
-                      </div>
+                      <button
+                        onClick={() => setSelectedDayDetails(day)}
+                        className="inline-flex h-8 items-center gap-1 rounded-lg border border-[#CCD2C8] bg-[#E8ECE5] px-3 text-[11px] font-bold text-[#2F352F] hover:bg-[#6F776D] hover:text-[#FFFFFF] transition cursor-pointer shadow-xs"
+                      >
+                        Details
+                      </button>
                     </td>
                   </tr>
                 ))
@@ -784,16 +771,9 @@ export default function SettlementsPage() {
                 <button
                   type="button"
                   onClick={() => setSelectedDayDetails(null)}
-                  className="rounded-xl border border-[#E0E4DD] px-4 py-2 text-xs font-bold text-[#747A72] hover:bg-[#F7F7F4] transition cursor-pointer"
+                  className="rounded-xl border border-[#CCD2C8] bg-[#E8ECE5] px-5 py-2 text-xs font-bold text-[#2F352F] hover:bg-[#6F776D] hover:text-[#FFFFFF] transition cursor-pointer shadow-xs"
                 >
                   Close
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleToggleSettle(selectedDayDetails)}
-                  className="rounded-xl bg-[#6F776D] hover:bg-[#2F352F] px-4 py-2 text-xs font-bold text-white shadow-xs transition duration-150 cursor-pointer"
-                >
-                  {selectedDayDetails.status === "Settled" ? "Reopen Settlement" : "Mark Day Settled"}
                 </button>
               </div>
             </div>
