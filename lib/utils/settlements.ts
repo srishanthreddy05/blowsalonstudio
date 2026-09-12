@@ -1,5 +1,5 @@
 /**
- * Centralized business logic calculations for THEA SALON ERP.
+ * Centralized business logic calculations for BLOW SALON ERP.
  * 
  * Primary Financial Flow:
  * - Service Sales = Sum of all services sold

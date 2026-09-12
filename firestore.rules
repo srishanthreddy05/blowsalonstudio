@@ -1,69 +1,78 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Helper function to check if user is authenticated
-    function isAuthenticated() {
-      return request.auth != null;
-    }
-
-    // Helper to check if user has admin privileges
-    function isAdmin() {
-      return isAuthenticated() && request.auth.token.role == 'admin';
-    }
-
-    // Helper to check if user is staff or admin
-    function isStaffOrAdmin() {
-      return isAuthenticated() && (
-        request.auth.token.role == 'admin' || 
-        request.auth.token.role == 'staff'
-      );
-    }
-
-    // Invoices, Customers, Products, Expenses: read/write for authenticated staff/admin
-    match /invoices/{document} {
-      allow read, write: if isAuthenticated();
+    // Core ERP collections: allow read and write access
+    match /invoices/{document=**} {
+      allow read, write: if true;
     }
     
-    match /customers/{document} {
-      allow read, write: if isAuthenticated();
+    match /customers/{document=**} {
+      allow read, write: if true;
     }
     
-    match /products/{document} {
-      allow read, write: if isAuthenticated();
+    match /products/{document=**} {
+      allow read, write: if true;
     }
     
-    match /expenses/{document} {
-      allow read, write: if isAuthenticated();
+    match /expenses/{document=**} {
+      allow read, write: if true;
     }
 
-    match /services/{document} {
-      allow read, write: if isAuthenticated();
+    match /services/{document=**} {
+      allow read, write: if true;
     }
 
-    match /serviceCategories/{document} {
-      allow read, write: if isAuthenticated();
+    match /serviceCategories/{document=**} {
+      allow read, write: if true;
     }
 
-    // Stats: read for all authenticated users, write for authenticated users (as writes are triggered in transaction/batches)
-    match /stats/{document} {
-      allow read, write: if isAuthenticated();
+    match /offers/{document=**} {
+      allow read, write: if true;
     }
 
-    // Administrative collections: write restricted to Admin role
-    match /staff/{document} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin() || !exists(/databases/$(database)/documents/staff/{document});
+    match /packages/{document=**} {
+      allow read, write: if true;
+    }
+
+    match /stats/{document=**} {
+      allow read, write: if true;
+    }
+
+    match /staff/{document=**} {
+      allow read, write: if true;
     }
     
-    match /settings/{document} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin();
+    match /settings/{document=**} {
+      allow read, write: if true;
     }
 
-    // User profiles
-    match /users/{userId} {
-      allow read: if isAuthenticated();
-      allow write: if request.auth.uid == userId || isAdmin();
+    match /notifications/{document=**} {
+      allow read, write: if true;
+    }
+
+    match /settlements/{document=**} {
+      allow read, write: if true;
+    }
+
+    match /credit_balances/{document=**} {
+      allow read, write: if true;
+    }
+
+    match /advance_balances/{document=**} {
+      allow read, write: if true;
+    }
+
+    match /users/{document=**} {
+      allow read, write: if true;
+    }
+
+    match /attendance/{document=**} {
+      allow read, write: if true;
+    }
+
+    // Catch-all rule for other sub-collections or documents
+    match /{document=**} {
+      allow read, write: if true;
     }
   }
 }

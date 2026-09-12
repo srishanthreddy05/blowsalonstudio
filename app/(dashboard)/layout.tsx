@@ -87,7 +87,7 @@ export default function DashboardLayout({
           </main>
           <footer className="border-t border-[#E0E4DD] bg-[#FFFFFF] py-4 px-4 sm:px-6 lg:px-8 text-xs text-[#747A72] select-none">
             <div className="flex items-center justify-between">
-              <span className="font-semibold text-[#2F352F]">THEA SALON — Management Suite</span>
+              <span className="font-semibold text-[#2F352F]">BLOW SALON — Management Suite</span>
               <span>All rights reserved</span>
             </div>
           </footer>

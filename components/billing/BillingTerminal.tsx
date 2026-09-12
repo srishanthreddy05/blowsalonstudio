@@ -33,10 +33,11 @@ interface BillingTerminalProps {
 }
 
 export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTerminalProps) {
-  const { services: servicesContextData, products: productsContextData, staff: staffContextData, offers: offersContextData, settings, refreshProducts, loadingAppData } = useAppData();
+  const { services: servicesContextData, products: productsContextData, packages: packagesContextData, staff: staffContextData, offers: offersContextData, settings, refreshProducts, loadingAppData } = useAppData();
 
   const servicesList = servicesContextData;
   const productsList = productsContextData;
+  const packagesList = packagesContextData || [];
   const staffList = useMemo(() => staffContextData.filter((s) => s.status === "Active" && s.dutyStatus === "onDuty"), [staffContextData]);
   const offersList = offersContextData;
   const loading = loadingAppData;
@@ -166,7 +167,10 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
             // Populate services
             const mappedServices: ServiceRow[] = (inv.services || []).map((s: any, idx: number) => ({
               id: idx + 1,
+              serviceId: s.serviceId || undefined,
               service: s.serviceName || s.service || "",
+              category: s.category || undefined,
+              selectedVariant: s.selectedVariant || undefined,
               staff: s.staffName || s.staff || "",
               price: s.price ?? 0,
               quantity: 1,
@@ -741,7 +745,8 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
         : 1;
 
       const enrichedServices = services.map((row: any) => {
-        const matchedService = servicesList.find((s) => s.name === row.service);
+        const matchedService = servicesList.find((s) => s.id === row.serviceId || s.name === row.service || row.service.startsWith(`${s.name} (`));
+        const matchedPackage = !matchedService ? packagesList.find((p) => p.id === row.serviceId || p.name === row.service) : null;
         const matchedStaff = staffContextData.find((s) => s.name === row.staff);
         const serviceBaseAmount = Math.max((Number(row.price) || 0) - (Number(row.discount) || 0), 0);
         const serviceAmount = row.isCreditSettle
@@ -755,10 +760,13 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
           : (row.staff === "System" ? "Owner" : (matchedStaff?.role || "Stylist"));
           
         const isSystemService = matchedService ? (matchedService.isSystemService === true || matchedService.id === "membership_fee") : (row.service === "Membership Fee");
+        const resolvedServiceId = row.serviceId || matchedService?.id || matchedPackage?.id || "";
 
         return {
-          serviceId: matchedService?.id ?? "",
+          serviceId: resolvedServiceId,
           serviceName: row.service,
+          category: row.category || matchedService?.category || (matchedPackage ? "Packages" : undefined) || null,
+          selectedVariant: row.selectedVariant || null,
           staffId,
           staffName: row.staff,
           price: Number(row.price) || 0,
@@ -1109,7 +1117,7 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
       })
       .join("\n");
 
-    const greeting = `Hello ${customerName},\n\nThank you for choosing THEA SALON ✨\n\n`;
+    const greeting = `Hello ${customerName},\n\nThank you for choosing BLOW SALON ✨\n\n`;
 
     let itemsText = "";
     if (formattedServices) {
@@ -1146,7 +1154,7 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
     const closing =
       `Invoice No: ${invoiceNumberDisplay}\n` +
       `We look forward to serving you again.\n\n` +
-      `THEA SALON`;
+      `BLOW SALON`;
 
     const msg = `${greeting}${itemsText}${pricingText}${closing}`;
 
@@ -1155,11 +1163,27 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
     window.open(`https://wa.me/${e164}?text=${encodeURIComponent(msg)}`, "_blank");
   };
 
-  const mappedServicesList = servicesList.map((s) => ({
-    name: s.name,
-    price: s.price,
-    category: s.category || "General",
-  }));
+  const mappedServicesList = [
+    ...servicesList.map((s) => ({
+      id: s.id,
+      name: s.name,
+      price: s.price,
+      category: s.category || "General",
+      gender: s.gender || "both",
+      startingPrice: s.startingPrice,
+      priceLabel: s.priceLabel,
+      priceUnit: s.priceUnit,
+      variants: s.variants,
+    })),
+    ...packagesList.map((pkg) => ({
+      id: pkg.id,
+      name: pkg.name,
+      price: pkg.price,
+      category: "Packages",
+      gender: pkg.gender || "both",
+      isPackage: true,
+    })),
+  ];
 
   const mappedProductsList = productsList.map((p) => ({
     id: p.id,

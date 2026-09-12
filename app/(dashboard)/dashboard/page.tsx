@@ -13,6 +13,9 @@ import {
   getDoc,
 } from "firebase/firestore";
 import * as staffService from "@/services/staff";
+import * as attendanceService from "@/services/attendance";
+import type { AttendanceRecord } from "@/types/attendance";
+import { normalizeAttendanceStatus } from "@/types/attendance";
 import { formatCurrency } from "@/components/salon-dashboard/types";
 import type { Staff } from "@/types/staff";
 import { useAppData } from "@/context/AppDataContext";
@@ -27,10 +30,10 @@ import {
   UsersRound,
   UserPlus,
   PiggyBank,
-  Clock,
   X,
   Store,
   Sparkles,
+  CheckCircle2,
 } from "lucide-react";
 import { format } from "date-fns";
 import Link from "next/link";
@@ -116,57 +119,6 @@ function formatTime(ts: any): string {
 
 function getLocalDateKey(d: Date): string {
   return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-}
-
-// ── Active Time Computation ────────────────────────────────────────────────
-function computeTodayActiveTime(clockLogs: any[] = []): string {
-  if (!clockLogs?.length) return "0 mins";
-
-  const today = new Date();
-  const todayKey = getLocalDateKey(today);
-
-  const parsedLogs = clockLogs
-    .map((log) => {
-      const date = parseTimestamp(log.timestamp);
-      if (!date) return null;
-      return {
-        event: log.event as "clockIn" | "clockOut",
-        date,
-        time: date.getTime(),
-      };
-    })
-    .filter((log): log is NonNullable<typeof log> => log !== null)
-    .sort((a, b) => a.time - b.time);
-
-  const sessions: { clockIn: (typeof parsedLogs)[0]; clockOut: (typeof parsedLogs)[0] | null }[] = [];
-  let currentSessionStart: (typeof parsedLogs)[0] | null = null;
-
-  for (const log of parsedLogs) {
-    if (log.event === "clockIn") {
-      if (currentSessionStart) sessions.push({ clockIn: currentSessionStart, clockOut: null });
-      currentSessionStart = log;
-    } else if (log.event === "clockOut" && currentSessionStart) {
-      sessions.push({ clockIn: currentSessionStart, clockOut: log });
-      currentSessionStart = null;
-    }
-  }
-  if (currentSessionStart) sessions.push({ clockIn: currentSessionStart, clockOut: null });
-
-  const todaySessions = sessions.filter((s) => getLocalDateKey(s.clockIn.date) === todayKey);
-
-  let totalMs = 0;
-  for (const session of todaySessions) {
-    if (session.clockOut) {
-      totalMs += session.clockOut.time - session.clockIn.time;
-    } else {
-      totalMs += Date.now() - session.clockIn.time;
-    }
-  }
-
-  const mins = Math.floor(totalMs / 60000);
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
 // ── Sub-Components ─────────────────────────────────────────────────────────
@@ -271,125 +223,88 @@ function PaymentBreakdown({
   );
 }
 
-export function getStylistAttendanceForDate(
-  staffMember?: Staff | null,
-  dateKey?: string,
-  isToday = false
-): { inTime: string; outTime: string } {
-  if (!staffMember || !staffMember.clockLogs || staffMember.clockLogs.length === 0 || !dateKey) {
-    if (staffMember && isToday && staffMember.dutyStatus === "onDuty") {
-      return { inTime: "On Duty", outTime: "Still Working" };
-    }
-    return { inTime: "—", outTime: "—" };
-  }
-
-  const logsForDate = staffMember.clockLogs
-    .map((log) => {
-      let d: Date | null = null;
-      if (log.timestamp && typeof (log.timestamp as any).toDate === "function") {
-        d = (log.timestamp as any).toDate();
-      } else if (log.timestamp) {
-        d = new Date(log.timestamp);
-      }
-      return { event: log.event, date: d };
-    })
-    .filter((log): log is { event: "clockIn" | "clockOut"; date: Date } => {
-      if (!log.date || isNaN(log.date.getTime())) return false;
-      return toLocalDateString(log.date) === dateKey;
-    })
-    .sort((a, b) => a.date.getTime() - b.date.getTime());
-
-  if (logsForDate.length === 0) {
-    if (isToday && staffMember.dutyStatus === "onDuty") {
-      return { inTime: "On Duty", outTime: "Still Working" };
-    }
-    return { inTime: "—", outTime: "—" };
-  }
-
-  const firstIn = logsForDate.find((l) => l.event === "clockIn");
-  const lastOut = [...logsForDate].reverse().find((l) => l.event === "clockOut");
-  const lastEvent = logsForDate[logsForDate.length - 1];
-
-  const formatTime = (d: Date) => {
-    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: true });
-  };
-
-  const inTimeStr = firstIn ? formatTime(firstIn.date) : "—";
-  let outTimeStr = "—";
-
-  if (lastEvent.event === "clockIn" || (isToday && staffMember.dutyStatus === "onDuty")) {
-    outTimeStr = "Still Working";
-  } else if (lastOut) {
-    outTimeStr = formatTime(lastOut.date);
-  }
-
-  return { inTime: inTimeStr, outTime: outTimeStr };
-}
-
-function StaffCard({
+function StaffAttendanceRow({
   member,
-  activeTime,
-  onToggle,
+  attendance,
+  onMarkAttendance,
+  loading,
 }: {
-  member: Staff & { activeTime: string };
-  activeTime: string;
-  onToggle: (member: Staff) => void;
+  member: Staff;
+  attendance?: AttendanceRecord;
+  onMarkAttendance: (member: Staff, status: "present" | "absent") => void;
+  loading?: boolean;
 }) {
-  const isOnDuty = member.dutyStatus === "onDuty";
+  const norm = normalizeAttendanceStatus(attendance?.status);
+  const isPresent = norm === "PRESENT";
+  const isAbsent = norm === "ABSENT";
 
   return (
     <div
-      className={`group relative overflow-hidden rounded-2xl border bg-[#FFFFFF] p-4 transition-all duration-300 hover:shadow-xs ${
-        isOnDuty
-          ? "border-[#CCD2C8] shadow-xs"
-          : "border-[#E0E4DD]"
+      className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border p-3 transition-all duration-150 ${
+        isPresent
+          ? "border-[#CCD2C8] bg-[#E8ECE5]/30 shadow-2xs"
+          : isAbsent
+          ? "border-[#F8D7D7] bg-[#FBEBEB]/30 shadow-2xs"
+          : "border-[#E0E4DD] bg-[#FFFFFF] hover:border-[#CCD2C8]"
       }`}
     >
-      <div className="flex items-start justify-between">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <h3 className="truncate text-sm font-bold text-[#292D29]">
-              {member.name}
-            </h3>
-            <span
-              className={`shrink-0 rounded-full px-2 py-0.5 text-[9px] font-bold tracking-[0.1em] uppercase border ${
-                isOnDuty
-                  ? "border-[#CCD2C8] bg-[#E8ECE5] text-[#2F352F]"
-                  : "border-[#E0E4DD] bg-[#F7F7F4] text-[#747A72]"
-              }`}
-            >
-              {isOnDuty ? "On Duty" : "Off Duty"}
-            </span>
-          </div>
-          <p className="mt-0.5 text-[10px] font-semibold tracking-[0.12em] uppercase text-[#747A72]">
-            {member.role}
-          </p>
-        </div>
-        <div
-          className={`size-2 rounded-full shrink-0 mt-1.5 ${
-            isOnDuty ? "bg-[#5F7A62]" : "bg-[#CCD2C8]"
+      {/* 1. Full Staff Name & 2. Current Attendance Status */}
+      <div className="flex flex-wrap items-center gap-2.5 min-w-0 flex-1">
+        <span className="text-xs font-bold text-[#2F352F] leading-snug break-words">
+          {member.name}
+        </span>
+        
+        {/* Status Badge */}
+        {isPresent ? (
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-[#CCD2C8] bg-[#E8ECE5] px-2.5 py-0.5 text-[9px] font-extrabold tracking-wider text-[#2F352F]">
+            <span className="size-1.5 rounded-full bg-[#5F7A62]" />
+            PRESENT
+          </span>
+        ) : isAbsent ? (
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-[#F8D7D7] bg-[#FBEBEB] px-2.5 py-0.5 text-[9px] font-extrabold tracking-wider text-[#B55B5B]">
+            <span className="size-1.5 rounded-full bg-[#B55B5B]" />
+            ABSENT
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-[#E0E4DD] bg-[#F7F7F4] px-2.5 py-0.5 text-[9px] font-bold tracking-wider text-[#747A72]">
+            <span className="size-1.5 rounded-full bg-[#CCD2C8]" />
+            NOT MARKED
+          </span>
+        )}
+      </div>
+
+      {/* 3. Mark Present button & 4. Mark Absent button */}
+      <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto">
+        <button
+          type="button"
+          onClick={() => onMarkAttendance(member, "present")}
+          disabled={loading}
+          className={`flex-1 sm:flex-initial inline-flex h-8 items-center justify-center gap-1.5 rounded-lg px-3.5 text-[11px] font-bold transition-all duration-150 cursor-pointer disabled:opacity-50 ${
+            isPresent
+              ? "bg-[#5F7A62] text-white shadow-2xs border border-[#5F7A62]"
+              : "bg-[#FFFFFF] border border-[#CCD2C8] text-[#2F352F] hover:bg-[#E8ECE5] hover:border-[#6F776D]"
           }`}
-        />
-      </div>
+          title="Mark Present"
+        >
+          {isPresent && <CheckCircle2 size={12} className="text-white" />}
+          <span>Present</span>
+        </button>
 
-      <div className="mt-3 flex items-center justify-between border-t border-[#E0E4DD] pt-3">
-        <div className="flex items-center gap-1.5 text-[#747A72]">
-          <Clock size={12} strokeWidth={2.5} />
-          <span className="text-[11px] font-medium">Active today</span>
-        </div>
-        <span className="text-xs font-bold text-[#292D29]">{activeTime}</span>
+        <button
+          type="button"
+          onClick={() => onMarkAttendance(member, "absent")}
+          disabled={loading}
+          className={`flex-1 sm:flex-initial inline-flex h-8 items-center justify-center gap-1.5 rounded-lg px-3.5 text-[11px] font-bold transition-all duration-150 cursor-pointer disabled:opacity-50 ${
+            isAbsent
+              ? "bg-[#B55B5B] text-white shadow-2xs border border-[#B55B5B]"
+              : "bg-[#FFFFFF] border border-[#E0E4DD] text-[#747A72] hover:bg-[#FBEBEB] hover:text-[#B55B5B] hover:border-[#F8D7D7]"
+          }`}
+          title="Mark Absent"
+        >
+          {isAbsent && <X size={12} className="text-white" />}
+          <span>Absent</span>
+        </button>
       </div>
-
-      <button
-        onClick={() => onToggle(member)}
-        className={`mt-3 h-9 w-full rounded-xl text-[11px] font-bold tracking-wide transition-all duration-200 cursor-pointer ${
-          isOnDuty
-            ? "border border-[#E0E4DD] bg-[#F7F7F4] text-[#747A72] hover:border-[#6F776D] hover:text-[#2F352F] hover:bg-[#E8ECE5]"
-            : "bg-[#6F776D] text-[#FFFFFF] hover:bg-[#2F352F] shadow-xs"
-        }`}
-      >
-        {isOnDuty ? "Clock Out" : "Clock In"}
-      </button>
     </div>
   );
 }
@@ -509,7 +424,7 @@ function ModalOverlay({
 // ── Main Dashboard ─────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
-  const { staff, loadingAppData } = useAppData();
+  const { staff, refreshStaff, loadingAppData } = useAppData();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [invoicesLoaded, setInvoicesLoaded] = useState(false);
   const staffLoaded = !loadingAppData;
@@ -687,21 +602,24 @@ export default function DashboardPage() {
     };
   }, [modals]);
 
-  // ── Derived State ────────────────────────────────────────────────────────
-
-  const staffWithActiveTimes = useMemo(() => {
-    const mapped = staff.map((member) => ({
-      ...member,
-      activeTime: computeTodayActiveTime(member.clockLogs),
-    }));
-    return mapped.sort((a, b) => {
-      if (a.role === "Owner" && b.role !== "Owner") return -1;
-      if (a.role !== "Owner" && b.role === "Owner") return 1;
-      return a.name.localeCompare(b.name);
-    });
-  }, [staff, tick]);
+  // Today's attendance records from Firestore
+  const [todayAttendanceMap, setTodayAttendanceMap] = useState<Record<string, AttendanceRecord>>({});
+  const [dashboardActionLoadingId, setDashboardActionLoadingId] = useState<string | null>(null);
 
   const todayStr = toLocalDateString(new Date());
+
+  const loadDashboardAttendance = useCallback(async () => {
+    try {
+      const map = await attendanceService.getTodayAttendance(todayStr);
+      setTodayAttendanceMap(map);
+    } catch (err) {
+      console.error("Failed to load dashboard attendance:", err);
+    }
+  }, [todayStr]);
+
+  useEffect(() => {
+    loadDashboardAttendance();
+  }, [loadDashboardAttendance]);
 
   const getInvoiceDateKey = (inv: any): string => {
     if (inv.billDate) {
@@ -727,6 +645,35 @@ export default function DashboardPage() {
         return getTime(b.createdAt) - getTime(a.createdAt);
       });
   }, [invoices, todayStr]);
+
+  const staffServicesTodayMap = useMemo(() => {
+    const map: Record<string, number> = {};
+    staff.forEach((m) => {
+      if (m.id) map[m.id] = 0;
+    });
+    todayInvoices.forEach((inv) => {
+      (inv.services || []).forEach((s: any) => {
+        if (s.serviceId === "membership_fee" || s.isSystemService === true) return;
+        const staffId = s.staffId;
+        const staffName = s.staffName || s.staff;
+        const matched = staff.find(
+          (m) => (staffId && m.id === staffId) || (staffName && m.name === staffName)
+        );
+        if (matched && matched.id) {
+          map[matched.id] = (map[matched.id] || 0) + 1;
+        }
+      });
+    });
+    return map;
+  }, [todayInvoices, staff]);
+
+  const sortedDashboardStaff = useMemo(() => {
+    return [...staff].sort((a, b) => {
+      if (a.role === "Owner" && b.role !== "Owner") return -1;
+      if (a.role !== "Owner" && b.role === "Owner") return 1;
+      return a.name.localeCompare(b.name);
+    });
+  }, [staff]);
 
   const todaySettlement = useMemo<TodaySettlement>(() => {
     let serviceSales = 0;
@@ -832,18 +779,13 @@ export default function DashboardPage() {
       stylistName: string;
       servicesDone: number;
       serviceRevenue: number;
-      inTime: string;
-      outTime: string;
     }> = {};
 
     staff.forEach((member) => {
-      const att = getStylistAttendanceForDate(member, todayStr, true);
       stylistMap[member.name] = {
         stylistName: member.name,
         servicesDone: 0,
         serviceRevenue: 0,
-        inTime: att.inTime,
-        outTime: att.outTime,
       };
     });
 
@@ -858,14 +800,10 @@ export default function DashboardPage() {
           : Math.max((Number(s.price) || 0) - (Number(s.discount) || 0), 0);
 
         if (!stylistMap[name]) {
-          const matchedStaff = staff.find((m) => m.name === name || m.id === s.staffId);
-          const att = getStylistAttendanceForDate(matchedStaff, todayStr, true);
           stylistMap[name] = {
             stylistName: name,
             servicesDone: 0,
             serviceRevenue: 0,
-            inTime: att.inTime,
-            outTime: att.outTime,
           };
         }
 
@@ -875,38 +813,28 @@ export default function DashboardPage() {
     });
 
     return Object.values(stylistMap).filter(
-      (st) => st.servicesDone > 0 || st.inTime !== "—" || st.outTime !== "—"
+      (st) => st.servicesDone > 0 || st.serviceRevenue > 0
     ).sort((a, b) => b.serviceRevenue - a.serviceRevenue);
-  }, [todayInvoices, staff, todayStr]);
+  }, [todayInvoices, staff]);
 
 
   // ── Handlers ───────────────────────────────────────────────────────────
 
-  const toggleDutyStatus = useCallback(
-    async (member: Staff) => {
+  const handleDashboardMarkAttendance = useCallback(
+    async (member: Staff, status: "present" | "absent") => {
       if (!member.id) return;
-      const current = member.dutyStatus || "offDuty";
-      const next = current === "onDuty" ? "offDuty" : "onDuty";
-      const logEvent = next === "onDuty" ? "clockIn" : "clockOut";
-
+      setDashboardActionLoadingId(member.id);
       try {
-        await staffService.update(member.id, {
-          dutyStatus: next,
-          clockLogs: arrayUnion({
-            event: logEvent,
-            timestamp: Timestamp.now(),
-          }) as any,
-        });
-
-        const now = new Date();
-        const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-        localStorage.removeItem(`staffMonthlyStats_${monthKey}`);
-        await fetchStaffMonthlyStats(true);
+        const rec = await attendanceService.markAttendance(member.id, member.name, todayStr, status);
+        setTodayAttendanceMap((prev) => ({ ...prev, [member.id!]: rec }));
+        await refreshStaff();
       } catch (err) {
-        console.error("Failed to update duty status:", err);
+        console.error("Dashboard mark attendance failed:", err);
+      } finally {
+        setDashboardActionLoadingId(null);
       }
     },
-    [fetchStaffMonthlyStats]
+    [todayStr, refreshStaff]
   );
 
   const openModal = useCallback((key: keyof typeof modals) => {
@@ -961,7 +889,7 @@ export default function DashboardPage() {
         <div className="flex items-center gap-2 rounded-xl border border-[#E0E4DD] bg-[#FFFFFF] px-3.5 py-2 shadow-2xs">
           <Store size={14} className="text-[#6F776D]" />
           <span className="text-xs font-bold text-[#292D29]">
-            {stats.onDutyCount} Staff On Duty
+            {staff.filter((s) => s.id && normalizeAttendanceStatus(todayAttendanceMap[s.id]?.status) === "PRESENT").length} Staff Present
           </span>
         </div>
       </header>
@@ -1131,22 +1059,30 @@ export default function DashboardPage() {
           </section>
         </div>
 
-        {/* Right Column — Staff Floor Board */}
+        {/* Right Column — Staff Attendance */}
         <section className="rounded-2xl border border-[#E0E4DD] bg-[#FFFFFF] p-6 shadow-xs">
-          <div className="mb-5 flex items-center justify-between">
+          <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="text-base font-bold tracking-tight text-[#2F352F]">
-                Stylists Floor Board
+                Staff Attendance
               </h2>
               <p className="mt-0.5 text-xs text-[#747A72]">
-                Real-time status and floor hours
+                Today&apos;s staff availability
               </p>
             </div>
-            <div className="flex items-center gap-1.5 rounded-lg bg-[#E8ECE5] px-2.5 py-1 border border-[#CCD2C8]">
-              <div className="size-1.5 rounded-full bg-[#5F7A62]" />
-              <span className="text-[10px] font-bold text-[#2F352F]">
-                {staff.filter((s) => s.dutyStatus === "onDuty").length} Active
-              </span>
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5 rounded-lg bg-[#E8ECE5] px-2.5 py-1 border border-[#CCD2C8]">
+                <div className="size-1.5 rounded-full bg-[#5F7A62]" />
+                <span className="text-[10px] font-bold text-[#2F352F]">
+                  Present Today: {staff.filter((s) => s.id && normalizeAttendanceStatus(todayAttendanceMap[s.id]?.status) === "PRESENT").length}
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5 rounded-lg bg-[#FBEBEB] px-2.5 py-1 border border-[#F8D7D7]">
+                <div className="size-1.5 rounded-full bg-[#B55B5B]" />
+                <span className="text-[10px] font-bold text-[#B55B5B]">
+                  Absent Today: {staff.filter((s) => s.id && normalizeAttendanceStatus(todayAttendanceMap[s.id]?.status) === "ABSENT").length}
+                </span>
+              </div>
             </div>
           </div>
 
@@ -1154,23 +1090,24 @@ export default function DashboardPage() {
             <div className="flex flex-col items-center gap-3 py-12 text-center">
               <Users size={32} className="text-[#CCD2C8]" />
               <p className="text-sm text-[#747A72] italic">
-                No registered staff found
+                No staff added yet
               </p>
               <Link
                 href="/staff"
                 className="text-xs font-bold text-[#6F776D] hover:underline"
               >
-                Add staff members
+                Register staff members
               </Link>
             </div>
           ) : (
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
-              {staffWithActiveTimes.map((member) => (
-                <StaffCard
+            <div className="flex flex-col space-y-2.5">
+              {sortedDashboardStaff.map((member) => (
+                <StaffAttendanceRow
                   key={member.id}
                   member={member}
-                  activeTime={member.activeTime}
-                  onToggle={toggleDutyStatus}
+                  attendance={member.id ? todayAttendanceMap[member.id] : undefined}
+                  onMarkAttendance={handleDashboardMarkAttendance}
+                  loading={dashboardActionLoadingId === member.id}
                 />
               ))}
             </div>
@@ -1372,14 +1309,12 @@ export default function DashboardPage() {
                     </div>
                   ) : (
                     <div className="overflow-x-auto rounded-xl border border-[#E0E4DD] bg-[#FFFFFF] shadow-xs max-h-56 overflow-y-auto">
-                      <table className="w-full min-w-[500px] border-collapse text-left text-xs">
+                      <table className="w-full min-w-[400px] border-collapse text-left text-xs">
                         <thead className="bg-[#F7F7F4] text-[10px] font-bold uppercase tracking-wider text-[#747A72] border-b border-[#E0E4DD] sticky top-0 z-10">
                           <tr>
                             <th className="px-3.5 py-2.5 font-bold">Stylist Name</th>
                             <th className="px-3.5 py-2.5 font-bold text-center">Services Done</th>
-                            <th className="px-3.5 py-2.5 font-bold">Service Revenue</th>
-                            <th className="px-3.5 py-2.5 font-bold">In Time</th>
-                            <th className="px-3.5 py-2.5 font-bold">Out Time</th>
+                            <th className="px-3.5 py-2.5 font-bold text-right">Service Revenue</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-[#E0E4DD]">
@@ -1391,22 +1326,8 @@ export default function DashboardPage() {
                               <td className="px-3.5 py-2.5 text-center font-bold text-[#292D29]">
                                 {st.servicesDone}
                               </td>
-                              <td className="px-3.5 py-2.5 font-bold text-[#5F7A62]">
+                              <td className="px-3.5 py-2.5 text-right font-bold text-[#5F7A62]">
                                 {formatCurrency(st.serviceRevenue)}
-                              </td>
-                              <td className="px-3.5 py-2.5 text-[#747A72] font-medium">
-                                {st.inTime}
-                              </td>
-                              <td className="px-3.5 py-2.5">
-                                <span
-                                  className={
-                                    st.outTime === "Still Working"
-                                      ? "inline-block rounded-full bg-[#E8ECE5] px-2 py-0.5 text-[9px] font-bold text-[#2F352F] border border-[#CCD2C8]"
-                                      : "text-[#747A72] font-medium"
-                                  }
-                                >
-                                  {st.outTime}
-                                </span>
                               </td>
                             </tr>
                           ))}

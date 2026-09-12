@@ -54,6 +54,7 @@ const menuGroups = [
     title: "Catalog",
     items: [
       { label: "Services", href: "/services", icon: Scissors },
+      { label: "Packages", href: "/packages", icon: Sparkles },
       { label: "Products", href: "/products", icon: Package },
       { label: "Offers", href: "/offers", icon: WalletCards },
     ],
@@ -95,7 +96,7 @@ export function Sidebar({
 
   const salonTitle = useMemo(() => {
     const name = settings?.salonName;
-    if (!name || name.toLowerCase().includes("demo")) return "THEA SALON";
+    if (!name || name.toLowerCase().includes("demo") || name.toLowerCase().includes("thea")) return "BLOW SALON";
     return name;
   }, [settings]);
 
@@ -146,7 +147,7 @@ export function Sidebar({
           <div className="mb-6 flex h-16 items-center justify-between border-b border-[#E0E4DD] pb-3 px-1">
             <div className="flex min-w-0 items-center gap-3">
               <div className="grid size-10 place-items-center rounded-xl bg-[#6F776D] text-[#FFFFFF] shadow-xs shrink-0">
-                <span className="font-serif text-lg font-extrabold tracking-tight">T</span>
+                <span className="font-serif text-lg font-extrabold tracking-tight">{salonTitle.charAt(0) || "B"}</span>
               </div>
               {!collapsed && (
                 <div className="flex flex-col min-w-0">
@@ -192,7 +193,7 @@ export function Sidebar({
             <div className="mb-6 flex h-16 items-center justify-between border-b border-[#E0E4DD] pb-3 px-1">
               <div className="flex min-w-0 items-center gap-3">
                 <div className="grid size-10 place-items-center rounded-xl bg-[#6F776D] text-[#FFFFFF] shadow-xs shrink-0">
-                  <span className="font-serif text-lg font-extrabold tracking-tight">T</span>
+                  <span className="font-serif text-lg font-extrabold tracking-tight">{salonTitle.charAt(0) || "B"}</span>
                 </div>
                 <div className="flex flex-col min-w-0">
                   <span className="text-base font-extrabold tracking-wider text-[#2F352F] uppercase truncate font-serif">

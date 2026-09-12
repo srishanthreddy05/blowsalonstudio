@@ -41,7 +41,7 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
 async function seedDemoData() {
-  console.log("Seeding THEA SALON default data in Firestore...");
+  console.log("Seeding BLOW SALON default data in Firestore...");
   console.log("Target Project ID:", firebaseConfig.projectId);
 
   try {
@@ -50,15 +50,15 @@ async function seedDemoData() {
     // 1. Seed Business Settings
     console.log("Creating default settings...");
     await setDoc(doc(db, "settings", "general"), {
-      salonName: "THEA SALON",
+      salonName: "BLOW SALON",
       phone: "9876543210",
-      address: "4th Floor, Suite 402, Metro Plaza",
+      address: "Metro Plaza",
       gstNumber: "36AAAAA0000A1Z5",
       taxRate: 18,
       currency: "INR",
       currencySymbol: "₹",
-      invoicePrefix: "THEA-",
-      receiptFooterText: "Thank you for visiting THEA SALON! We look forward to seeing you again.",
+      invoicePrefix: "BLOW-",
+      receiptFooterText: "Thank you for visiting BLOW SALON! We look forward to seeing you again.",
       updatedAt: new Date().toISOString()
     }, { merge: true });
 

@@ -1,19 +1,52 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import * as staffService from "@/services/staff";
+import * as attendanceService from "@/services/attendance";
 import type { Staff } from "@/types/staff";
-import { Plus, Search, Edit2, Trash2, X, Users, DollarSign, Award, Clock } from "lucide-react";
+import type { AttendanceRecord } from "@/types/attendance";
+import { normalizeAttendanceStatus } from "@/types/attendance";
+import {
+  Plus,
+  Search,
+  Edit2,
+  Trash2,
+  X,
+  Users,
+  Calendar,
+  CheckCircle2,
+  ChevronRight,
+  TrendingUp,
+  Briefcase,
+  AlertCircle,
+  FileSpreadsheet,
+} from "lucide-react";
 import { db } from "@/lib/firebase";
 import { collection, query, where, getDocs, doc, getDoc } from "firebase/firestore";
 import { useAppData } from "@/context/AppDataContext";
 import { formatCurrency } from "@/components/salon-dashboard/types";
+import { toLocalDateString } from "@/lib/utils/date";
+import { AttendanceHistoryTable } from "@/components/staff/AttendanceHistoryTable";
+import { StaffProfileModal } from "@/components/staff/StaffProfileModal";
 
 export default function StaffPage() {
   const { staff, refreshStaff, loadingAppData } = useAppData();
   const loading = loadingAppData;
+
+  // Active Tab
+  const [activeTab, setActiveTab] = useState<"directory" | "history">("directory");
   const [searchQuery, setSearchQuery] = useState("");
 
+  // Today's Attendance Map: employeeId -> AttendanceRecord
+  const [todayAttendanceMap, setTodayAttendanceMap] = useState<Record<string, AttendanceRecord>>({});
+  const [loadingTodayAttendance, setLoadingTodayAttendance] = useState(false);
+  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+
+  // Profile Modal State
+  const [selectedStaffForProfile, setSelectedStaffForProfile] = useState<Staff | null>(null);
+  const [historySelectedEmployeeId, setHistorySelectedEmployeeId] = useState<string>("all");
+
+  // Add / Edit Modal State
   const [modalOpen, setModalOpen] = useState(false);
   const [editingStaff, setEditingStaff] = useState<Staff | null>(null);
   const [formData, setFormData] = useState({
@@ -26,92 +59,126 @@ export default function StaffPage() {
     servicesMonthly: 0,
   });
 
+  // Delete Confirm Modal State
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [idToDelete, setIdToDelete] = useState<string | null>(null);
 
-  const [staffRevenueMap, setStaffRevenueMap] = useState<Record<string, number>>({});
-  const [staffServicesMap, setStaffServicesMap] = useState<Record<string, number>>({});
+  // Service Performance Maps (Today & Monthly)
+  const [staffTodayRevMap, setStaffTodayRevMap] = useState<Record<string, number>>({});
+  const [staffTodaySrvMap, setStaffTodaySrvMap] = useState<Record<string, number>>({});
+  const [staffMonthRevMap, setStaffMonthRevMap] = useState<Record<string, number>>({});
+  const [staffMonthSrvMap, setStaffMonthSrvMap] = useState<Record<string, number>>({});
 
-  const loadStaffProgress = async () => {
+  const todayKey = toLocalDateString(new Date());
+
+  // Load today's attendance records from Firestore
+  const loadTodayAttendance = useCallback(async () => {
+    setLoadingTodayAttendance(true);
+    try {
+      const map = await attendanceService.getTodayAttendance(todayKey);
+      setTodayAttendanceMap(map);
+    } catch (err) {
+      console.error("Failed to load today's attendance:", err);
+    } finally {
+      setLoadingTodayAttendance(false);
+    }
+  }, [todayKey]);
+
+  // Load service performance metrics from actual invoices (Today & This Month)
+  const loadStaffPerformance = useCallback(async () => {
     try {
       const now = new Date();
-      const start = new Date(now.getFullYear(), now.getMonth(), 1);
-      const end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
 
       const invRef = collection(db, "invoices");
-      const q = query(invRef, where("date", ">=", start), where("date", "<=", end));
+      const q = query(invRef, where("date", ">=", startOfMonth), where("date", "<=", endOfMonth));
       const snap = await getDocs(q);
 
-      const revMap: Record<string, number> = {};
-      const srvMap: Record<string, number> = {};
+      const todayRev: Record<string, number> = {};
+      const todaySrv: Record<string, number> = {};
+      const monthRev: Record<string, number> = {};
+      const monthSrv: Record<string, number> = {};
 
-      staff.forEach((member) => {
-        if (member.id) {
-          revMap[member.id] = 0;
-          srvMap[member.id] = 0;
+      staff.forEach((m) => {
+        if (m.id) {
+          todayRev[m.id] = 0;
+          todaySrv[m.id] = 0;
+          monthRev[m.id] = 0;
+          monthSrv[m.id] = 0;
         }
       });
 
       snap.forEach((d) => {
         const inv = d.data();
+        const invDate = inv.date?.toDate ? inv.date.toDate() : new Date(inv.date);
+        const isToday = toLocalDateString(invDate) === todayKey;
+
         (inv.services || []).forEach((s: any) => {
           if (s.serviceId === "membership_fee" || s.isSystemService === true) return;
           const staffId = s.staffId;
           const staffName = s.staffName || s.staff;
-          const matched = staff.find((m) => (staffId && m.id === staffId) || (staffName && m.name === staffName));
+          const matched = staff.find(
+            (m) => (staffId && m.id === staffId) || (staffName && m.name === staffName)
+          );
+
           if (matched && matched.id) {
-            const amount = s.amount !== undefined 
-              ? Number(s.amount) || 0 
-              : Math.max((Number(s.price) || 0) - (Number(s.discount) || 0), 0);
-            revMap[matched.id] = (revMap[matched.id] || 0) + amount;
-            srvMap[matched.id] = (srvMap[matched.id] || 0) + 1;
+            const amount =
+              s.amount !== undefined
+                ? Number(s.amount) || 0
+                : Math.max((Number(s.price) || 0) - (Number(s.discount) || 0), 0);
+
+            monthRev[matched.id] = (monthRev[matched.id] || 0) + amount;
+            monthSrv[matched.id] = (monthSrv[matched.id] || 0) + 1;
+
+            if (isToday) {
+              todayRev[matched.id] = (todayRev[matched.id] || 0) + amount;
+              todaySrv[matched.id] = (todaySrv[matched.id] || 0) + 1;
+            }
           }
         });
       });
 
-      setStaffRevenueMap(revMap);
-      setStaffServicesMap(srvMap);
+      setStaffTodayRevMap(todayRev);
+      setStaffTodaySrvMap(todaySrv);
+      setStaffMonthRevMap(monthRev);
+      setStaffMonthSrvMap(monthSrv);
     } catch (error) {
-      console.error("Failed to load staff list progress from invoices, falling back to stats docs:", error);
-      try {
-        const now = new Date();
-        const yyyy = now.getFullYear();
-        const mm = String(now.getMonth() + 1).padStart(2, '0');
-        const monthKey = `${yyyy}-${mm}`;
-
-        const revMap: Record<string, number> = {};
-        const srvMap: Record<string, number> = {};
-
-        await Promise.all(
-          staff.map(async (member) => {
-            if (!member.id) return;
-            const ref = doc(db, "stats", `staff_${member.id}_${monthKey}`);
-            const snap = await getDoc(ref);
-            if (snap.exists()) {
-              const data = snap.data();
-              revMap[member.id] = data.revenue ?? 0;
-              srvMap[member.id] = data.servicesCount ?? 0;
-            } else {
-              revMap[member.id] = 0;
-              srvMap[member.id] = 0;
-            }
-          })
-        );
-
-        setStaffRevenueMap(revMap);
-        setStaffServicesMap(srvMap);
-      } catch (err) {
-        console.error("Failed to load fallback stats:", err);
-      }
+      console.error("Failed to load staff performance from invoices:", error);
     }
-  };
+  }, [staff, todayKey]);
+
+  useEffect(() => {
+    loadTodayAttendance();
+  }, [loadTodayAttendance]);
 
   useEffect(() => {
     if (staff && staff.length > 0) {
-      loadStaffProgress();
+      loadStaffPerformance();
     }
-  }, [staff]);
+  }, [staff, loadStaffPerformance]);
 
+  // Attendance Handlers
+  const handleMarkAttendance = async (member: Staff, status: "present" | "absent") => {
+    if (!member.id) return;
+    setActionLoadingId(member.id);
+    try {
+      const rec = await attendanceService.markAttendance(
+        member.id,
+        member.name,
+        todayKey,
+        status
+      );
+      setTodayAttendanceMap((prev) => ({ ...prev, [member.id!]: rec }));
+      await refreshStaff();
+    } catch (error) {
+      console.error(`Mark ${status} failed:`, error);
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  // Staff Add/Edit Handlers
   const handleOpenAdd = () => {
     setEditingStaff(null);
     setFormData({
@@ -126,7 +193,8 @@ export default function StaffPage() {
     setModalOpen(true);
   };
 
-  const handleOpenEdit = (stf: Staff) => {
+  const handleOpenEdit = (stf: Staff, e: React.MouseEvent) => {
+    e.stopPropagation();
     setEditingStaff(stf);
     setFormData({
       name: stf.name,
@@ -140,7 +208,8 @@ export default function StaffPage() {
     setModalOpen(true);
   };
 
-  const handleDeleteTrigger = (id: string) => {
+  const handleDeleteTrigger = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
     setIdToDelete(id);
     setDeleteConfirmOpen(true);
   };
@@ -152,7 +221,7 @@ export default function StaffPage() {
       setDeleteConfirmOpen(false);
       setIdToDelete(null);
       await refreshStaff();
-      loadStaffProgress();
+      loadStaffPerformance();
     } catch (error) {
       console.error("Failed to delete staff member:", error);
     }
@@ -166,10 +235,6 @@ export default function StaffPage() {
       role: formData.role,
       salary: Number(formData.salary) || 0,
       status: formData.status,
-      targets: {
-        revenueMonthly: Number(formData.revenueMonthly) || 0,
-        servicesMonthly: Number(formData.servicesMonthly) || 0,
-      },
     };
     try {
       if (editingStaff?.id) {
@@ -179,17 +244,19 @@ export default function StaffPage() {
       }
       setModalOpen(false);
       await refreshStaff();
-      loadStaffProgress();
+      loadStaffPerformance();
     } catch (error) {
       console.error("Failed to save staff member:", error);
     }
   };
 
-  const filteredStaff = staff.filter(
-    (s) =>
-      s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      s.role.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredStaff = useMemo(() => {
+    return staff.filter(
+      (s) =>
+        s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        s.role.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+  }, [staff, searchQuery]);
 
   const sortedStaff = useMemo(() => {
     return [...filteredStaff].sort((a, b) => {
@@ -201,24 +268,57 @@ export default function StaffPage() {
     });
   }, [filteredStaff]);
 
+  const handleViewFullAttendanceForStaff = (staffId: string) => {
+    setHistorySelectedEmployeeId(staffId);
+    setActiveTab("history");
+  };
+
   return (
-    <div className="w-full text-[#292D29] space-y-8">
-      {/* Title */}
+    <div className="w-full text-[#292D29] space-y-6">
+      {/* Title & Actions Bar */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#747A72]">
-            Team & Specialists
+            Staff Management
           </p>
           <h1 className="mt-1 font-serif text-2xl sm:text-3xl font-bold tracking-tight text-[#2F352F]">
-            Salon Staff Directory ({staff.length})
+            BLOW SALON Specialists & Attendance ({staff.length})
           </h1>
         </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleOpenAdd}
+            className="inline-flex h-10 items-center gap-2 rounded-xl bg-[#6F776D] hover:bg-[#2F352F] px-4 text-xs font-bold text-white shadow-xs transition duration-150 cursor-pointer"
+          >
+            <Plus size={15} />
+            Register Specialist
+          </button>
+        </div>
+      </div>
+
+      {/* Navigation Tabs */}
+      <div className="flex border-b border-[#E0E4DD]">
         <button
-          onClick={handleOpenAdd}
-          className="inline-flex h-10 items-center gap-2 rounded-xl bg-[#6F776D] hover:bg-[#2F352F] px-4 text-xs font-bold text-white shadow-xs transition duration-150 cursor-pointer"
+          onClick={() => setActiveTab("directory")}
+          className={`flex items-center gap-2 px-5 py-3 text-xs font-bold uppercase tracking-wider transition border-b-2 cursor-pointer ${
+            activeTab === "directory"
+              ? "border-[#6F776D] text-[#2F352F] bg-[#FFFFFF]/40"
+              : "border-transparent text-[#747A72] hover:text-[#2F352F] hover:border-[#CCD2C8]"
+          }`}
         >
-          <Plus size={15} />
-          Register Specialist
+          <Users size={15} />
+          Staff Directory & Today's Attendance
+        </button>
+        <button
+          onClick={() => setActiveTab("history")}
+          className={`flex items-center gap-2 px-5 py-3 text-xs font-bold uppercase tracking-wider transition border-b-2 cursor-pointer ${
+            activeTab === "history"
+              ? "border-[#6F776D] text-[#2F352F] bg-[#FFFFFF]/40"
+              : "border-transparent text-[#747A72] hover:text-[#2F352F] hover:border-[#CCD2C8]"
+          }`}
+        >
+          <Calendar size={15} />
+          Attendance History
         </button>
       </div>
 
@@ -226,145 +326,338 @@ export default function StaffPage() {
         <div className="flex h-[40vh] items-center justify-center">
           <div className="size-9 animate-spin rounded-full border-3 border-[#6F776D] border-t-transparent" />
         </div>
+      ) : activeTab === "history" ? (
+        /* Attendance History View */
+        <AttendanceHistoryTable
+          staffList={staff}
+          selectedEmployeeId={historySelectedEmployeeId}
+          onClearEmployeeFilter={() => setHistorySelectedEmployeeId("all")}
+        />
       ) : (
-        <>
-          {/* Search bar */}
-          <div className="flex max-w-md items-center rounded-xl border border-[#E0E4DD] bg-[#FFFFFF] px-4 h-11 shadow-xs focus-within:border-[#6F776D] focus-within:ring-1 focus-within:ring-[#6F776D] transition">
-            <Search size={16} className="text-[#747A72] mr-2" />
-            <input
-              type="text"
-              placeholder="Search by name or role..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-transparent text-xs text-[#292D29] outline-none placeholder:text-[#747A72]"
-            />
+        /* Staff Directory & Today's Attendance View */
+        <div className="space-y-6">
+          {/* Today's Attendance Quick-Panel */}
+          <div className="rounded-3xl border border-[#E0E4DD] bg-[#FFFFFF] p-5 shadow-xs">
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-4 pb-3 border-b border-[#E0E4DD]">
+              <div>
+                <h2 className="font-serif text-base font-bold text-[#2F352F]">
+                  Today's Attendance ({new Date().toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })})
+                </h2>
+                <p className="text-[11px] font-medium text-[#747A72] mt-0.5">
+                  Today&apos;s staff availability
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-[#CCD2C8] bg-[#E8ECE5] px-3 py-1 text-xs font-bold text-[#2F352F]">
+                  <span className="size-2 rounded-full bg-[#5F7A62]" />
+                  {staff.filter((s) => s.id && normalizeAttendanceStatus(todayAttendanceMap[s.id]?.status) === "PRESENT").length} Present
+                </span>
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-[#F8D7D7] bg-[#FBEBEB] px-3 py-1 text-xs font-bold text-[#B55B5B]">
+                  <span className="size-2 rounded-full bg-[#B55B5B]" />
+                  {staff.filter((s) => s.id && normalizeAttendanceStatus(todayAttendanceMap[s.id]?.status) === "ABSENT").length} Absent
+                </span>
+              </div>
+            </div>
+
+            {staff.length === 0 ? (
+              <p className="text-xs text-[#747A72] py-4 text-center">No staff added yet.</p>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {staff.map((member) => {
+                  if (!member.id) return null;
+                  const att = todayAttendanceMap[member.id];
+                  const normStatus = normalizeAttendanceStatus(att?.status);
+                  const isPresent = normStatus === "PRESENT";
+                  const isAbsent = normStatus === "ABSENT";
+                  const isActing = actionLoadingId === member.id;
+
+                  return (
+                    <div
+                      key={member.id}
+                      className={`rounded-2xl border p-4 transition flex flex-col justify-between gap-3 ${
+                        isPresent
+                          ? "border-[#CCD2C8] bg-[#E8ECE5]/30"
+                          : isAbsent
+                          ? "border-[#F8D7D7] bg-[#FBEBEB]/30"
+                          : "border-[#E0E4DD] bg-[#FFFFFF]"
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="grid size-10 place-items-center rounded-xl bg-[#E8ECE5] text-[#2F352F] font-serif font-bold text-sm border border-[#CCD2C8] shrink-0">
+                            {member.name.charAt(0).toUpperCase()}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="font-serif font-bold text-sm text-[#2F352F] truncate">
+                              {member.name}
+                            </p>
+                            <p className="text-[10px] text-[#747A72] uppercase tracking-wider truncate">
+                              {member.role}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Status Badge */}
+                        <div>
+                          {isPresent ? (
+                            <span className="inline-flex items-center gap-1.5 rounded-full border border-[#CCD2C8] bg-[#E8ECE5] px-2.5 py-1 text-[10px] font-bold tracking-wider text-[#2F352F]">
+                              <span className="size-1.5 rounded-full bg-[#5F7A62]" />
+                              PRESENT
+                            </span>
+                          ) : isAbsent ? (
+                            <span className="inline-flex items-center gap-1.5 rounded-full border border-[#F8D7D7] bg-[#FBEBEB] px-2.5 py-1 text-[10px] font-bold tracking-wider text-[#B55B5B]">
+                              <span className="size-1.5 rounded-full bg-[#B55B5B]" />
+                              ABSENT
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5 rounded-full border border-[#E0E4DD] bg-[#F7F7F4] px-2.5 py-1 text-[10px] font-bold tracking-wider text-[#747A72]">
+                              <span className="size-1.5 rounded-full bg-[#CCD2C8]" />
+                              NOT MARKED
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Action Buttons */}
+                      <div className="pt-2 border-t border-[#E0E4DD]/80">
+                        {isPresent ? (
+                          <button
+                            onClick={() => handleMarkAttendance(member, "absent")}
+                            disabled={isActing}
+                            className="w-full h-8.5 rounded-xl border border-[#F8D7D7] bg-[#FFFFFF] hover:bg-[#FBEBEB] text-[11px] font-bold text-[#B55B5B] transition cursor-pointer flex items-center justify-center gap-1.5 shadow-2xs"
+                          >
+                            Mark Absent
+                          </button>
+                        ) : isAbsent ? (
+                          <button
+                            onClick={() => handleMarkAttendance(member, "present")}
+                            disabled={isActing}
+                            className="w-full h-8.5 rounded-xl bg-[#6F776D] hover:bg-[#2F352F] text-[11px] font-bold text-white transition cursor-pointer flex items-center justify-center gap-1.5 shadow-2xs"
+                          >
+                            Mark Present
+                          </button>
+                        ) : (
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => handleMarkAttendance(member, "present")}
+                              disabled={isActing}
+                              className="flex-1 h-8.5 rounded-xl bg-[#6F776D] hover:bg-[#2F352F] text-[11px] font-bold text-white transition cursor-pointer shadow-2xs"
+                            >
+                              Mark Present
+                            </button>
+                            <button
+                              onClick={() => handleMarkAttendance(member, "absent")}
+                              disabled={isActing}
+                              className="flex-1 h-8.5 rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] hover:bg-[#FBEBEB] hover:text-[#B55B5B] text-[11px] font-bold text-[#747A72] transition cursor-pointer"
+                            >
+                              Mark Absent
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Search bar & Section Title */}
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <h2 className="font-serif text-lg font-bold text-[#2F352F]">Specialist Directory</h2>
+              <p className="text-xs text-[#747A72]">
+                Profiles, salary details, and live service performance
+              </p>
+            </div>
+            <div className="flex max-w-md w-full sm:w-80 items-center rounded-xl border border-[#E0E4DD] bg-[#FFFFFF] px-4 h-10 shadow-xs focus-within:border-[#6F776D] transition">
+              <Search size={15} className="text-[#747A72] mr-2 shrink-0" />
+              <input
+                type="text"
+                placeholder="Search by name or role..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full bg-transparent text-xs text-[#292D29] outline-none placeholder:text-[#747A72]"
+              />
+            </div>
           </div>
 
           {/* Staff Cards List */}
           <div className="grid gap-4">
             {sortedStaff.length === 0 ? (
-              <div className="p-8 text-center bg-[#FFFFFF] rounded-2xl border border-[#E0E4DD] text-[#747A72]">
-                <Users size={32} className="mx-auto mb-2 opacity-40 text-[#6F776D]" />
-                <p className="font-semibold text-sm">No team members found</p>
+              <div className="p-12 text-center bg-[#FFFFFF] rounded-3xl border border-[#E0E4DD] text-[#747A72]">
+                <Users size={36} className="mx-auto mb-2 opacity-30 text-[#6F776D]" />
+                <p className="font-semibold text-sm text-[#2F352F]">No staff added yet.</p>
                 <p className="text-xs text-[#747A72] mt-1">
-                  Enlist your salon specialists and stylists to assign services and monitor attendance.
+                  Click &quot;Register Specialist&quot; above to add your salon team members.
                 </p>
               </div>
-            ) : sortedStaff.map((stf) => {
-              const revenueMonthly = stf.targets?.revenueMonthly || 0;
-              const servicesMonthly = stf.targets?.servicesMonthly || 0;
-              const revenueAchieved = stf.id ? staffRevenueMap[stf.id] || 0 : 0;
-              const servicesAchieved = stf.id ? staffServicesMap[stf.id] || 0 : 0;
+            ) : (
+              sortedStaff.map((stf) => {
+                if (!stf.id) return null;
+                const todayRev = staffTodayRevMap[stf.id] || 0;
+                const todaySrv = staffTodaySrvMap[stf.id] || 0;
+                const monthRev = staffMonthRevMap[stf.id] || 0;
+                const monthSrv = staffMonthSrvMap[stf.id] || 0;
 
-              const revenuePercent = revenueMonthly > 0 ? Math.min(100, (revenueAchieved / revenueMonthly) * 100) : 0;
-              const servicesPercent = servicesMonthly > 0 ? Math.min(100, (servicesAchieved / servicesMonthly) * 100) : 0;
-
-              const hasRevenueTarget = revenueMonthly > 0;
-              const hasServicesTarget = servicesMonthly > 0;
-
-              return (
-                <div
-                  key={stf.id}
-                  className="rounded-2xl border border-[#E0E4DD] bg-[#FFFFFF] p-5 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-5 transition hover:border-[#CCD2C8]"
-                >
-                  {/* Left: Info */}
-                  <div className="flex items-center gap-4 min-w-[260px]">
-                    <div className="grid size-12 place-items-center rounded-2xl bg-[#E8ECE5] text-[#2F352F] font-serif font-bold text-lg border border-[#CCD2C8]">
-                      {stf.name.charAt(0).toUpperCase()}
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2 mb-1">
-                        <h3 className="font-serif font-bold text-base text-[#2F352F]">{stf.name}</h3>
-                        <span className={`inline-block rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider border ${
-                          stf.status === "Active"
-                            ? "bg-[#E8ECE5] text-[#2F352F] border-[#CCD2C8]"
-                            : "bg-[#FBEBEB] text-[#B55B5B] border-[#FBEBEB]"
-                        }`}>
-                          {stf.status}
-                        </span>
-                        <span className="inline-block rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider border bg-[#F7F7F4] text-[#747A72] border-[#E0E4DD]">
-                          {stf.role}
-                        </span>
+                return (
+                  <div
+                    key={stf.id}
+                    onClick={() => setSelectedStaffForProfile(stf)}
+                    className="rounded-3xl border border-[#E0E4DD] bg-[#FFFFFF] p-5 shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-5 transition hover:border-[#CCD2C8] hover:shadow-md cursor-pointer group"
+                  >
+                    {/* Left: Info */}
+                    <div className="flex items-center gap-4 min-w-[260px]">
+                      <div className="grid size-12 place-items-center rounded-2xl bg-[#E8ECE5] text-[#2F352F] font-serif font-bold text-lg border border-[#CCD2C8] shrink-0 group-hover:bg-[#6F776D] group-hover:text-white transition">
+                        {stf.name.charAt(0).toUpperCase()}
                       </div>
-                      
-                      <div className="text-xs text-[#747A72] flex flex-wrap items-center gap-3">
-                        <div>
-                          <span className="font-bold text-[10px] uppercase tracking-wider text-[#747A72]">Phone: </span>
-                          <span className="text-[#292D29] font-medium">{stf.phone || "—"}</span>
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2 mb-1">
+                          <h3 className="font-serif font-bold text-base text-[#2F352F] group-hover:text-[#6F776D] transition">
+                            {stf.name}
+                          </h3>
+                          <span
+                            className={`inline-block rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider border ${
+                              stf.status === "Active"
+                                ? "bg-[#E8ECE5] text-[#2F352F] border-[#CCD2C8]"
+                                : "bg-[#FBEBEB] text-[#B55B5B] border-[#FBEBEB]"
+                            }`}
+                          >
+                            {stf.status}
+                          </span>
+                          <span className="inline-block rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider border bg-[#F7F7F4] text-[#747A72] border-[#E0E4DD]">
+                            {stf.role}
+                          </span>
+                          {(() => {
+                            const att = stf.id ? todayAttendanceMap[stf.id] : undefined;
+                            const norm = normalizeAttendanceStatus(att?.status);
+                            if (norm === "PRESENT") {
+                              return (
+                                <span className="inline-flex items-center gap-1 rounded-full border border-[#CCD2C8] bg-[#E8ECE5] px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-[#2F352F]">
+                                  <span className="size-1.5 rounded-full bg-[#5F7A62]" />
+                                  PRESENT
+                                </span>
+                              );
+                            }
+                            if (norm === "ABSENT") {
+                              return (
+                                <span className="inline-flex items-center gap-1 rounded-full border border-[#F8D7D7] bg-[#FBEBEB] px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-[#B55B5B]">
+                                  <span className="size-1.5 rounded-full bg-[#B55B5B]" />
+                                  ABSENT
+                                </span>
+                              );
+                            }
+                            return null;
+                          })()}
                         </div>
-                        <div>
-                          <span className="font-bold text-[10px] uppercase tracking-wider text-[#747A72]">Base Salary: </span>
-                          <span className="text-[#292D29] font-bold">{stf.salary ? formatCurrency(stf.salary) : "—"}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
 
-                  {/* Middle: Progress / Informational Metrics */}
-                  <div className="flex-1 min-w-[280px] pt-4 md:pt-0 border-t md:border-t-0 border-[#E0E4DD]">
-                    <span className="font-bold block text-[10px] text-[#747A72] uppercase tracking-wider mb-2">Monthly Performance (Analytical)</span>
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <div className="space-y-1">
-                        <div className="flex justify-between text-[10px] text-[#747A72]">
-                          <span>Revenue Generated: {formatCurrency(revenueAchieved)} {hasRevenueTarget && `/ ${formatCurrency(revenueMonthly)}`}</span>
-                          {hasRevenueTarget && <span className="font-bold text-[#5F7A62]">{Math.round(revenuePercent)}%</span>}
-                        </div>
-                        {hasRevenueTarget ? (
-                          <div className="w-full h-1.5 rounded-full bg-[#F7F7F4] overflow-hidden border border-[#E0E4DD]">
-                            <div
-                              className="h-full rounded-full bg-[#6F776D]"
-                              style={{ width: `${revenuePercent}%` }}
-                            />
+                        <div className="text-xs text-[#747A72] flex flex-wrap items-center gap-3">
+                          <div>
+                            <span className="font-bold text-[10px] uppercase tracking-wider text-[#747A72]">
+                              Phone:{" "}
+                            </span>
+                            <span className="text-[#292D29] font-medium">{stf.phone || "—"}</span>
                           </div>
-                        ) : (
-                          <div className="text-[10px] text-[#747A72] italic">No revenue target set</div>
-                        )}
-                      </div>
-
-                      <div className="space-y-1">
-                        <div className="flex justify-between text-[10px] text-[#747A72]">
-                          <span>Services Completed: {servicesAchieved} {hasServicesTarget && `/ ${servicesMonthly}`}</span>
-                          {hasServicesTarget && <span className="font-bold text-[#5F7A62]">{Math.round(servicesPercent)}%</span>}
-                        </div>
-                        {hasServicesTarget ? (
-                          <div className="w-full h-1.5 rounded-full bg-[#F7F7F4] overflow-hidden border border-[#E0E4DD]">
-                            <div
-                              className="h-full rounded-full bg-[#6F776D]"
-                              style={{ width: `${servicesPercent}%` }}
-                            />
+                          <div>
+                            <span className="font-bold text-[10px] uppercase tracking-wider text-[#747A72]">
+                              Base Salary:{" "}
+                            </span>
+                            <span className="text-[#2F352F] font-bold">
+                              {stf.salary ? formatCurrency(stf.salary) : "—"}
+                            </span>
                           </div>
-                        ) : (
-                          <div className="text-[10px] text-[#747A72] italic">No service target set</div>
-                        )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Middle: Service Performance (Invoices Completed) */}
+                    <div className="flex-1 min-w-[280px] pt-4 lg:pt-0 border-t lg:border-t-0 border-[#E0E4DD]">
+                      <span className="font-bold block text-[10px] text-[#747A72] uppercase tracking-wider mb-2">
+                        Service Performance (Salary-Based)
+                      </span>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        <div className="bg-[#F7F7F4] rounded-xl p-2 border border-[#E0E4DD]/80">
+                          <span className="block text-[9px] uppercase font-bold text-[#747A72]">
+                            Services Today
+                          </span>
+                          <span className="text-xs font-bold text-[#2F352F]">{todaySrv}</span>
+                        </div>
+                        <div className="bg-[#F7F7F4] rounded-xl p-2 border border-[#E0E4DD]/80">
+                          <span className="block text-[9px] uppercase font-bold text-[#747A72]">
+                            Revenue Today
+                          </span>
+                          <span className="text-xs font-bold text-[#5F7A62]">
+                            {formatCurrency(todayRev)}
+                          </span>
+                        </div>
+                        <div className="bg-[#F7F7F4] rounded-xl p-2 border border-[#E0E4DD]/80">
+                          <span className="block text-[9px] uppercase font-bold text-[#747A72]">
+                            Services (Mo)
+                          </span>
+                          <span className="text-xs font-bold text-[#2F352F]">{monthSrv}</span>
+                        </div>
+                        <div className="bg-[#F7F7F4] rounded-xl p-2 border border-[#E0E4DD]/80">
+                          <span className="block text-[9px] uppercase font-bold text-[#747A72]">
+                            Revenue (Mo)
+                          </span>
+                          <span className="text-xs font-bold text-[#5F7A62]">
+                            {formatCurrency(monthRev)}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Right: Actions */}
+                    <div className="flex items-center gap-2 pt-4 lg:pt-0 border-t lg:border-t-0 border-[#E0E4DD] self-end lg:self-auto min-w-[90px]">
+                      <button
+                        onClick={(e) => handleOpenEdit(stf, e)}
+                        className="grid size-8 place-items-center rounded-xl bg-[#FFFFFF] border border-[#E0E4DD] text-[#747A72] hover:text-[#2F352F] hover:bg-[#E8ECE5] hover:border-[#6F776D] transition cursor-pointer shadow-xs"
+                        title="Edit Profile"
+                      >
+                        <Edit2 size={13} />
+                      </button>
+                      <button
+                        onClick={(e) => stf.id && handleDeleteTrigger(stf.id, e)}
+                        className="grid size-8 place-items-center rounded-xl bg-[#FFFFFF] border border-[#E0E4DD] text-[#B55B5B] hover:bg-[#FBEBEB] hover:border-[#FBEBEB] transition cursor-pointer shadow-xs"
+                        title="Remove Specialist"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                      <div className="grid size-8 place-items-center rounded-xl bg-[#F7F7F4] text-[#747A72] group-hover:text-[#2F352F] group-hover:bg-[#E8ECE5] transition">
+                        <ChevronRight size={15} />
                       </div>
                     </div>
                   </div>
-
-                  {/* Right: Actions */}
-                  <div className="flex items-center gap-2 pt-4 md:pt-0 border-t md:border-t-0 border-[#E0E4DD] self-end md:self-auto min-w-[90px]">
-                    <button
-                      onClick={() => handleOpenEdit(stf)}
-                      className="grid size-8 place-items-center rounded-xl bg-[#FFFFFF] border border-[#E0E4DD] text-[#747A72] hover:text-[#2F352F] hover:bg-[#E8ECE5] hover:border-[#6F776D] transition cursor-pointer shadow-xs"
-                      title="Edit"
-                    >
-                      <Edit2 size={14} />
-                    </button>
-                    <button
-                      onClick={() => stf.id && handleDeleteTrigger(stf.id)}
-                      className="grid size-8 place-items-center rounded-xl bg-[#FFFFFF] border border-[#E0E4DD] text-[#B55B5B] hover:bg-[#FBEBEB] hover:border-[#FBEBEB] transition cursor-pointer shadow-xs"
-                      title="Delete"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
+                );
+              })
+            )}
           </div>
-        </>
+        </div>
       )}
 
-      {/* Add / Edit Modal */}
+      {/* Staff Profile Modal */}
+      {selectedStaffForProfile && (
+        <StaffProfileModal
+          staff={selectedStaffForProfile}
+          isOpen={!!selectedStaffForProfile}
+          onClose={() => setSelectedStaffForProfile(null)}
+          onViewFullAttendance={handleViewFullAttendanceForStaff}
+          todayServicesCount={
+            selectedStaffForProfile.id ? staffTodaySrvMap[selectedStaffForProfile.id] || 0 : 0
+          }
+          todayServiceRevenue={
+            selectedStaffForProfile.id ? staffTodayRevMap[selectedStaffForProfile.id] || 0 : 0
+          }
+          monthServicesCount={
+            selectedStaffForProfile.id ? staffMonthSrvMap[selectedStaffForProfile.id] || 0 : 0
+          }
+          monthServiceRevenue={
+            selectedStaffForProfile.id ? staffMonthRevMap[selectedStaffForProfile.id] || 0 : 0
+          }
+        />
+      )}
+
+      {/* Add / Edit Specialist Modal */}
       {modalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div
@@ -384,130 +677,41 @@ export default function StaffPage() {
             <form onSubmit={handleSubmit} className="space-y-4">
               {/* Name */}
               <label className="block">
-                <span className="text-xs font-semibold text-[#747A72]">
-                  Staff Name *
-                </span>
+                <span className="text-xs font-semibold text-[#747A72]">Staff Name *</span>
                 <input
                   required
                   type="text"
                   value={formData.name}
-                  onChange={(e) =>
-                    setFormData({ ...formData, name: e.target.value })
-                  }
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                   className="mt-1.5 h-10 w-full rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] px-3 text-xs text-[#292D29] outline-none focus:border-[#6F776D] focus:ring-1 focus:ring-[#6F776D] placeholder-[#747A72]"
                   placeholder="e.g. Aarav Kapoor"
                 />
               </label>
 
-              {/* Phone */}
+              {/* Base Salary */}
               <label className="block">
-                <span className="text-xs font-semibold text-[#747A72]">
-                  Phone Number
-                </span>
+                <span className="text-xs font-semibold text-[#747A72]">Base Salary / Mo (₹)</span>
                 <input
-                  type="tel"
-                  value={formData.phone}
+                  type="number"
+                  min="0"
+                  value={formData.salary === 0 ? "" : formData.salary}
                   onChange={(e) =>
-                    setFormData({ ...formData, phone: e.target.value })
+                    setFormData({
+                      ...formData,
+                      salary: e.target.value === "" ? 0 : Number(e.target.value),
+                    })
                   }
-                  className="mt-1.5 h-10 w-full rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] px-3 text-xs text-[#292D29] outline-none focus:border-[#6F776D] focus:ring-1 focus:ring-[#6F776D] placeholder-[#747A72]"
-                  placeholder="+91 98765 43210"
+                  placeholder="0"
+                  className="mt-1.5 h-10 w-full rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] px-3 text-xs text-[#292D29] outline-none focus:border-[#6F776D] focus:ring-1 focus:ring-[#6F776D]"
                 />
               </label>
 
-              <div className="grid grid-cols-2 gap-3">
-                {/* Role */}
-                <label className="block">
-                  <span className="text-xs font-semibold text-[#747A72]">
-                    Role / Position
-                  </span>
-                  <select
-                    value={formData.role}
-                    onChange={(e) =>
-                      setFormData({ ...formData, role: e.target.value })
-                    }
-                    className="mt-1.5 h-10 w-full rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] px-3 text-xs text-[#292D29] outline-none focus:border-[#6F776D] focus:ring-1 focus:ring-[#6F776D]"
-                  >
-                    <option value="Stylist">Stylist</option>
-                    <option value="Senior Stylist">Senior Stylist</option>
-                    <option value="Colorist">Colorist</option>
-                    <option value="Therapist">Therapist</option>
-                    <option value="Manager">Manager</option>
-                    <option value="Receptionist">Receptionist</option>
-                  </select>
-                </label>
-
-                {/* Base Salary */}
-                <label className="block">
-                  <span className="text-xs font-semibold text-[#747A72]">
-                    Base Salary / Mo (₹)
-                  </span>
-                  <input
-                    type="number"
-                    min="0"
-                    value={formData.salary === 0 ? "" : formData.salary}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        salary: e.target.value === "" ? 0 : Number(e.target.value),
-                      })
-                    }
-                    placeholder="0"
-                    className="mt-1.5 h-10 w-full rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] px-3 text-xs text-[#292D29] outline-none focus:border-[#6F776D] focus:ring-1 focus:ring-[#6F776D]"
-                  />
-                </label>
-              </div>
-
-              {/* Targets */}
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className="block">
-                  <span className="text-xs font-semibold text-[#747A72]">
-                    Revenue Target / Mo (₹)
-                  </span>
-                  <input
-                    type="number"
-                    min="0"
-                    value={formData.revenueMonthly === 0 ? "" : formData.revenueMonthly}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        revenueMonthly: e.target.value === "" ? 0 : Number(e.target.value),
-                      })
-                    }
-                    placeholder="0"
-                    className="mt-1.5 h-10 w-full rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] px-3 text-xs text-[#292D29] outline-none focus:border-[#6F776D] focus:ring-1 focus:ring-[#6F776D]"
-                  />
-                </label>
-                <label className="block">
-                  <span className="text-xs font-semibold text-[#747A72]">
-                    Services Target / Mo
-                  </span>
-                  <input
-                    type="number"
-                    min="0"
-                    value={formData.servicesMonthly === 0 ? "" : formData.servicesMonthly}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        servicesMonthly: e.target.value === "" ? 0 : Number(e.target.value),
-                      })
-                    }
-                    placeholder="0"
-                    className="mt-1.5 h-10 w-full rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] px-3 text-xs text-[#292D29] outline-none focus:border-[#6F776D] focus:ring-1 focus:ring-[#6F776D]"
-                  />
-                </label>
-              </div>
-
               {/* Employment Status */}
               <label className="block">
-                <span className="text-xs font-semibold text-[#747A72]">
-                  Employment Status
-                </span>
+                <span className="text-xs font-semibold text-[#747A72]">Employment Status</span>
                 <select
                   value={formData.status}
-                  onChange={(e) =>
-                    setFormData({ ...formData, status: e.target.value })
-                  }
+                  onChange={(e) => setFormData({ ...formData, status: e.target.value })}
                   className="mt-1.5 h-10 w-full rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] px-3 text-xs text-[#292D29] outline-none focus:border-[#6F776D] focus:ring-1 focus:ring-[#6F776D]"
                 >
                   <option value="Active">Active Duty</option>
@@ -543,9 +747,7 @@ export default function StaffPage() {
             onClick={() => setDeleteConfirmOpen(false)}
           />
           <div className="relative w-full max-w-sm rounded-3xl border border-[#E0E4DD] bg-[#FFFFFF] p-6 shadow-xl text-[#292D29] z-10 animate-in zoom-in-95 duration-200">
-            <h3 className="font-serif text-base font-bold text-[#2F352F] mb-2">
-              Remove Specialist
-            </h3>
+            <h3 className="font-serif text-base font-bold text-[#2F352F] mb-2">Remove Specialist</h3>
             <p className="text-xs text-[#747A72] mb-5">
               Are you sure you want to remove this staff profile from the salon directory?
             </p>

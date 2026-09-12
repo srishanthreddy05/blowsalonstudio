@@ -19,7 +19,7 @@ export function Navbar({ onToggleMobileSidebar }: NavbarProps) {
       <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
         <div className="flex items-center gap-2">
           <span className="text-sm sm:text-base md:text-lg font-serif font-bold tracking-[0.2em] text-[#2F352F] uppercase hidden sm:block">
-            THEA SALON
+            BLOW SALON
           </span>
         </div>
       </div>

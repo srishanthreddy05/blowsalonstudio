@@ -9,8 +9,6 @@ import {
   orderBy,
   getDocs,
   onSnapshot,
-  doc,
-  setDoc,
 } from "firebase/firestore";
 import type { Service } from "@/types/service";
 import type { Product } from "@/types/product";
@@ -18,21 +16,14 @@ import type { Staff } from "@/types/staff";
 import type { Offer } from "@/types/offer";
 import type { Settings } from "@/types/settings";
 import type { ServiceCategory } from "@/types/serviceCategory";
+import type { Package } from "@/types/package";
 import { getSettings } from "@/services/settings";
-import { toTitleCase } from "@/lib/utils/text";
 import { setGlobalCurrencyConfig } from "@/components/salon-dashboard/types";
-import {
-  CACHE_TTL,
-  CACHE_KEYS,
-  readCache,
-  writeCache,
-  clearCache,
-  isCacheExpired,
-} from "@/lib/cache";
 
 interface AppDataContextType {
   services: Service[];
   products: Product[];
+  packages: Package[];
   staff: Staff[];
   offers: Offer[];
   settings: Settings | null;
@@ -40,11 +31,12 @@ interface AppDataContextType {
   loadingAppData: boolean;
   refreshServices: () => Promise<Service[]>;
   refreshProducts: () => Promise<Product[]>;
+  refreshPackages: () => Promise<Package[]>;
   refreshStaff: () => Promise<Staff[]>;
   refreshOffers: () => Promise<Offer[]>;
   refreshSettings: () => Promise<Settings | null>;
   refreshCategories: () => Promise<ServiceCategory[]>;
-  invalidateCache: (key: "services" | "products" | "settings" | "serviceCategories") => void;
+  invalidateCache: (key: "services" | "products" | "settings" | "serviceCategories" | "packages") => void;
 }
 
 const AppDataContext = createContext<AppDataContextType | undefined>(undefined);
@@ -52,77 +44,53 @@ const AppDataContext = createContext<AppDataContextType | undefined>(undefined);
 export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const [services, setServices] = useState<Service[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  const [packages, setPackages] = useState<Package[]>([]);
   const [staff, setStaff] = useState<Staff[]>([]);
   const [offers, setOffers] = useState<Offer[]>([]);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [categories, setCategories] = useState<ServiceCategory[]>([]);
   const [loadingAppData, setLoadingAppData] = useState(true);
 
+  // Clear any residual localStorage caches from previous versions on mount
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const keysToRemove = [
+        "cache_services_v1",
+        "cache_products_v1",
+        "cache_offers_v1",
+        "cache_settings_v1",
+        "cache_service_categories_v1",
+      ];
+      keysToRemove.forEach((k) => {
+        try {
+          localStorage.removeItem(k);
+        } catch {}
+      });
+    }
+  }, []);
+
   const loadCategories = useCallback(async (showLoading = false) => {
     if (showLoading) setLoadingAppData(true);
     try {
-      const cached = readCache<ServiceCategory>(CACHE_KEYS.serviceCategories, CACHE_TTL.serviceCategories);
-      if (cached) {
-        setCategories(cached);
-        return cached;
-      }
       const q = query(
         collection(db, "serviceCategories"),
         orderBy("name", "asc")
       );
       const snap = await getDocs(q);
       const result = snap.docs.map((d) => ({ id: d.id, ...d.data() } as ServiceCategory));
-      
-      // Seeding / migration first-run grace handler
-      if (result.length === 0) {
-        // Fetch only active services to extract categories
-        const servicesSnap = await getDocs(
-          query(collection(db, "services"), where("isActive", "==", true))
-        );
-        const uniqueCats = new Set<string>();
-        servicesSnap.forEach((d) => {
-          const data = d.data();
-          if (data.category) {
-            uniqueCats.add(data.category.trim());
-          }
-        });
-        
-        // Replace with your salon's categories before seeding
-        const DEFAULT_CATEGORIES = [
-          "Hair", "Skin", "Nails", "Spa", "Body", "Other"
-        ];
-        
-        const catsToSeed = uniqueCats.size > 0 
-          ? Array.from(uniqueCats).map(c => toTitleCase(c))
-          : DEFAULT_CATEGORIES;
-          
-        const seeded: ServiceCategory[] = [];
-        for (const catName of catsToSeed) {
-          const slug = catName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
-          const docRef = doc(collection(db, "serviceCategories"), slug || undefined);
-          await setDoc(docRef, {
-            name: catName,
-            createdAt: new Date().toISOString(),
-          });
-          seeded.push({ id: docRef.id, name: catName, createdAt: new Date().toISOString() });
-        }
-        
-        seeded.sort((a, b) => a.name.localeCompare(b.name));
-        writeCache(CACHE_KEYS.serviceCategories, seeded);
-        setCategories(seeded);
-        return seeded;
-      }
-
-      writeCache(CACHE_KEYS.serviceCategories, result);
       setCategories(result);
       return result;
     } catch (err) {
-      console.error("Error loading categories:", err);
-      const fallback = readCache<ServiceCategory>(CACHE_KEYS.serviceCategories, Infinity);
-      if (fallback) {
-        setCategories(fallback);
-        return fallback;
-      } else {
+      console.error("Error loading categories from Firestore:", err);
+      // Fallback query without orderBy if index is building
+      try {
+        const fallbackSnap = await getDocs(collection(db, "serviceCategories"));
+        const fallbackResult = fallbackSnap.docs
+          .map((d) => ({ id: d.id, ...d.data() } as ServiceCategory))
+          .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+        setCategories(fallbackResult);
+        return fallbackResult;
+      } catch {
         setCategories([]);
         return [];
       }
@@ -134,11 +102,6 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const loadServices = useCallback(async (showLoading = false) => {
     if (showLoading) setLoadingAppData(true);
     try {
-      const cached = readCache<Service>(CACHE_KEYS.services, CACHE_TTL.services);
-      if (cached) {
-        setServices(cached);
-        return cached;
-      }
       let result: Service[] = [];
       try {
         const q = query(
@@ -159,19 +122,12 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
       }
 
-      writeCache(CACHE_KEYS.services, result);
       setServices(result);
       return result;
     } catch (err) {
-      console.error("Error loading services:", err);
-      const fallback = readCache<Service>(CACHE_KEYS.services, Infinity);
-      if (fallback) {
-        setServices(fallback);
-        return fallback;
-      } else {
-        setServices([]);
-        return [];
-      }
+      console.error("Error loading services from Firestore:", err);
+      setServices([]);
+      return [];
     } finally {
       if (showLoading) setLoadingAppData(false);
     }
@@ -180,11 +136,6 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const loadProducts = useCallback(async (showLoading = false) => {
     if (showLoading) setLoadingAppData(true);
     try {
-      const cached = readCache<Product>(CACHE_KEYS.products, CACHE_TTL.products);
-      if (cached) {
-        setProducts(cached);
-        return cached;
-      }
       let result: Product[] = [];
       try {
         const q = query(
@@ -205,19 +156,12 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
       }
 
-      writeCache(CACHE_KEYS.products, result);
       setProducts(result);
       return result;
     } catch (err) {
-      console.error("Error loading products:", err);
-      const fallback = readCache<Product>(CACHE_KEYS.products, Infinity);
-      if (fallback) {
-        setProducts(fallback);
-        return fallback;
-      } else {
-        setProducts([]);
-        return [];
-      }
+      console.error("Error loading products from Firestore:", err);
+      setProducts([]);
+      return [];
     } finally {
       if (showLoading) setLoadingAppData(false);
     }
@@ -226,16 +170,14 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const loadOffers = useCallback(async (showLoading = false) => {
     if (showLoading) setLoadingAppData(true);
     try {
-      const q = query(
-        collection(db, "offers"),
-        orderBy("code", "asc")
-      );
-      const snap = await getDocs(q);
-      const result = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Offer));
+      const snap = await getDocs(collection(db, "offers"));
+      const result = snap.docs
+        .map((d) => ({ id: d.id, ...d.data() } as Offer))
+        .sort((a, b) => (a.code || "").localeCompare(b.code || ""));
       setOffers(result);
       return result;
     } catch (err) {
-      console.error("Error loading offers:", err);
+      console.error("Error loading offers from Firestore:", err);
       setOffers([]);
       return [];
     } finally {
@@ -247,11 +189,13 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     if (showLoading) setLoadingAppData(true);
     try {
       const snap = await getDocs(collection(db, "staff"));
-      const result = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Staff)).sort((a, b) => a.name.localeCompare(b.name));
+      const result = snap.docs
+        .map((d) => ({ id: d.id, ...d.data() } as Staff))
+        .sort((a, b) => a.name.localeCompare(b.name));
       setStaff(result);
       return result;
     } catch (err) {
-      console.error("Error loading staff:", err);
+      console.error("Error loading staff from Firestore:", err);
       setStaff([]);
       return [];
     } finally {
@@ -277,15 +221,46 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const loadPackages = useCallback(async (showLoading = false) => {
+    if (showLoading) setLoadingAppData(true);
+    try {
+      let result: Package[] = [];
+      try {
+        const q = query(
+          collection(db, "packages"),
+          where("isActive", "==", true)
+        );
+        const snap = await getDocs(q);
+        result = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Package));
+      } catch {
+        const snap = await getDocs(collection(db, "packages"));
+        result = snap.docs
+          .map((d) => ({ id: d.id, ...d.data() } as Package))
+          .filter((p) => p.isActive !== false);
+      }
+      result.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+      setPackages(result);
+      return result;
+    } catch (err) {
+      console.error("Error loading packages from Firestore:", err);
+      setPackages([]);
+      return [];
+    } finally {
+      if (showLoading) setLoadingAppData(false);
+    }
+  }, []);
+
   const refreshServices = useCallback(() => {
-    clearCache(CACHE_KEYS.services);
     return loadServices(false);
   }, [loadServices]);
 
   const refreshProducts = useCallback(() => {
-    clearCache(CACHE_KEYS.products);
     return loadProducts(false);
   }, [loadProducts]);
+
+  const refreshPackages = useCallback(() => {
+    return loadPackages(false);
+  }, [loadPackages]);
 
   const refreshStaff = useCallback(() => {
     return loadStaff(false);
@@ -296,17 +271,15 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   }, [loadOffers]);
 
   const refreshSettings = useCallback(() => {
-    clearCache(CACHE_KEYS.settings);
     return loadSettings(false);
   }, [loadSettings]);
 
   const refreshCategories = useCallback(() => {
-    clearCache(CACHE_KEYS.serviceCategories);
     return loadCategories(false);
   }, [loadCategories]);
 
-  const invalidateCache = useCallback((key: "services" | "products" | "settings" | "serviceCategories") => {
-    clearCache(CACHE_KEYS[key]);
+  const invalidateCache = useCallback(() => {
+    // No-op since cache is removed and Firestore is the direct source of truth
   }, []);
 
   useEffect(() => {
@@ -316,44 +289,22 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         await Promise.all([
           loadServices(false),
           loadProducts(false),
+          loadPackages(false),
           loadOffers(false),
           loadStaff(false),
           loadSettings(false),
           loadCategories(false),
         ]);
       } catch (err) {
-        console.error("Failed parallel initialization load:", err);
+        console.error("Failed initialization load from Firestore:", err);
       } finally {
         setLoadingAppData(false);
       }
     }
     initLoad();
-  }, [loadServices, loadProducts, loadOffers, loadStaff, loadSettings, loadCategories]);
+  }, [loadServices, loadProducts, loadPackages, loadOffers, loadStaff, loadSettings, loadCategories]);
 
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
-        if (isCacheExpired(CACHE_KEYS.services, CACHE_TTL.services)) {
-          refreshServices();
-        }
-        if (isCacheExpired(CACHE_KEYS.products, CACHE_TTL.products)) {
-          refreshProducts();
-        }
-        if (isCacheExpired(CACHE_KEYS.settings, CACHE_TTL.settings)) {
-          refreshSettings();
-        }
-        if (isCacheExpired(CACHE_KEYS.serviceCategories, CACHE_TTL.serviceCategories)) {
-          refreshCategories();
-        }
-      }
-    };
-
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    return () => {
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-    };
-  }, [refreshServices, refreshProducts, refreshSettings, refreshCategories]);
-
+  // Real-time listener for staff duty status
   useEffect(() => {
     if (loadingAppData) return;
 
@@ -432,6 +383,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const contextValue = useMemo(() => ({
     services,
     products,
+    packages,
     staff,
     offers,
     settings,
@@ -439,6 +391,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     loadingAppData,
     refreshServices,
     refreshProducts,
+    refreshPackages,
     refreshStaff,
     refreshOffers,
     refreshSettings,
@@ -447,6 +400,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   }), [
     services,
     products,
+    packages,
     staff,
     offers,
     settings,
@@ -454,6 +408,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     loadingAppData,
     refreshServices,
     refreshProducts,
+    refreshPackages,
     refreshStaff,
     refreshOffers,
     refreshSettings,

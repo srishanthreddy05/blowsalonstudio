@@ -103,7 +103,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
       })
       .join("\n");
 
-    const greeting = `Hello ${invoice.customerName},\n\nThank you for choosing THEA SALON ✨\n\n`;
+    const greeting = `Hello ${invoice.customerName},\n\nThank you for choosing BLOW SALON ✨\n\n`;
 
     let itemsText = "";
     if (formattedServices) {
@@ -140,7 +140,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
     const closing =
       `Invoice No: ${invoiceNumber}\n` +
       `We look forward to serving you again.\n\n` +
-      `THEA SALON`;
+      `BLOW SALON`;
 
     const msg = `${greeting}${itemsText}${pricingText}${closing}`;
 

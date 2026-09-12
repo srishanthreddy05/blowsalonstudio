@@ -1,11 +1,14 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { fileURLToPath } from 'url';
 import { initializeApp } from 'firebase/app';
-import { getFirestore, doc, setDoc } from 'firebase/firestore';
+import { getFirestore, collection, getDocs } from 'firebase/firestore';
 
-// Load environment variables from .env.local
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 const dotenvPath = path.resolve(__dirname, '../.env.local');
-const env: Record<string, string> = {};
+const env = {};
 if (fs.existsSync(dotenvPath)) {
   const content = fs.readFileSync(dotenvPath, 'utf8');
   content.split('\n').forEach((line) => {
@@ -16,6 +19,8 @@ if (fs.existsSync(dotenvPath)) {
   });
 }
 
+console.log("Firebase Project ID from env:", env.NEXT_PUBLIC_FIREBASE_PROJECT_ID);
+
 const firebaseConfig = {
   apiKey: env.NEXT_PUBLIC_FIREBASE_API_KEY,
   authDomain: env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
@@ -25,23 +30,25 @@ const firebaseConfig = {
   appId: env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
 
-if (!firebaseConfig.projectId) {
-  console.error("Error: Project ID not found in .env.local.");
-  process.exit(1);
-}
-
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
-async function run() {
+async function inspect() {
   try {
-    const docRef = doc(db, "settings", "salon-settings");
-    await setDoc(docRef, { salonName: "BLOW SALON" }, { merge: true });
-    console.log("Successfully updated settings in Firestore to 'BLOW SALON'!");
+    const serviceSnap = await getDocs(collection(db, "services"));
+    console.log(`Current services count: ${serviceSnap.size}`);
+    
+    const catSnap = await getDocs(collection(db, "serviceCategories"));
+    console.log(`Current serviceCategories count: ${catSnap.size}`);
+    
+    const pkgSnap = await getDocs(collection(db, "packages"));
+    console.log(`Current packages count: ${pkgSnap.size}`);
+
     process.exit(0);
   } catch (err) {
-    console.error("Failed to update Firestore:", err);
+    console.error("Inspection error:", err);
     process.exit(1);
   }
 }
-run();
+
+inspect();

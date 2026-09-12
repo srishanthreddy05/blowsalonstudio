@@ -1,6 +1,11 @@
 export type ServiceRow = {
   id: number;
+  serviceId?: string;
   service: string;
+  category?: string;
+  selectedVariant?: string;
+  priceLabel?: string;
+  priceUnit?: string;
   staff: string;
   price: number | "";
   quantity: number | "";

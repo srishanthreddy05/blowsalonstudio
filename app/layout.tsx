@@ -4,8 +4,8 @@ import { Toaster } from "react-hot-toast";
 import { NoScrollNumbers } from "@/components/NoScrollNumbers";
 
 export const metadata: Metadata = {
-  title: "THEA SALON — Management Suite",
-  description: "THEA SALON Management & Billing ERP",
+  title: "BLOW SALON — Management Suite",
+  description: "BLOW SALON Management & Billing ERP",
 };
 
 export default function RootLayout({

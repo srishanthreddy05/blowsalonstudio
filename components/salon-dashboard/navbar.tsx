@@ -10,14 +10,14 @@ export function Navbar() {
           <div className="grid size-11 place-items-center rounded-xl border border-[#6F776D]/20 bg-[#6F776D]/10 text-[#6F776D]">
             <Sparkles size={21} />
           </div>
-          <span className="font-serif font-bold tracking-wider text-[#2F352F]">THEA</span>
+          <span className="font-serif font-bold tracking-wider text-[#2F352F]">BLOW</span>
         </div>
         <div className="hidden lg:block" />
 
         <div className="flex items-center justify-center gap-3">
           <div className="h-px w-10 bg-gradient-to-r from-transparent to-[#6F776D]/40" />
           <div className="text-center">
-            <p className="text-lg font-serif font-bold tracking-wider text-[#2F352F]">THEA SALON</p>
+            <p className="text-lg font-serif font-bold tracking-wider text-[#2F352F]">BLOW SALON</p>
             <p className="text-[10px] uppercase tracking-[0.3em] text-[#6F776D]">Management Suite</p>
           </div>
           <div className="h-px w-10 bg-gradient-to-l from-transparent to-[#6F776D]/40" />
@@ -32,9 +32,9 @@ export function Navbar() {
           </IconButton>
           <button className="flex h-11 items-center gap-3 rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] pl-2 pr-3 transition hover:border-[#6F776D]/40 hover:bg-[#E8ECE5]">
             <span className="grid size-8 place-items-center rounded-lg bg-[#6F776D] text-xs font-serif font-bold text-white">
-              TS
+              BS
             </span>
-            <span className="hidden text-sm font-medium text-[#2F352F] sm:inline">Thea Salon</span>
+            <span className="hidden text-sm font-medium text-[#2F352F] sm:inline">Blow Salon</span>
             <ChevronDown size={16} className="text-[#747A72]" />
           </button>
         </div>

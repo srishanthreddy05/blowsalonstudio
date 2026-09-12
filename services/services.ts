@@ -14,15 +14,24 @@ import type { Service } from "@/types/service";
 import { toTitleCase } from "@/lib/utils/text";
 
 const COLLECTION_NAME = "services";
+const DEFAULT_BUSINESS_ID = "blow-salon";
 
 export async function create(service: Omit<Service, "id">): Promise<string> {
   try {
     const docRef = await addDoc(collection(db, COLLECTION_NAME), {
       ...service,
+      businessId: service.businessId || DEFAULT_BUSINESS_ID,
       name: toTitleCase(service.name),
+      gender: service.gender || "both",
+      price: Number(service.price) || 0,
+      ...(service.startingPrice !== undefined ? { startingPrice: Number(service.startingPrice) } : {}),
+      ...(service.priceLabel ? { priceLabel: service.priceLabel } : {}),
+      ...(service.priceUnit ? { priceUnit: service.priceUnit } : {}),
+      ...(service.variants ? { variants: service.variants } : {}),
       ...(service.category ? { category: toTitleCase(service.category) } : {}),
-      isActive: true,
+      isActive: service.isActive !== false,
       createdAt: service.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     });
     return docRef.id;
   } catch (error) {
@@ -31,8 +40,17 @@ export async function create(service: Omit<Service, "id">): Promise<string> {
   }
 }
 
-export async function getAll(): Promise<Service[]> {
+export async function getAll(includeInactive = false): Promise<Service[]> {
   try {
+    if (includeInactive) {
+      const snap = await getDocs(collection(db, COLLECTION_NAME));
+      const services: Service[] = [];
+      snap.forEach((d) => {
+        services.push({ id: d.id, ...d.data() } as Service);
+      });
+      return services.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    }
+
     try {
       const q = query(
         collection(db, COLLECTION_NAME),
@@ -46,7 +64,7 @@ export async function getAll(): Promise<Service[]> {
       });
       return services;
     } catch {
-      // Graceful fallback while composite index is building on Firestore
+      // Fallback while composite index is building on Firestore
       const fallbackQuery = query(
         collection(db, COLLECTION_NAME),
         where("isActive", "==", true)
@@ -66,7 +84,10 @@ export async function getAll(): Promise<Service[]> {
 
 async function deleteService(id: string): Promise<void> {
   try {
-    await updateDoc(doc(db, COLLECTION_NAME, id), { isActive: false });
+    await updateDoc(doc(db, COLLECTION_NAME, id), {
+      isActive: false,
+      updatedAt: new Date().toISOString(),
+    });
   } catch (error) {
     console.error(`Error soft-deleting service (${id}):`, error);
     throw error;
@@ -96,12 +117,18 @@ export async function update(
 ): Promise<void> {
   try {
     const docRef = doc(db, COLLECTION_NAME, id);
-    const normalizedData = { ...data };
+    const normalizedData: Record<string, any> = {
+      ...data,
+      updatedAt: new Date().toISOString(),
+    };
     if (normalizedData.name) {
       normalizedData.name = toTitleCase(normalizedData.name);
     }
     if (normalizedData.category) {
       normalizedData.category = toTitleCase(normalizedData.category);
+    }
+    if (normalizedData.price !== undefined) {
+      normalizedData.price = Number(normalizedData.price) || 0;
     }
     await updateDoc(docRef, normalizedData);
   } catch (error) {
