@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Navbar } from "@/components/layout/Navbar";
 import { AppDataProvider } from "@/context/AppDataContext";
+import { AuthGuard } from "@/components/auth/AuthGuard";
 import { useRouter, usePathname } from "next/navigation";
 
 export default function DashboardLayout({
@@ -67,32 +68,34 @@ export default function DashboardLayout({
   }, [router, pathname]);
 
   return (
-    <AppDataProvider>
-      <div className="relative min-h-screen bg-[#F7F7F4] text-[#292D29] antialiased">
-        <Sidebar
-          collapsed={collapsed}
-          onToggle={() => setCollapsed((value) => !value)}
-          mobileOpen={mobileOpen}
-          setMobileOpen={setMobileOpen}
-        />
-        
-        <div
-          className={`min-h-screen flex flex-col transition-all duration-300 relative ${
-            collapsed ? "lg:pl-24" : "lg:pl-72"
-          }`}
-        >
-          <Navbar onToggleMobileSidebar={() => setMobileOpen((value) => !value)} />
-          <main className="flex-1 px-4 pb-10 pt-6 sm:px-6 lg:px-8">
-            {children}
-          </main>
-          <footer className="border-t border-[#E0E4DD] bg-[#FFFFFF] py-4 px-4 sm:px-6 lg:px-8 text-xs text-[#747A72] select-none">
-            <div className="flex items-center justify-between">
-              <span className="font-semibold text-[#2F352F]">BLOW SALON — Management Suite</span>
-              <span>All rights reserved</span>
-            </div>
-          </footer>
+    <AuthGuard>
+      <AppDataProvider>
+        <div className="relative min-h-screen bg-[#F7F7F4] text-[#292D29] antialiased">
+          <Sidebar
+            collapsed={collapsed}
+            onToggle={() => setCollapsed((value) => !value)}
+            mobileOpen={mobileOpen}
+            setMobileOpen={setMobileOpen}
+          />
+          
+          <div
+            className={`min-h-screen flex flex-col transition-all duration-300 relative ${
+              collapsed ? "lg:pl-24" : "lg:pl-72"
+            }`}
+          >
+            <Navbar onToggleMobileSidebar={() => setMobileOpen((value) => !value)} />
+            <main className="flex-1 px-4 pb-10 pt-6 sm:px-6 lg:px-8">
+              {children}
+            </main>
+            <footer className="border-t border-[#E0E4DD] bg-[#FFFFFF] py-4 px-4 sm:px-6 lg:px-8 text-xs text-[#747A72] select-none">
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-[#2F352F]">BLOW SALON — Management Suite</span>
+                <span>All rights reserved</span>
+              </div>
+            </footer>
+          </div>
         </div>
-      </div>
-    </AppDataProvider>
+      </AppDataProvider>
+    </AuthGuard>
   );
 }

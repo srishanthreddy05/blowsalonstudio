@@ -3,6 +3,8 @@ import "./globals.css";
 import { Toaster } from "react-hot-toast";
 import { NoScrollNumbers } from "@/components/NoScrollNumbers";
 
+import { AuthProvider } from "@/context/AuthContext";
+
 export const metadata: Metadata = {
   title: "BLOW SALON — Management Suite",
   description: "BLOW SALON Management & Billing ERP",
@@ -19,8 +21,10 @@ export default function RootLayout({
       className="h-full antialiased"
     >
       <body className="flex min-h-full flex-col bg-[#F7F7F4] text-[#292D29]">
-        <NoScrollNumbers />
-        {children}
+        <AuthProvider>
+          <NoScrollNumbers />
+          {children}
+        </AuthProvider>
         <Toaster
           position="top-right"
           toastOptions={{

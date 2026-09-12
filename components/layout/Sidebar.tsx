@@ -13,10 +13,12 @@ import {
   History,
   Coins,
   Sparkles,
+  LogOut,
 } from "lucide-react";
 import { SidebarItem } from "./SidebarItem";
 import { useMemo } from "react";
 import { useAppData } from "@/context/AppDataContext";
+import { useAuth } from "@/context/AuthContext";
 
 function WhatsAppIcon({ size = 19, strokeWidth = 2, className = "" }: { size?: number; strokeWidth?: number; className?: string }) {
   return (
@@ -93,6 +95,7 @@ export function Sidebar({
   setMobileOpen,
 }: SidebarProps) {
   const { settings } = useAppData();
+  const { user, logout } = useAuth();
 
   const salonTitle = useMemo(() => {
     const name = settings?.salonName;
@@ -176,6 +179,54 @@ export function Sidebar({
               {navList(false)}
             </div>
           </div>
+
+          {/* Bottom user profile & logout */}
+          {user && (
+            <div className="mt-auto pt-3 border-t border-[#E0E4DD]">
+              {collapsed ? (
+                <button
+                  type="button"
+                  onClick={logout}
+                  title={`Signed in as ${user.email} — Click to Sign Out`}
+                  className="grid size-10 place-items-center rounded-xl border border-[#FBEBEB] bg-[#FFF5F5] text-[#B55B5B] transition hover:bg-[#B55B5B] hover:text-[#FFFFFF] mx-auto cursor-pointer"
+                >
+                  <LogOut size={16} />
+                </button>
+              ) : (
+                <div className="flex items-center justify-between gap-2 rounded-2xl border border-[#E0E4DD] bg-[#F7F7F4] p-2.5">
+                  <div className="flex items-center gap-2 min-w-0">
+                    {user.photoURL ? (
+                      <img
+                        src={user.photoURL}
+                        alt="User"
+                        className="size-8 rounded-full object-cover shrink-0"
+                      />
+                    ) : (
+                      <div className="grid size-8 place-items-center rounded-full bg-[#6F776D] text-white text-xs font-bold shrink-0">
+                        {(user.email || "U").charAt(0).toUpperCase()}
+                      </div>
+                    )}
+                    <div className="flex flex-col min-w-0">
+                      <span className="text-xs font-bold text-[#2F352F] truncate">
+                        {user.displayName || "Salon Admin"}
+                      </span>
+                      <span className="text-[10px] text-[#747A72] truncate">
+                        {user.email}
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={logout}
+                    title="Sign Out"
+                    className="grid size-8 place-items-center rounded-xl border border-[#FBEBEB] bg-[#FFF5F5] text-[#B55B5B] transition hover:bg-[#B55B5B] hover:text-[#FFFFFF] cursor-pointer shrink-0"
+                  >
+                    <LogOut size={14} />
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </aside>
 
@@ -218,6 +269,46 @@ export function Sidebar({
                 {navList(true)}
               </div>
             </div>
+
+            {/* Bottom user profile & logout */}
+            {user && (
+              <div className="mt-auto pt-3 border-t border-[#E0E4DD]">
+                <div className="flex items-center justify-between gap-2 rounded-2xl border border-[#E0E4DD] bg-[#F7F7F4] p-2.5">
+                  <div className="flex items-center gap-2 min-w-0">
+                    {user.photoURL ? (
+                      <img
+                        src={user.photoURL}
+                        alt="User"
+                        className="size-8 rounded-full object-cover shrink-0"
+                      />
+                    ) : (
+                      <div className="grid size-8 place-items-center rounded-full bg-[#6F776D] text-white text-xs font-bold shrink-0">
+                        {(user.email || "U").charAt(0).toUpperCase()}
+                      </div>
+                    )}
+                    <div className="flex flex-col min-w-0">
+                      <span className="text-xs font-bold text-[#2F352F] truncate">
+                        {user.displayName || "Salon Admin"}
+                      </span>
+                      <span className="text-[10px] text-[#747A72] truncate">
+                        {user.email}
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMobileOpen(false);
+                      logout();
+                    }}
+                    title="Sign Out"
+                    className="grid size-8 place-items-center rounded-xl border border-[#FBEBEB] bg-[#FFF5F5] text-[#B55B5B] transition hover:bg-[#B55B5B] hover:text-[#FFFFFF] cursor-pointer shrink-0"
+                  >
+                    <LogOut size={14} />
+                  </button>
+                </div>
+              </div>
+            )}
           </aside>
         </div>
       )}
