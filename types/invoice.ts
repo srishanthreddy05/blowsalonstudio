@@ -26,10 +26,14 @@ export interface Invoice {
   // ── Totals ────────────────────────────────────────────────────────────────
   totalServices: number;            // sum of service line amounts  (was missing)
   totalProducts: number;            // sum of product line amounts  (was missing)
-  subtotal: number;                 // totalServices + totalProducts
+  totalMemberships?: number;        // sum of membership sales
+  subtotal: number;                 // totalServices + totalProducts + totalMemberships
   totalDiscount: number;            // was stored as "discount"
   billDiscount?: number;
   billDiscountPercent?: number;
+  taxableServiceAmount?: number;    // discounted taxable service amount
+  taxRate?: number;                 // tax percentage applied to services (e.g. 5)
+  taxAmount?: number;               // calculated tax on services (e.g. 5% of taxableServiceAmount)
   advanceAdded?: number;
   advanceUsed?: number;
   grandTotal: number;

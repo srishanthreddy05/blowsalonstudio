@@ -80,6 +80,16 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
   const cardPaid = paymentSplit.card ?? (invoice.paymentMethod === "Card" ? invoice.grandTotal : 0);
   const totalPaid = (cashPaid || 0) + (upiPaid || 0) + (cardPaid || 0) || invoice.grandTotal;
 
+  const grandTotal = invoice.grandTotal;
+  const totalServices = invoice.totalServices ?? (invoice.services || []).reduce((sum: number, s: any) => sum + (s.isSystemService || s.serviceId === "membership_fee" ? 0 : (s.price || 0)), 0);
+  const offerDiscount = appliedOffer?.discountAmount ?? 0;
+  const billDiscountVal = invoice.billDiscount || 0;
+  const serviceDiscount = (invoice.services || []).reduce((sum: number, s: any) => sum + (s.isSystemService ? 0 : (s.discount || 0)), 0) + billDiscountVal + offerDiscount;
+  const taxableServiceAmount = invoice.taxableServiceAmount ?? Math.max(0, totalServices - serviceDiscount);
+  const taxAmount = invoice.taxAmount ?? invoice.gst ?? (taxableServiceAmount > 0 ? Math.round((taxableServiceAmount * 0.05) * 100) / 100 : 0);
+  const totalProducts = invoice.totalProducts ?? (invoice.products || []).reduce((sum: number, p: any) => sum + ((p.price || 0) * (p.quantity || 1) - (p.discount || 0)), 0);
+  const totalMemberships = invoice.totalMemberships ?? (invoice.services || []).reduce((sum: number, s: any) => sum + (s.isSystemService || s.serviceId === "membership_fee" ? (s.price || 0) - (s.discount || 0) : 0), 0);
+
   // ── WhatsApp share ────────────────────────────────────────────────────────
   const handleWhatsApp = () => {
     if (!customerPhone) {
@@ -113,29 +123,22 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
       itemsText += `Products:\n${formattedProducts}\n\n`;
     }
 
-    const grandTotal = invoice.grandTotal;
-    const discountAmount = totalDiscount;
-    const offerDiscount = appliedOffer?.discountAmount ?? 0;
-    const billDiscountVal = invoice.billDiscount || 0;
-    const lineDiscount = Math.max(discountAmount - offerDiscount - billDiscountVal, 0);
-    const subtotal = invoice.subtotal ?? (grandTotal + discountAmount);
-
-    const hasDiscountOrOffer = discountAmount > 0;
-
     let pricingText = "";
-    if (hasDiscountOrOffer) {
-      pricingText += `Subtotal: ₹${subtotal}\n`;
-      if (lineDiscount > 0) {
-        pricingText += `Item Discount: -₹${lineDiscount}\n`;
-      }
-      if (billDiscountVal > 0) {
-        pricingText += `Bill Discount: -₹${billDiscountVal}\n`;
-      }
-      if (appliedOffer && offerDiscount > 0) {
-        pricingText += `Offer Applied: ${appliedOffer.code} (-₹${offerDiscount})\n`;
-      }
+    pricingText += `Total Services: ₹${totalServices}\n`;
+    if (serviceDiscount > 0) {
+      pricingText += `Service Discount: -₹${serviceDiscount}\n`;
     }
-    pricingText += `Total Amount: ₹${grandTotal}\n\n`;
+    pricingText += `Taxable Services: ₹${taxableServiceAmount}\n`;
+    if (taxAmount > 0) {
+      pricingText += `Service Tax (5%): ₹${taxAmount}\n`;
+    }
+    if (totalProducts > 0) {
+      pricingText += `Retail Products (0% Tax): ₹${totalProducts}\n`;
+    }
+    if (totalMemberships > 0) {
+      pricingText += `Memberships: ₹${totalMemberships}\n`;
+    }
+    pricingText += `Grand Total: ₹${grandTotal}\n\n`;
 
     const closing =
       `Invoice No: ${invoiceNumber}\n` +
@@ -348,32 +351,52 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
             </div>
 
             <div className="space-y-2 border-t border-[#E0E4DD] pt-3 text-xs">
-              {invoice.totalServices !== undefined && (
-                <div className="flex items-center justify-between text-[#747A72]">
-                  <span>Total Services</span>
-                  <span className="font-semibold text-[#292D29]">{formatCurrency(invoice.totalServices)}</span>
-                </div>
-              )}
-              {invoice.billDiscount !== undefined && invoice.billDiscount > 0 && (
-                <div className="flex items-center justify-between text-[#747A72]">
-                  <span>Bill Discount</span>
-                  <span className="font-semibold text-[#5F7A62]">- {formatCurrency(invoice.billDiscount)}</span>
-                </div>
-              )}
-              {invoice.totalProducts !== undefined && (
-                <div className="flex items-center justify-between text-[#747A72]">
-                  <span>Total Products</span>
-                  <span className="font-semibold text-[#292D29]">{formatCurrency(invoice.totalProducts)}</span>
-                </div>
-              )}
+              {/* Total Services */}
               <div className="flex items-center justify-between text-[#747A72]">
-                <span>Subtotal</span>
-                <span className="font-semibold text-[#292D29]">{formatCurrency(invoice.subtotal)}</span>
+                <span>Total Services</span>
+                <span className="font-semibold text-[#292D29]">{formatCurrency(totalServices)}</span>
               </div>
+
+              {/* Service Discount */}
+              {serviceDiscount > 0 && (
+                <div className="flex items-center justify-between text-[#747A72]">
+                  <span>Service Discount</span>
+                  <span className="font-semibold text-[#5F7A62]">- {formatCurrency(serviceDiscount)}</span>
+                </div>
+              )}
+
+              {/* Taxable Services */}
               <div className="flex items-center justify-between text-[#747A72]">
-                <span>Overall Discount</span>
-                <span className="font-semibold text-[#B18A45]">- {formatCurrency(totalDiscount)}</span>
+                <span>Taxable Services</span>
+                <span className="font-semibold text-[#292D29]">{formatCurrency(taxableServiceAmount)}</span>
               </div>
+
+              {/* Service Tax (5%) */}
+              <div className="flex items-center justify-between text-[#747A72]">
+                <span>Tax (5%)</span>
+                <span className="font-semibold text-[#292D29]">{formatCurrency(taxAmount)}</span>
+              </div>
+
+              {/* Retail Products (Undiscounted / Tax-free) */}
+              {totalProducts > 0 && (
+                <div className="flex items-center justify-between text-[#747A72]">
+                  <div>
+                    <span>Retail Products</span>
+                    <span className="text-[10px] text-[#747A72] block">0% Tax</span>
+                  </div>
+                  <span className="font-semibold text-[#292D29]">{formatCurrency(totalProducts)}</span>
+                </div>
+              )}
+
+              {/* Memberships */}
+              {totalMemberships > 0 && (
+                <div className="flex items-center justify-between text-[#747A72]">
+                  <span>Memberships</span>
+                  <span className="font-semibold text-[#292D29]">{formatCurrency(totalMemberships)}</span>
+                </div>
+              )}
+
+              {/* Grand Total */}
               <div className="flex items-center justify-between text-[#2F352F] font-bold border-t border-[#E0E4DD] pt-2 text-sm">
                 <span>Grand Total</span>
                 <span className="text-[#2F352F] font-extrabold">{formatCurrency(invoice.grandTotal)}</span>

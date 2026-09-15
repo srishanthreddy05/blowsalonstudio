@@ -24,6 +24,8 @@ export interface InvoicePayments {
 
 export interface InvoiceSalesBreakdown {
   serviceSales: number;
+  taxableServiceSales?: number;
+  taxAmount: number;
   retailSales: number;
   membershipSales: number;
   totalSales: number;
@@ -33,6 +35,9 @@ export interface InvoiceSalesBreakdown {
 export interface InvoiceLike {
   grandTotal?: number;
   subtotal?: number;
+  taxRate?: number;
+  taxAmount?: number;
+  taxableServiceAmount?: number;
   advanceUsed?: number;
   paymentMethod?: string;
   paymentSplit?: { cash?: number; upi?: number; card?: number };
@@ -92,7 +97,7 @@ export function getInvoicePaymentRatio(inv?: InvoiceLike | null): number {
  */
 export function getInvoiceSalesBreakdown(inv?: InvoiceLike | null): InvoiceSalesBreakdown {
   if (!inv) {
-    return { serviceSales: 0, retailSales: 0, membershipSales: 0, totalSales: 0, collectedAmount: 0 };
+    return { serviceSales: 0, taxableServiceSales: 0, taxAmount: 0, retailSales: 0, membershipSales: 0, totalSales: 0, collectedAmount: 0 };
   }
 
   let serviceSales = 0;
@@ -133,12 +138,22 @@ export function getInvoiceSalesBreakdown(inv?: InvoiceLike | null): InvoiceSales
     retailSales += baseAmt;
   });
 
-  const totalSales = serviceSales + retailSales + membershipSales;
+  const taxAmount = inv.taxAmount ?? (inv as any).gst ?? (
+    inv.taxRate !== undefined && inv.taxRate > 0
+      ? Math.round(((serviceSales * inv.taxRate) / 100) * 100) / 100
+      : (inv.grandTotal && inv.grandTotal > (serviceSales + retailSales + membershipSales)
+          ? Math.round((inv.grandTotal - (serviceSales + retailSales + membershipSales)) * 100) / 100
+          : 0)
+  );
+
+  const totalSales = Math.round((serviceSales + retailSales + membershipSales + taxAmount) * 100) / 100;
   const payments = getInvoicePayments(inv);
   const collectedAmount = (payments.cash || 0) + (payments.upi || 0) + (payments.card || 0) + (inv.advanceUsed || 0);
 
   return {
     serviceSales,
+    taxableServiceSales: serviceSales,
+    taxAmount,
     retailSales,
     membershipSales,
     totalSales,

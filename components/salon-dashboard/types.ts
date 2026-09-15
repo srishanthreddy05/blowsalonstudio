@@ -11,6 +11,7 @@ export type ServiceRow = {
   quantity: number | "";
   discount: number | "";
   isCreditSettle?: boolean;
+  isSystemService?: boolean;
 };
 
 
@@ -26,7 +27,13 @@ export type ProductRow = {
 
 export type BillTotals = {
   serviceTotal: number;
+  serviceDiscount?: number;
+  taxableServiceAmount?: number;
+  taxRate?: number;
+  taxAmount?: number;
   productTotal: number;
+  rawProductTotal?: number;
+  membershipTotal?: number;
   subtotal: number;
   billDiscount: number;
   lineDiscount?: number;

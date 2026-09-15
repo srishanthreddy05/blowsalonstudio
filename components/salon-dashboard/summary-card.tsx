@@ -57,11 +57,10 @@ export function SummaryCard({
     onChangeDiscount?.(value, percent);
   };
 
-  // Grand total formula includes row-level line discounts
-  const grandTotal = Math.max(
-    totals.serviceTotal - totals.billDiscount - totals.offerDiscount + totals.productTotal - (totals.lineDiscount || 0) + (totals.gst || 0),
-    0
-  );
+  const grandTotal = totals.grandTotal;
+  const taxableServices = totals.taxableServiceAmount ?? Math.max(0, totals.serviceTotal - (totals.serviceDiscount ?? (totals.billDiscount + (totals.offerDiscount || 0))));
+  const taxAmount = totals.taxAmount ?? totals.gst ?? 0;
+  const serviceDiscountAmount = totals.serviceDiscount ?? (totals.billDiscount + (totals.offerDiscount || 0));
 
   const amountToCollect = Math.max(0, grandTotal - advanceApplied);
 
@@ -83,7 +82,7 @@ export function SummaryCard({
       </div>
 
       <div className="space-y-3 border-t border-[#E0E4DD] pt-4">
-        {/* Total Services */}
+        {/* 1. Total Services */}
         <div className="flex items-center justify-between text-sm">
           <span className="text-[#747A72]">Total Services</span>
           <span className="font-semibold text-[#292D29]">
@@ -91,13 +90,13 @@ export function SummaryCard({
           </span>
         </div>
 
-        {/* Bill Discount (percentage and rupee inputs side by side) */}
+        {/* 2. Service Discount (interactive inputs and total discount indicator) */}
         <div className="flex flex-col gap-2 py-2 border-y border-[#E0E4DD] my-1">
           <div className="flex items-center justify-between text-xs font-bold text-[#747A72]">
-            <span>Bill Discount (Services Only)</span>
-            {billDiscount > 0 && (
+            <span>Service Discount</span>
+            {serviceDiscountAmount > 0 && (
               <span className="text-[#5F7A62] font-semibold">
-                -{formatCurrency(billDiscount)}
+                -{formatCurrency(serviceDiscountAmount)}
               </span>
             )}
           </div>
@@ -129,58 +128,72 @@ export function SummaryCard({
           </div>
         </div>
 
-        {/* Total Products (Retail - Undiscounted) */}
+        {/* Offer Discount line if active */}
+        {totals.offerDiscount > 0 && (
+          <div className="flex items-center justify-between text-xs text-[#5F7A62]">
+            <div>
+              <span>Offer Discount Applied</span>
+              {totals.eligibleServiceAmount !== undefined && totals.eligibleServiceAmount > 0 && (
+                <span className="text-[10px] text-[#747A72] block">
+                  Eligible services: {formatCurrency(totals.eligibleServiceAmount)}
+                </span>
+              )}
+            </div>
+            <span className="font-semibold">
+              -{formatCurrency(totals.offerDiscount)}
+            </span>
+          </div>
+        )}
+
+        {/* Item-level service line discounts if active */}
+        {totals.lineDiscount !== undefined && totals.lineDiscount > 0 && (
+          <div className="flex items-center justify-between text-xs text-[#5F7A62]">
+            <span>Item Discounts</span>
+            <span className="font-semibold">
+              -{formatCurrency(totals.lineDiscount)}
+            </span>
+          </div>
+        )}
+
+        {/* 3. Taxable Services */}
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-[#747A72]">Taxable Services</span>
+          <span className="font-semibold text-[#292D29]">
+            {formatCurrency(taxableServices)}
+          </span>
+        </div>
+
+        {/* 4. Tax (5%) */}
+        <div className="flex items-center justify-between text-sm">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[#747A72]">Tax (5%)</span>
+            <span className="text-[10px] font-bold rounded-md bg-[#E8ECE5] text-[#5F7A62] px-1.5 py-0.5">5% Service Tax</span>
+          </div>
+          <span className="font-semibold text-[#292D29]">
+            {formatCurrency(taxAmount)}
+          </span>
+        </div>
+
+        {/* 5. Retail Products (Undiscounted) */}
         <div className="flex items-center justify-between text-sm">
           <div>
             <span className="text-[#747A72]">Retail Products</span>
-            <span className="text-[10px] text-[#747A72] block">Undiscounted</span>
+            <span className="text-[10px] text-[#747A72] block">0% Tax • Undiscounted</span>
           </div>
           <span className="font-semibold text-[#292D29]">
             {formatCurrency(totals.productTotal)}
           </span>
         </div>
 
-        {/* Subtotal */}
-        <div className="flex items-center justify-between text-sm">
-          <span className="text-[#747A72]">Subtotal</span>
-          <span className="font-semibold text-[#292D29]">
-            {formatCurrency(totals.subtotal)}
-          </span>
-        </div>
-
-        {/* GST Tax */}
-        {totals.gst !== undefined && totals.gst > 0 && (
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-[#747A72]">GST / Tax</span>
-            <span className="font-semibold text-[#292D29]">
-              {formatCurrency(totals.gst)}
-            </span>
-          </div>
-        )}
-
-        {/* Item-level discounts display */}
-        {totals.lineDiscount !== undefined && totals.lineDiscount > 0 && (
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-[#747A72]">Item Discount</span>
-            <span className="font-semibold text-[#5F7A62]">
-              -{formatCurrency(totals.lineDiscount)}
-            </span>
-          </div>
-        )}
-
-        {/* Offer Discount (Applies ONLY to eligible services) */}
-        {totals.offerDiscount > 0 && (
+        {/* 6. Memberships (if present) */}
+        {totals.membershipTotal !== undefined && totals.membershipTotal > 0 && (
           <div className="flex items-center justify-between text-sm">
             <div>
-              <span className="text-[#747A72]">Offer Discount</span>
-              {totals.eligibleServiceAmount !== undefined && (
-                <span className="text-[10px] text-[#5F7A62] block">
-                  Eligible services: {formatCurrency(totals.eligibleServiceAmount)}
-                </span>
-              )}
+              <span className="text-[#747A72]">Memberships</span>
+              <span className="text-[10px] text-[#747A72] block">0% Service Tax</span>
             </div>
-            <span className="font-semibold text-[#5F7A62]">
-              -{formatCurrency(totals.offerDiscount)}
+            <span className="font-semibold text-[#292D29]">
+              {formatCurrency(totals.membershipTotal)}
             </span>
           </div>
         )}
@@ -196,7 +209,7 @@ export function SummaryCard({
         )}
       </div>
 
-      {/* Grand Total */}
+      {/* 7. Grand Total */}
       <div className="mt-5 rounded-2xl border border-[#E0E4DD] bg-[#F7F7F4] p-4">
         <p className="text-xs uppercase tracking-[0.22em] text-[#747A72] font-bold">Grand Total</p>
         <p className="mt-2 text-3xl font-extrabold tracking-tight text-[#2F352F]">

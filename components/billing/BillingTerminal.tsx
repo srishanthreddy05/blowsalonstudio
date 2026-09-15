@@ -19,6 +19,7 @@ import * as advanceBalancesService from "@/services/advanceBalances";
 import type { CreditBalance } from "@/types/creditBalance";
 import { useAppData } from "@/context/AppDataContext";
 import { toLocalDateString } from "@/lib/utils/date";
+import { calculateBillTotals, SERVICE_TAX_RATE } from "@/lib/utils/billing";
 
 import type { Customer } from "@/types/customer";
 import type { Service } from "@/types/service";
@@ -449,74 +450,14 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
   const selectedOffer = eligibleOffers.find((o) => o.id === selectedOfferId) || null;
 
   const totals = useMemo(() => {
-    const serviceTotal = services.reduce((sum, s) => sum + Math.max(Number(s.price) || 0, 0), 0);
-    const productTotal = products.reduce((sum, p) => sum + Math.max((Number(p.price) || 0) * (Number(p.quantity) || 1), 0), 0);
-    
-    // Line discounts on services and products
-    const serviceLineDiscount = services.reduce((sum, s) => sum + (Number(s.discount) || 0), 0);
-    const productLineDiscount = products.reduce((sum, p) => sum + (Number(p.discount) || 0), 0);
-    const lineDiscount = serviceLineDiscount + productLineDiscount;
-
-    // Determine eligible service amount for the selected offer
-    let eligibleServiceAmount = 0;
-    let offerDiscount = 0;
-
-    if (selectedOffer) {
-      const hasServiceScope = !!selectedOffer.applicableServiceIds?.length;
-      if (hasServiceScope) {
-        eligibleServiceAmount = services.reduce((sum, row) => {
-          const matched = servicesList.find((s) => s.name === row.service);
-          if (matched?.id && selectedOffer.applicableServiceIds!.includes(matched.id)) {
-            return sum + Math.max(Number(row.price) || 0, 0);
-          }
-          return sum;
-        }, 0);
-      } else {
-        eligibleServiceAmount = serviceTotal;
-      }
-
-      if (eligibleServiceAmount > 0) {
-        if (selectedOffer.discountType === "percentage") {
-          offerDiscount = Math.min(
-            eligibleServiceAmount,
-            Math.round(((eligibleServiceAmount * selectedOffer.discountValue) / 100) * 100) / 100
-          );
-        } else {
-          offerDiscount = Math.min(selectedOffer.discountValue, eligibleServiceAmount);
-        }
-      }
-    }
-
-    // billDiscount applies ONLY to services
-    const totalServiceDiscounts = billDiscount + serviceLineDiscount + offerDiscount;
-    const discountedServiceTotal = Math.max(0, serviceTotal - totalServiceDiscounts);
-    
-    // Subtotal before discounts
-    const subtotal = serviceTotal + productTotal;
-
-    // Total discount applied across the bill
-    const totalDiscount = billDiscount + lineDiscount + offerDiscount;
-
-    // Pre-tax total: discounted services + full retail product total (never discounted by offer)
-    const discountedProductTotal = Math.max(0, productTotal - productLineDiscount);
-    const preTaxTotal = discountedServiceTotal + discountedProductTotal;
-    
-    const gstAmount = Math.round(((preTaxTotal * (settings?.taxRate ?? 0)) / 100) * 100) / 100;
-    const grandTotal = preTaxTotal + gstAmount;
-
-    return {
-      serviceTotal,
-      productTotal,
-      subtotal,
-      totalDiscount,
+    return calculateBillTotals({
+      services,
+      products,
       billDiscount,
-      lineDiscount,
-      offerDiscount,
-      eligibleServiceAmount,
-      grandTotal,
-      gst: gstAmount,
-    };
-  }, [services, products, selectedOffer, servicesList, billDiscount, settings]);
+      selectedOffer,
+      taxRate: SERVICE_TAX_RATE,
+    });
+  }, [services, products, selectedOffer, billDiscount]);
 
   // Cap bill discount if serviceTotal decreases below it
   useEffect(() => {
@@ -833,12 +774,16 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
           services: enrichedServices as any,
           products: enrichedProducts as any,
 
-          totalServices: totals.serviceTotal - billDiscount,
+          totalServices: totals.serviceTotal,
           totalProducts: totals.productTotal,
+          totalMemberships: totals.membershipTotal || 0,
           subtotal: totals.subtotal,
-          totalDiscount: totals.totalDiscount,
+          totalDiscount: totals.totalDiscount ?? 0,
           billDiscount: billDiscount,
           billDiscountPercent: billDiscountPercent,
+          taxableServiceAmount: totals.taxableServiceAmount ?? 0,
+          taxRate: totals.taxRate ?? SERVICE_TAX_RATE,
+          taxAmount: totals.taxAmount ?? 0,
           grandTotal: totals.grandTotal,
 
           appliedOffer: selectedOffer
@@ -879,12 +824,16 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
           services: enrichedServices as any,
           products: enrichedProducts as any,
 
-          totalServices: totals.serviceTotal - billDiscount,
+          totalServices: totals.serviceTotal,
           totalProducts: totals.productTotal,
+          totalMemberships: totals.membershipTotal || 0,
           subtotal: totals.subtotal,
-          totalDiscount: totals.totalDiscount,
+          totalDiscount: totals.totalDiscount ?? 0,
           billDiscount: billDiscount,
           billDiscountPercent: billDiscountPercent,
+          taxableServiceAmount: totals.taxableServiceAmount ?? 0,
+          taxRate: totals.taxRate ?? SERVICE_TAX_RATE,
+          taxAmount: totals.taxAmount ?? 0,
           grandTotal: totals.grandTotal,
 
           ...(selectedOffer
@@ -1128,28 +1077,29 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
     }
 
     const grandTotal = totals.grandTotal;
-    const discountAmount = totals.totalDiscount;
-    const offerDiscount = totals.offerDiscount;
-    const billDiscountVal = totals.billDiscount;
-    const lineDiscountVal = totals.lineDiscount || 0;
-    const subtotal = totals.subtotal;
-
-    const hasDiscountOrOffer = discountAmount > 0;
+    const totalServices = totals.serviceTotal;
+    const serviceDiscount = totals.serviceDiscount ?? 0;
+    const taxableServiceAmount = totals.taxableServiceAmount ?? Math.max(0, totalServices - serviceDiscount);
+    const taxAmount = totals.taxAmount ?? (taxableServiceAmount > 0 ? Math.round((taxableServiceAmount * 0.05) * 100) / 100 : 0);
+    const totalProducts = totals.productTotal;
+    const totalMemberships = totals.membershipTotal || 0;
 
     let pricingText = "";
-    if (hasDiscountOrOffer) {
-      pricingText += `Subtotal: ₹${subtotal}\n`;
-      if (lineDiscountVal > 0) {
-        pricingText += `Item Discount: -₹${lineDiscountVal}\n`;
-      }
-      if (billDiscountVal > 0) {
-        pricingText += `Bill Discount: -₹${billDiscountVal}\n`;
-      }
-      if (selectedOffer && offerDiscount > 0) {
-        pricingText += `Offer Applied: ${selectedOffer.code} (-₹${offerDiscount})\n`;
-      }
+    pricingText += `Total Services: ₹${totalServices}\n`;
+    if (serviceDiscount > 0) {
+      pricingText += `Service Discount: -₹${serviceDiscount}\n`;
     }
-    pricingText += `Total Amount: ₹${grandTotal}\n\n`;
+    pricingText += `Taxable Services: ₹${taxableServiceAmount}\n`;
+    if (taxAmount > 0) {
+      pricingText += `Service Tax (5%): ₹${taxAmount}\n`;
+    }
+    if (totalProducts > 0) {
+      pricingText += `Retail Products (0% Tax): ₹${totalProducts}\n`;
+    }
+    if (totalMemberships > 0) {
+      pricingText += `Memberships: ₹${totalMemberships}\n`;
+    }
+    pricingText += `Grand Total: ₹${grandTotal}\n\n`;
 
     const closing =
       `Invoice No: ${invoiceNumberDisplay}\n` +

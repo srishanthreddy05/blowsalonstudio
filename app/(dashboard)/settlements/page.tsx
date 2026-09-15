@@ -494,14 +494,13 @@ export default function SettlementsPage() {
                 <th className="px-5 py-3.5 font-bold">Total Sales</th>
                 <th className="px-5 py-3.5 font-bold text-[#B55B5B]">Expenses</th>
                 <th className="px-5 py-3.5 font-bold">Net</th>
-                <th className="px-5 py-3.5 font-bold">Status</th>
                 <th className="px-5 py-3.5 font-bold text-right">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#E0E4DD]">
               {dailySettlements.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-5 py-8 text-center text-[#747A72] italic bg-transparent">
+                  <td colSpan={8} className="px-5 py-8 text-center text-[#747A72] italic bg-transparent">
                     No transactions recorded for {selectedMonth}.
                   </td>
                 </tr>
@@ -528,17 +527,6 @@ export default function SettlementsPage() {
                     </td>
                     <td className="px-5 py-3.5 font-bold text-[#5F7A62]">
                       {formatCurrency(day.net)}
-                    </td>
-                    <td className="px-5 py-3.5">
-                      <span
-                        className={`inline-block rounded-full px-2.5 py-0.5 text-[9px] font-bold uppercase tracking-wider border ${
-                          day.status === "Settled"
-                            ? "bg-[#E8ECE5] text-[#2F352F] border-[#CCD2C8]"
-                            : "bg-[#FAF4E8] text-[#B18A45] border-[#B18A45]/30"
-                        }`}
-                      >
-                        {day.status}
-                      </span>
                     </td>
                     <td className="px-5 py-3.5 text-right">
                       <button
