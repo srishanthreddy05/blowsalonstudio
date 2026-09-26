@@ -697,14 +697,12 @@ export default function SettlementsPage() {
                 </div>
               ) : (
                 <div className="overflow-x-auto rounded-xl border border-[#E0E4DD] bg-[#FFFFFF] shadow-xs max-h-56 overflow-y-auto">
-                  <table className="w-full min-w-[480px] border-collapse text-left text-xs">
+                  <table className="w-full min-w-[360px] border-collapse text-left text-xs">
                     <thead className="bg-[#F7F7F4] text-[10px] font-bold uppercase tracking-wider text-[#747A72] border-b border-[#E0E4DD] sticky top-0 z-10">
                       <tr>
                         <th className="px-3.5 py-2.5 font-bold">Stylist Name</th>
                         <th className="px-3.5 py-2.5 font-bold text-center">Services Done</th>
-                        <th className="px-3.5 py-2.5 font-bold">Service Revenue</th>
-                        <th className="px-3.5 py-2.5 font-bold">In Time</th>
-                        <th className="px-3.5 py-2.5 font-bold">Out Time</th>
+                        <th className="px-3.5 py-2.5 font-bold text-right">Service Revenue</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[#E0E4DD]">
@@ -716,22 +714,8 @@ export default function SettlementsPage() {
                           <td className="px-3.5 py-2.5 text-center font-bold text-[#292D29]">
                             {st.servicesDone}
                           </td>
-                          <td className="px-3.5 py-2.5 font-bold text-[#5F7A62]">
+                          <td className="px-3.5 py-2.5 text-right font-bold text-[#5F7A62]">
                             {formatCurrency(st.serviceRevenue)}
-                          </td>
-                          <td className="px-3.5 py-2.5 text-[#747A72] font-medium">
-                            {st.inTime}
-                          </td>
-                          <td className="px-3.5 py-2.5">
-                            <span
-                              className={
-                                st.outTime === "Still Working"
-                                  ? "inline-block rounded-full bg-[#E8ECE5] px-2 py-0.5 text-[9px] font-bold text-[#2F352F] border border-[#CCD2C8]"
-                                  : "text-[#747A72] font-medium"
-                              }
-                            >
-                              {st.outTime}
-                            </span>
                           </td>
                         </tr>
                       ))}
@@ -742,28 +726,14 @@ export default function SettlementsPage() {
             </div>
 
             {/* Actions */}
-            <div className="flex items-center justify-between border-t border-[#E0E4DD] pt-4">
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-[#747A72]">Current Status:</span>
-                <span
-                  className={`inline-block rounded-full px-2.5 py-0.5 text-[9px] font-bold uppercase tracking-wider border ${
-                    selectedDayDetails.status === "Settled"
-                      ? "bg-[#E8ECE5] text-[#2F352F] border-[#CCD2C8]"
-                      : "bg-[#FAF4E8] text-[#B18A45] border-[#B18A45]/30"
-                  }`}
-                >
-                  {selectedDayDetails.status}
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setSelectedDayDetails(null)}
-                  className="rounded-xl border border-[#CCD2C8] bg-[#E8ECE5] px-5 py-2 text-xs font-bold text-[#2F352F] hover:bg-[#6F776D] hover:text-[#FFFFFF] transition cursor-pointer shadow-xs"
-                >
-                  Close
-                </button>
-              </div>
+            <div className="flex items-center justify-end border-t border-[#E0E4DD] pt-4">
+              <button
+                type="button"
+                onClick={() => setSelectedDayDetails(null)}
+                className="rounded-xl border border-[#CCD2C8] bg-[#E8ECE5] px-5 py-2 text-xs font-bold text-[#2F352F] hover:bg-[#6F776D] hover:text-[#FFFFFF] transition cursor-pointer shadow-xs"
+              >
+                Close
+              </button>
             </div>
           </div>
         </div>

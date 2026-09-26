@@ -48,14 +48,14 @@ export async function addCredit(
         transactions = data.transactions ?? [];
       }
 
-      const newBalance = Math.round((currentBalance + amount) * 100) / 100;
+      const newBalance = Math.round(currentBalance + amount);
       const newTx: AdvanceTransaction = {
         invoiceId,
         type: "credit",
-        amount,
+        amount: Math.round(amount),
         balanceAfter: newBalance,
         date: Timestamp.now(),
-        note: `Added ₹${amount} advance from invoice #${invoiceId || "unknown"}`
+        note: `Added ₹${Math.round(amount).toLocaleString("en-IN")} advance from invoice #${invoiceId || "unknown"}`
       };
 
       tx.set(
@@ -102,17 +102,17 @@ export async function deductBalance(
       const transactions = data.transactions ?? [];
 
       if (currentBalance < amount) {
-        throw new Error(`Insufficient advance balance. Required: ₹${amount}, Available: ₹${currentBalance}`);
+        throw new Error(`Insufficient advance balance. Required: ₹${Math.round(amount).toLocaleString("en-IN")}, Available: ₹${Math.round(currentBalance).toLocaleString("en-IN")}`);
       }
 
-      const newBalance = Math.round((currentBalance - amount) * 100) / 100;
+      const newBalance = Math.max(0, Math.round(currentBalance - amount));
       const newTx: AdvanceTransaction = {
         invoiceId,
         type: "debit",
-        amount,
+        amount: Math.round(amount),
         balanceAfter: newBalance,
         date: Timestamp.now(),
-        note: `Deducted ₹${amount} advance for invoice #${invoiceId || "unknown"}`
+        note: `Deducted ₹${Math.round(amount).toLocaleString("en-IN")} advance for invoice #${invoiceId || "unknown"}`
       };
 
       tx.set(

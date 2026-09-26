@@ -54,18 +54,17 @@ export const setGlobalCurrencyConfig = (locale: string, code: string) => {
   globalCurrencyConfig.code = code;
 };
 
-export const formatCurrency = (value: number) => {
+export const formatCurrency = (value: number | string | undefined | null) => {
+  const num = typeof value === "number" ? value : Number(value) || 0;
+  const rounded = Math.round(num);
   try {
     return new Intl.NumberFormat(globalCurrencyConfig.locale, {
       style: "currency",
       currency: globalCurrencyConfig.code,
       maximumFractionDigits: 0,
-    }).format(value);
-  } catch (e) {
-    return new Intl.NumberFormat("en-IN", {
-      style: "currency",
-      currency: "INR",
-      maximumFractionDigits: 0,
-    }).format(value);
+      minimumFractionDigits: 0,
+    }).format(rounded);
+  } catch {
+    return `₹${rounded.toLocaleString("en-IN")}`;
   }
 };

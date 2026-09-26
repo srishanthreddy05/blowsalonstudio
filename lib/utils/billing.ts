@@ -51,11 +51,11 @@ export function calculateBillTotals(input: CalculationInput): BillTotals {
   let serviceLineDiscount = 0;
 
   for (const s of services) {
-    const price = Math.max(Number(s.price) || 0, 0);
-    const discount = Math.max(Number(s.discount) || 0, 0);
+    const price = Math.round(Math.max(Number(s.price) || 0, 0));
+    const discount = Math.round(Math.max(Number(s.discount) || 0, 0));
 
     if (isMembershipRow(s)) {
-      membershipTotal += Math.max(price - discount, 0);
+      membershipTotal += Math.round(Math.max(price - discount, 0));
     } else {
       serviceTotal += price;
       serviceLineDiscount += discount;
@@ -66,10 +66,10 @@ export function calculateBillTotals(input: CalculationInput): BillTotals {
   let productLineDiscount = 0;
 
   for (const p of products) {
-    const price = Math.max(Number(p.price) || 0, 0);
+    const price = Math.round(Math.max(Number(p.price) || 0, 0));
     const quantity = Math.max(Number(p.quantity) || 1, 0);
-    const itemTotal = price * quantity;
-    const discount = Math.max(Number(p.discount) || 0, 0);
+    const itemTotal = Math.round(price * quantity);
+    const discount = Math.round(Math.max(Number(p.discount) || 0, 0));
 
     productTotal += itemTotal;
     productLineDiscount += discount;
@@ -85,7 +85,7 @@ export function calculateBillTotals(input: CalculationInput): BillTotals {
       eligibleServiceAmount = services.reduce((sum, row) => {
         if (isMembershipRow(row)) return sum;
         if (row.serviceId && selectedOffer.applicableServiceIds!.includes(row.serviceId)) {
-          return sum + Math.max(Number(row.price) || 0, 0);
+          return sum + Math.round(Math.max(Number(row.price) || 0, 0));
         }
         return sum;
       }, 0);
@@ -97,25 +97,26 @@ export function calculateBillTotals(input: CalculationInput): BillTotals {
       if (selectedOffer.discountType === "percentage") {
         offerDiscount = Math.min(
           eligibleServiceAmount,
-          Math.round(((eligibleServiceAmount * selectedOffer.discountValue) / 100) * 100) / 100
+          Math.round((eligibleServiceAmount * selectedOffer.discountValue) / 100)
         );
       } else {
-        offerDiscount = Math.min(selectedOffer.discountValue, eligibleServiceAmount);
+        offerDiscount = Math.min(Math.round(selectedOffer.discountValue), eligibleServiceAmount);
       }
     }
   }
 
   // Total Service Discount = bill discount + service line discount + offer discount
   // Capped at serviceTotal
-  const rawServiceDiscount = billDiscount + serviceLineDiscount + offerDiscount;
-  const serviceDiscount = Math.min(serviceTotal, Math.round(rawServiceDiscount * 100) / 100);
+  const roundedBillDiscount = Math.round(billDiscount);
+  const rawServiceDiscount = roundedBillDiscount + serviceLineDiscount + offerDiscount;
+  const serviceDiscount = Math.min(serviceTotal, rawServiceDiscount);
 
-  // Taxable Service Amount
-  const taxableServiceAmount = Math.max(0, Math.round((serviceTotal - serviceDiscount) * 100) / 100);
+  // Taxable Service Amount (whole rupees)
+  const taxableServiceAmount = Math.max(0, serviceTotal - serviceDiscount);
 
-  // 5% Tax on Taxable Service Amount
+  // 5% Tax on Taxable Service Amount rounded to nearest whole rupee
   const taxAmount = taxableServiceAmount > 0
-    ? Math.round(((taxableServiceAmount * taxRate) / 100) * 100) / 100
+    ? Math.round((taxableServiceAmount * taxRate) / 100)
     : 0;
 
   // Retail product total (retail products are never discounted by bill discount or offer)
@@ -128,26 +129,24 @@ export function calculateBillTotals(input: CalculationInput): BillTotals {
   const totalDiscount = serviceDiscount + productLineDiscount;
 
   // Grand Total = Taxable Service Amount + Tax (5%) + Retail Products + Memberships
-  const grandTotal = Math.round(
-    (taxableServiceAmount + taxAmount + discountedProductTotal + membershipTotal) * 100
-  ) / 100;
+  const grandTotal = taxableServiceAmount + taxAmount + discountedProductTotal + membershipTotal;
 
   return {
-    serviceTotal: Math.round(serviceTotal * 100) / 100,
+    serviceTotal,
     serviceDiscount,
     taxableServiceAmount,
     taxRate,
     taxAmount,
     gst: taxAmount, // legacy compatibility
-    productTotal: Math.round(discountedProductTotal * 100) / 100,
-    rawProductTotal: Math.round(productTotal * 100) / 100,
-    membershipTotal: Math.round(membershipTotal * 100) / 100,
-    subtotal: Math.round(subtotal * 100) / 100,
-    totalDiscount: Math.round(totalDiscount * 100) / 100,
-    billDiscount: Math.round(billDiscount * 100) / 100,
-    lineDiscount: Math.round((serviceLineDiscount + productLineDiscount) * 100) / 100,
-    offerDiscount: Math.round(offerDiscount * 100) / 100,
-    eligibleServiceAmount: Math.round(eligibleServiceAmount * 100) / 100,
+    productTotal: discountedProductTotal,
+    rawProductTotal: productTotal,
+    membershipTotal,
+    subtotal,
+    totalDiscount,
+    billDiscount: roundedBillDiscount,
+    lineDiscount: serviceLineDiscount + productLineDiscount,
+    offerDiscount,
+    eligibleServiceAmount,
     grandTotal,
   };
 }

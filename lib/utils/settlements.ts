@@ -140,22 +140,26 @@ export function getInvoiceSalesBreakdown(inv?: InvoiceLike | null): InvoiceSales
 
   const taxAmount = inv.taxAmount ?? (inv as any).gst ?? (
     inv.taxRate !== undefined && inv.taxRate > 0
-      ? Math.round(((serviceSales * inv.taxRate) / 100) * 100) / 100
+      ? Math.round((serviceSales * inv.taxRate) / 100)
       : (inv.grandTotal && inv.grandTotal > (serviceSales + retailSales + membershipSales)
-          ? Math.round((inv.grandTotal - (serviceSales + retailSales + membershipSales)) * 100) / 100
+          ? Math.round(inv.grandTotal - (serviceSales + retailSales + membershipSales))
           : 0)
   );
 
-  const totalSales = Math.round((serviceSales + retailSales + membershipSales + taxAmount) * 100) / 100;
+  const roundedServiceSales = Math.round(serviceSales);
+  const roundedRetailSales = Math.round(retailSales);
+  const roundedMembershipSales = Math.round(membershipSales);
+  const roundedTaxAmount = Math.round(taxAmount);
+  const totalSales = roundedServiceSales + roundedRetailSales + roundedMembershipSales + roundedTaxAmount;
   const payments = getInvoicePayments(inv);
-  const collectedAmount = (payments.cash || 0) + (payments.upi || 0) + (payments.card || 0) + (inv.advanceUsed || 0);
+  const collectedAmount = Math.round((payments.cash || 0) + (payments.upi || 0) + (payments.card || 0) + (inv.advanceUsed || 0));
 
   return {
-    serviceSales,
-    taxableServiceSales: serviceSales,
-    taxAmount,
-    retailSales,
-    membershipSales,
+    serviceSales: roundedServiceSales,
+    taxableServiceSales: roundedServiceSales,
+    taxAmount: roundedTaxAmount,
+    retailSales: roundedRetailSales,
+    membershipSales: roundedMembershipSales,
     totalSales,
     collectedAmount,
   };

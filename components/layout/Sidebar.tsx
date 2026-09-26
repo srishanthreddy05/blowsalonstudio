@@ -2,6 +2,7 @@
 
 import {
   BadgePercent,
+  CalendarDays,
   CreditCard,
   Gauge,
   Menu,
@@ -47,6 +48,7 @@ const menuGroups = [
   {
     title: "Daily Operations",
     items: [
+      { label: "Appointments", href: "/appointments", icon: CalendarDays },
       { label: "Settlements", href: "/settlements", icon: Coins },
       { label: "Invoices", href: "/invoices", icon: History },
       { label: "Customers", href: "/customers", icon: Users },

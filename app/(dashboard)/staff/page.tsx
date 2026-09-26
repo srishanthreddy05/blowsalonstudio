@@ -26,7 +26,7 @@ import { collection, query, where, getDocs, doc, getDoc } from "firebase/firesto
 import { useAppData } from "@/context/AppDataContext";
 import { formatCurrency } from "@/components/salon-dashboard/types";
 import { toLocalDateString } from "@/lib/utils/date";
-import { AttendanceHistoryTable } from "@/components/staff/AttendanceHistoryTable";
+import { AttendanceCalendarView } from "@/components/staff/AttendanceCalendarView";
 import { StaffProfileModal } from "@/components/staff/StaffProfileModal";
 
 export default function StaffPage() {
@@ -39,8 +39,6 @@ export default function StaffPage() {
 
   // Today's Attendance Map: employeeId -> AttendanceRecord
   const [todayAttendanceMap, setTodayAttendanceMap] = useState<Record<string, AttendanceRecord>>({});
-  const [loadingTodayAttendance, setLoadingTodayAttendance] = useState(false);
-  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
 
   // Profile Modal State
   const [selectedStaffForProfile, setSelectedStaffForProfile] = useState<Staff | null>(null);
@@ -73,14 +71,11 @@ export default function StaffPage() {
 
   // Load today's attendance records from Firestore
   const loadTodayAttendance = useCallback(async () => {
-    setLoadingTodayAttendance(true);
     try {
       const map = await attendanceService.getTodayAttendance(todayKey);
       setTodayAttendanceMap(map);
     } catch (err) {
       console.error("Failed to load today's attendance:", err);
-    } finally {
-      setLoadingTodayAttendance(false);
     }
   }, [todayKey]);
 
@@ -157,26 +152,6 @@ export default function StaffPage() {
       loadStaffPerformance();
     }
   }, [staff, loadStaffPerformance]);
-
-  // Attendance Handlers
-  const handleMarkAttendance = async (member: Staff, status: "present" | "absent") => {
-    if (!member.id) return;
-    setActionLoadingId(member.id);
-    try {
-      const rec = await attendanceService.markAttendance(
-        member.id,
-        member.name,
-        todayKey,
-        status
-      );
-      setTodayAttendanceMap((prev) => ({ ...prev, [member.id!]: rec }));
-      await refreshStaff();
-    } catch (error) {
-      console.error(`Mark ${status} failed:`, error);
-    } finally {
-      setActionLoadingId(null);
-    }
-  };
 
   // Staff Add/Edit Handlers
   const handleOpenAdd = () => {
@@ -307,7 +282,7 @@ export default function StaffPage() {
           }`}
         >
           <Users size={15} />
-          Staff Directory & Today's Attendance
+          Staff Directory
         </button>
         <button
           onClick={() => setActiveTab("history")}
@@ -318,7 +293,7 @@ export default function StaffPage() {
           }`}
         >
           <Calendar size={15} />
-          Attendance History
+          Attendance & Revenue History
         </button>
       </div>
 
@@ -327,141 +302,15 @@ export default function StaffPage() {
           <div className="size-9 animate-spin rounded-full border-3 border-[#6F776D] border-t-transparent" />
         </div>
       ) : activeTab === "history" ? (
-        /* Attendance History View */
-        <AttendanceHistoryTable
+        /* Attendance & Revenue History View */
+        <AttendanceCalendarView
           staffList={staff}
           selectedEmployeeId={historySelectedEmployeeId}
           onClearEmployeeFilter={() => setHistorySelectedEmployeeId("all")}
         />
       ) : (
-        /* Staff Directory & Today's Attendance View */
+        /* Staff Directory View */
         <div className="space-y-6">
-          {/* Today's Attendance Quick-Panel */}
-          <div className="rounded-3xl border border-[#E0E4DD] bg-[#FFFFFF] p-5 shadow-xs">
-            <div className="flex flex-wrap items-center justify-between gap-3 mb-4 pb-3 border-b border-[#E0E4DD]">
-              <div>
-                <h2 className="font-serif text-base font-bold text-[#2F352F]">
-                  Today's Attendance ({new Date().toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })})
-                </h2>
-                <p className="text-[11px] font-medium text-[#747A72] mt-0.5">
-                  Today&apos;s staff availability
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-[#CCD2C8] bg-[#E8ECE5] px-3 py-1 text-xs font-bold text-[#2F352F]">
-                  <span className="size-2 rounded-full bg-[#5F7A62]" />
-                  {staff.filter((s) => s.id && normalizeAttendanceStatus(todayAttendanceMap[s.id]?.status) === "PRESENT").length} Present
-                </span>
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-[#F8D7D7] bg-[#FBEBEB] px-3 py-1 text-xs font-bold text-[#B55B5B]">
-                  <span className="size-2 rounded-full bg-[#B55B5B]" />
-                  {staff.filter((s) => s.id && normalizeAttendanceStatus(todayAttendanceMap[s.id]?.status) === "ABSENT").length} Absent
-                </span>
-              </div>
-            </div>
-
-            {staff.length === 0 ? (
-              <p className="text-xs text-[#747A72] py-4 text-center">No staff added yet.</p>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                {staff.map((member) => {
-                  if (!member.id) return null;
-                  const att = todayAttendanceMap[member.id];
-                  const normStatus = normalizeAttendanceStatus(att?.status);
-                  const isPresent = normStatus === "PRESENT";
-                  const isAbsent = normStatus === "ABSENT";
-                  const isActing = actionLoadingId === member.id;
-
-                  return (
-                    <div
-                      key={member.id}
-                      className={`rounded-2xl border p-4 transition flex flex-col justify-between gap-3 ${
-                        isPresent
-                          ? "border-[#CCD2C8] bg-[#E8ECE5]/30"
-                          : isAbsent
-                          ? "border-[#F8D7D7] bg-[#FBEBEB]/30"
-                          : "border-[#E0E4DD] bg-[#FFFFFF]"
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex items-center gap-3 min-w-0">
-                          <div className="grid size-10 place-items-center rounded-xl bg-[#E8ECE5] text-[#2F352F] font-serif font-bold text-sm border border-[#CCD2C8] shrink-0">
-                            {member.name.charAt(0).toUpperCase()}
-                          </div>
-                          <div className="min-w-0">
-                            <p className="font-serif font-bold text-sm text-[#2F352F] truncate">
-                              {member.name}
-                            </p>
-                            <p className="text-[10px] text-[#747A72] uppercase tracking-wider truncate">
-                              {member.role}
-                            </p>
-                          </div>
-                        </div>
-
-                        {/* Status Badge */}
-                        <div>
-                          {isPresent ? (
-                            <span className="inline-flex items-center gap-1.5 rounded-full border border-[#CCD2C8] bg-[#E8ECE5] px-2.5 py-1 text-[10px] font-bold tracking-wider text-[#2F352F]">
-                              <span className="size-1.5 rounded-full bg-[#5F7A62]" />
-                              PRESENT
-                            </span>
-                          ) : isAbsent ? (
-                            <span className="inline-flex items-center gap-1.5 rounded-full border border-[#F8D7D7] bg-[#FBEBEB] px-2.5 py-1 text-[10px] font-bold tracking-wider text-[#B55B5B]">
-                              <span className="size-1.5 rounded-full bg-[#B55B5B]" />
-                              ABSENT
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1.5 rounded-full border border-[#E0E4DD] bg-[#F7F7F4] px-2.5 py-1 text-[10px] font-bold tracking-wider text-[#747A72]">
-                              <span className="size-1.5 rounded-full bg-[#CCD2C8]" />
-                              NOT MARKED
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Action Buttons */}
-                      <div className="pt-2 border-t border-[#E0E4DD]/80">
-                        {isPresent ? (
-                          <button
-                            onClick={() => handleMarkAttendance(member, "absent")}
-                            disabled={isActing}
-                            className="w-full h-8.5 rounded-xl border border-[#F8D7D7] bg-[#FFFFFF] hover:bg-[#FBEBEB] text-[11px] font-bold text-[#B55B5B] transition cursor-pointer flex items-center justify-center gap-1.5 shadow-2xs"
-                          >
-                            Mark Absent
-                          </button>
-                        ) : isAbsent ? (
-                          <button
-                            onClick={() => handleMarkAttendance(member, "present")}
-                            disabled={isActing}
-                            className="w-full h-8.5 rounded-xl bg-[#6F776D] hover:bg-[#2F352F] text-[11px] font-bold text-white transition cursor-pointer flex items-center justify-center gap-1.5 shadow-2xs"
-                          >
-                            Mark Present
-                          </button>
-                        ) : (
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => handleMarkAttendance(member, "present")}
-                              disabled={isActing}
-                              className="flex-1 h-8.5 rounded-xl bg-[#6F776D] hover:bg-[#2F352F] text-[11px] font-bold text-white transition cursor-pointer shadow-2xs"
-                            >
-                              Mark Present
-                            </button>
-                            <button
-                              onClick={() => handleMarkAttendance(member, "absent")}
-                              disabled={isActing}
-                              className="flex-1 h-8.5 rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] hover:bg-[#FBEBEB] hover:text-[#B55B5B] text-[11px] font-bold text-[#747A72] transition cursor-pointer"
-                            >
-                              Mark Absent
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
           {/* Search bar & Section Title */}
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
@@ -482,10 +331,10 @@ export default function StaffPage() {
             </div>
           </div>
 
-          {/* Staff Cards List */}
-          <div className="grid gap-4">
+          {/* Staff Cards List: 2 per row on desktop, 1 on mobile */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
             {sortedStaff.length === 0 ? (
-              <div className="p-12 text-center bg-[#FFFFFF] rounded-3xl border border-[#E0E4DD] text-[#747A72]">
+              <div className="col-span-full p-12 text-center bg-[#FFFFFF] rounded-3xl border border-[#E0E4DD] text-[#747A72]">
                 <Users size={36} className="mx-auto mb-2 opacity-30 text-[#6F776D]" />
                 <p className="font-semibold text-sm text-[#2F352F]">No staff added yet.</p>
                 <p className="text-xs text-[#747A72] mt-1">
@@ -500,125 +349,132 @@ export default function StaffPage() {
                 const monthRev = staffMonthRevMap[stf.id] || 0;
                 const monthSrv = staffMonthSrvMap[stf.id] || 0;
 
+                const att = stf.id ? todayAttendanceMap[stf.id] : undefined;
+                const normStatus = normalizeAttendanceStatus(att?.status);
+
                 return (
                   <div
                     key={stf.id}
                     onClick={() => setSelectedStaffForProfile(stf)}
-                    className="rounded-3xl border border-[#E0E4DD] bg-[#FFFFFF] p-5 shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-5 transition hover:border-[#CCD2C8] hover:shadow-md cursor-pointer group"
+                    className="rounded-3xl border border-[#E0E4DD] bg-[#FFFFFF] p-5 shadow-xs flex flex-col justify-between gap-4 transition hover:border-[#CCD2C8] hover:shadow-md cursor-pointer group"
                   >
-                    {/* Left: Info */}
-                    <div className="flex items-center gap-4 min-w-[260px]">
-                      <div className="grid size-12 place-items-center rounded-2xl bg-[#E8ECE5] text-[#2F352F] font-serif font-bold text-lg border border-[#CCD2C8] shrink-0 group-hover:bg-[#6F776D] group-hover:text-white transition">
-                        {stf.name.charAt(0).toUpperCase()}
+                    {/* Top: Staff Info & Status Badge */}
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="grid size-11 place-items-center rounded-2xl bg-[#E8ECE5] text-[#2F352F] font-serif font-bold text-base border border-[#CCD2C8] shrink-0 group-hover:bg-[#6F776D] group-hover:text-white transition">
+                          {stf.name.charAt(0).toUpperCase()}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <h3 className="font-serif font-bold text-base text-[#2F352F] group-hover:text-[#6F776D] transition truncate">
+                              {stf.name}
+                            </h3>
+                            <span
+                              className={`inline-block rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider border ${
+                                stf.status === "Active"
+                                  ? "bg-[#E8ECE5] text-[#2F352F] border-[#CCD2C8]"
+                                  : "bg-[#FBEBEB] text-[#B55B5B] border-[#FBEBEB]"
+                              }`}
+                            >
+                              {stf.status}
+                            </span>
+                            <span className="inline-block rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider border bg-[#F7F7F4] text-[#747A72] border-[#E0E4DD]">
+                              {stf.role}
+                            </span>
+                          </div>
+                        </div>
                       </div>
-                      <div>
-                        <div className="flex flex-wrap items-center gap-2 mb-1">
-                          <h3 className="font-serif font-bold text-base text-[#2F352F] group-hover:text-[#6F776D] transition">
-                            {stf.name}
-                          </h3>
-                          <span
-                            className={`inline-block rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider border ${
-                              stf.status === "Active"
-                                ? "bg-[#E8ECE5] text-[#2F352F] border-[#CCD2C8]"
-                                : "bg-[#FBEBEB] text-[#B55B5B] border-[#FBEBEB]"
-                            }`}
-                          >
-                            {stf.status}
-                          </span>
-                          <span className="inline-block rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider border bg-[#F7F7F4] text-[#747A72] border-[#E0E4DD]">
-                            {stf.role}
-                          </span>
-                          {(() => {
-                            const att = stf.id ? todayAttendanceMap[stf.id] : undefined;
-                            const norm = normalizeAttendanceStatus(att?.status);
-                            if (norm === "PRESENT") {
-                              return (
-                                <span className="inline-flex items-center gap-1 rounded-full border border-[#CCD2C8] bg-[#E8ECE5] px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-[#2F352F]">
-                                  <span className="size-1.5 rounded-full bg-[#5F7A62]" />
-                                  PRESENT
-                                </span>
-                              );
-                            }
-                            if (norm === "ABSENT") {
-                              return (
-                                <span className="inline-flex items-center gap-1 rounded-full border border-[#F8D7D7] bg-[#FBEBEB] px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-[#B55B5B]">
-                                  <span className="size-1.5 rounded-full bg-[#B55B5B]" />
-                                  ABSENT
-                                </span>
-                              );
-                            }
-                            return null;
-                          })()}
-                        </div>
 
-                        <div className="text-xs text-[#747A72] flex flex-wrap items-center gap-3">
-                          <div>
-                            <span className="font-bold text-[10px] uppercase tracking-wider text-[#747A72]">
-                              Phone:{" "}
-                            </span>
-                            <span className="text-[#292D29] font-medium">{stf.phone || "—"}</span>
-                          </div>
-                          <div>
-                            <span className="font-bold text-[10px] uppercase tracking-wider text-[#747A72]">
-                              Base Salary:{" "}
-                            </span>
-                            <span className="text-[#2F352F] font-bold">
-                              {stf.salary ? formatCurrency(stf.salary) : "—"}
-                            </span>
-                          </div>
-                        </div>
+                      {/* Today's Attendance Badge */}
+                      <div className="shrink-0">
+                        {normStatus === "PRESENT" ? (
+                          <span className="inline-flex items-center gap-1.5 rounded-full border border-[#CCD2C8] bg-[#E8ECE5] px-2.5 py-1 text-[10px] font-bold tracking-wider text-[#2F352F]">
+                            <span className="size-1.5 rounded-full bg-[#5F7A62]" />
+                            PRESENT
+                          </span>
+                        ) : normStatus === "ABSENT" ? (
+                          <span className="inline-flex items-center gap-1.5 rounded-full border border-[#F8D7D7] bg-[#FBEBEB] px-2.5 py-1 text-[10px] font-bold tracking-wider text-[#B55B5B]">
+                            <span className="size-1.5 rounded-full bg-[#B55B5B]" />
+                            ABSENT
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 rounded-full border border-[#E0E4DD] bg-[#F7F7F4] px-2.5 py-1 text-[10px] font-bold tracking-wider text-[#747A72]">
+                            <span className="size-1.5 rounded-full bg-[#CCD2C8]" />
+                            NOT MARKED
+                          </span>
+                        )}
                       </div>
                     </div>
 
-                    {/* Middle: Service Performance (Invoices Completed) */}
-                    <div className="flex-1 min-w-[280px] pt-4 lg:pt-0 border-t lg:border-t-0 border-[#E0E4DD]">
-                      <span className="font-bold block text-[10px] text-[#747A72] uppercase tracking-wider mb-2">
+                    {/* Middle: Service Performance Breakdown */}
+                    <div className="pt-3 border-t border-[#E0E4DD] space-y-3">
+                      <span className="font-bold block text-[10px] text-[#747A72] uppercase tracking-wider">
                         Service Performance (Salary-Based)
                       </span>
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                        <div className="bg-[#F7F7F4] rounded-xl p-2 border border-[#E0E4DD]/80">
-                          <span className="block text-[9px] uppercase font-bold text-[#747A72]">
-                            Services Today
-                          </span>
-                          <span className="text-xs font-bold text-[#2F352F]">{todaySrv}</span>
+
+                      {/* Today's Performance */}
+                      <div>
+                        <span className="block text-[10px] font-bold text-[#2F352F] uppercase tracking-wider mb-1.5">
+                          Today
+                        </span>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="bg-[#F7F7F4] rounded-xl p-2.5 border border-[#E0E4DD]/80">
+                            <span className="block text-[9px] uppercase font-bold text-[#747A72]">
+                              Services Today
+                            </span>
+                            <span className="text-sm font-bold text-[#2F352F] mt-0.5 block">
+                              {todaySrv}
+                            </span>
+                          </div>
+                          <div className="bg-[#F7F7F4] rounded-xl p-2.5 border border-[#E0E4DD]/80">
+                            <span className="block text-[9px] uppercase font-bold text-[#747A72]">
+                              Revenue Today
+                            </span>
+                            <span className="text-sm font-bold text-[#5F7A62] mt-0.5 block">
+                              {formatCurrency(todayRev)}
+                            </span>
+                          </div>
                         </div>
-                        <div className="bg-[#F7F7F4] rounded-xl p-2 border border-[#E0E4DD]/80">
-                          <span className="block text-[9px] uppercase font-bold text-[#747A72]">
-                            Revenue Today
-                          </span>
-                          <span className="text-xs font-bold text-[#5F7A62]">
-                            {formatCurrency(todayRev)}
-                          </span>
-                        </div>
-                        <div className="bg-[#F7F7F4] rounded-xl p-2 border border-[#E0E4DD]/80">
-                          <span className="block text-[9px] uppercase font-bold text-[#747A72]">
-                            Services (Mo)
-                          </span>
-                          <span className="text-xs font-bold text-[#2F352F]">{monthSrv}</span>
-                        </div>
-                        <div className="bg-[#F7F7F4] rounded-xl p-2 border border-[#E0E4DD]/80">
-                          <span className="block text-[9px] uppercase font-bold text-[#747A72]">
-                            Revenue (Mo)
-                          </span>
-                          <span className="text-xs font-bold text-[#5F7A62]">
-                            {formatCurrency(monthRev)}
-                          </span>
+                      </div>
+
+                      {/* Monthly Performance */}
+                      <div>
+                        <span className="block text-[10px] font-bold text-[#2F352F] uppercase tracking-wider mb-1.5">
+                          Monthly
+                        </span>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="bg-[#F7F7F4] rounded-xl p-2.5 border border-[#E0E4DD]/80">
+                            <span className="block text-[9px] uppercase font-bold text-[#747A72]">
+                              Services (Month)
+                            </span>
+                            <span className="text-sm font-bold text-[#2F352F] mt-0.5 block">
+                              {monthSrv}
+                            </span>
+                          </div>
+                          <div className="bg-[#F7F7F4] rounded-xl p-2.5 border border-[#E0E4DD]/80">
+                            <span className="block text-[9px] uppercase font-bold text-[#747A72]">
+                              Revenue (Month)
+                            </span>
+                            <span className="text-sm font-bold text-[#5F7A62] mt-0.5 block">
+                              {formatCurrency(monthRev)}
+                            </span>
+                          </div>
                         </div>
                       </div>
                     </div>
 
-                    {/* Right: Actions */}
-                    <div className="flex items-center gap-2 pt-4 lg:pt-0 border-t lg:border-t-0 border-[#E0E4DD] self-end lg:self-auto min-w-[90px]">
+                    {/* Bottom: Action Buttons */}
+                    <div className="flex items-center justify-end gap-2 pt-3 border-t border-[#E0E4DD]">
                       <button
                         onClick={(e) => handleOpenEdit(stf, e)}
-                        className="grid size-8 place-items-center rounded-xl bg-[#FFFFFF] border border-[#E0E4DD] text-[#747A72] hover:text-[#2F352F] hover:bg-[#E8ECE5] hover:border-[#6F776D] transition cursor-pointer shadow-xs"
+                        className="grid size-8 place-items-center rounded-xl bg-[#FFFFFF] border border-[#E0E4DD] text-[#747A72] hover:text-[#2F352F] hover:bg-[#E8ECE5] hover:border-[#6F776D] transition cursor-pointer shadow-2xs"
                         title="Edit Profile"
                       >
                         <Edit2 size={13} />
                       </button>
                       <button
                         onClick={(e) => stf.id && handleDeleteTrigger(stf.id, e)}
-                        className="grid size-8 place-items-center rounded-xl bg-[#FFFFFF] border border-[#E0E4DD] text-[#B55B5B] hover:bg-[#FBEBEB] hover:border-[#FBEBEB] transition cursor-pointer shadow-xs"
+                        className="grid size-8 place-items-center rounded-xl bg-[#FFFFFF] border border-[#E0E4DD] text-[#B55B5B] hover:bg-[#FBEBEB] hover:border-[#FBEBEB] transition cursor-pointer shadow-2xs"
                         title="Remove Specialist"
                       >
                         <Trash2 size={13} />

@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { X, User, Phone, CheckCircle2, AlertTriangle, ArrowUpRight, ChevronDown, ChevronUp, ShoppingBag, Receipt, Sparkles } from "lucide-react";
+import { X, User, Phone, CheckCircle2, AlertTriangle, ArrowUpRight, ChevronDown, ChevronUp, ShoppingBag, Receipt, Sparkles, CalendarDays } from "lucide-react";
 import type { Customer } from "@/types/customer";
 import type { Invoice } from "@/types/invoice";
+import type { Appointment } from "@/types/appointment";
 import * as invoiceService from "@/services/invoices";
+import * as appointmentService from "@/services/appointments";
 import { formatCurrency } from "@/components/salon-dashboard/types";
 
 interface CustomerDetailModalProps {
@@ -14,6 +16,7 @@ interface CustomerDetailModalProps {
 
 export default function CustomerDetailModal({ customer, onClose }: CustomerDetailModalProps) {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [expandedInvoiceId, setExpandedInvoiceId] = useState<string | null>(null);
@@ -29,20 +32,24 @@ export default function CustomerDetailModal({ customer, onClose }: CustomerDetai
   }, [onClose]);
 
   useEffect(() => {
-    async function fetchInvoices() {
+    async function fetchData() {
       if (!customer.id) return;
       try {
         setLoading(true);
-        const data = await invoiceService.getByCustomerId(customer.id);
-        setInvoices(data);
+        const [invData, apptData] = await Promise.all([
+          invoiceService.getByCustomerId(customer.id),
+          appointmentService.getByCustomerId(customer.id),
+        ]);
+        setInvoices(invData);
+        setAppointments(apptData);
       } catch (err) {
-        console.error("Error fetching customer invoices:", err);
-        setError("Failed to load visit history.");
+        console.error("Error fetching customer data:", err);
+        setError("Failed to load history.");
       } finally {
         setLoading(false);
       }
     }
-    fetchInvoices();
+    fetchData();
   }, [customer.id]);
 
   // Calculations
@@ -225,6 +232,55 @@ export default function CustomerDetailModal({ customer, onClose }: CustomerDetai
             </div>
           )}
 
+          {/* Appointments & Booking History Section */}
+          <div className="space-y-3">
+            <h3 className="font-serif text-base font-bold text-[#2F352F] flex items-center justify-between">
+              <span className="flex items-center gap-1.5">
+                <CalendarDays size={16} className="text-[#6F776D]" />
+                Appointment Bookings ({appointments.length})
+              </span>
+            </h3>
+
+            {appointments.length === 0 ? (
+              <div className="text-center py-6 bg-[#F7F7F4] rounded-2xl border border-[#E0E4DD] text-[#747A72] italic text-xs">
+                No appointments booked for this client yet.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-48 overflow-y-auto pr-1">
+                {appointments.map((appt) => (
+                  <div
+                    key={appt.id}
+                    className="p-3 rounded-2xl border border-[#E0E4DD] bg-[#FFFFFF] shadow-2xs text-xs space-y-1"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-[#2F352F] text-[11px]">
+                        {appt.date} • {appt.startTime}
+                      </span>
+                      <span
+                        className={`text-[9px] font-bold uppercase px-2 py-0.5 rounded-full border ${
+                          appt.status === "completed"
+                            ? "bg-[#E8ECE5] text-[#5F7A62] border-[#5F7A62]/30"
+                            : appt.status === "confirmed"
+                            ? "bg-[#E8ECE5] text-[#2F352F] border-[#CCD2C8]"
+                            : appt.status === "scheduled"
+                            ? "bg-[#F7F7F4] text-[#747A72] border-[#E0E4DD]"
+                            : "bg-[#FBEBEB] text-[#B55B5B] border-[#F8D7D7]"
+                        }`}
+                      >
+                        {appt.status}
+                      </span>
+                    </div>
+                    {appt.notes && (
+                      <p className="text-[#747A72] text-[11px] truncate">
+                        {appt.notes}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* Visit History Section */}
           <div className="space-y-4">
             <h3 className="font-serif text-base font-bold text-[#2F352F]">Visit & Invoice History</h3>
@@ -388,9 +444,9 @@ export default function CustomerDetailModal({ customer, onClose }: CustomerDetai
                                       {inv.paymentSplit && (
                                         <div className="flex gap-2">
                                           <span className="font-medium">Split:</span>
-                                          {inv.paymentSplit.cash > 0 && <span className="font-bold text-[#2F352F]">Cash (₹{inv.paymentSplit.cash})</span>}
-                                          {inv.paymentSplit.upi > 0 && <span className="font-bold text-[#2F352F]">UPI (₹{inv.paymentSplit.upi})</span>}
-                                          {inv.paymentSplit.card > 0 && <span className="font-bold text-[#2F352F]">Card (₹{inv.paymentSplit.card})</span>}
+                                          {inv.paymentSplit.cash > 0 && <span className="font-bold text-[#2F352F]">Cash ({formatCurrency(inv.paymentSplit.cash)})</span>}
+                                          {inv.paymentSplit.upi > 0 && <span className="font-bold text-[#2F352F]">UPI ({formatCurrency(inv.paymentSplit.upi)})</span>}
+                                          {inv.paymentSplit.card > 0 && <span className="font-bold text-[#2F352F]">Card ({formatCurrency(inv.paymentSplit.card)})</span>}
                                         </div>
                                       )}
                                     </div>

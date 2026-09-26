@@ -38,10 +38,8 @@ export function SummaryCard({
       onChangeDiscount?.(0, 0);
       return;
     }
-    let percent = Math.min(100, Math.max(0, val));
-    let value = (totals.serviceTotal * percent) / 100;
-    value = Math.round(value * 100) / 100;
-    percent = Math.round(percent * 100) / 100;
+    let percent = Math.min(100, Math.max(0, Math.round(val)));
+    let value = Math.round((totals.serviceTotal * percent) / 100);
     onChangeDiscount?.(value, percent);
   };
 
@@ -50,10 +48,8 @@ export function SummaryCard({
       onChangeDiscount?.(0, 0);
       return;
     }
-    let value = Math.min(totals.serviceTotal, Math.max(0, val));
-    let percent = totals.serviceTotal > 0 ? (value / totals.serviceTotal) * 100 : 0;
-    percent = Math.round(percent * 100) / 100;
-    value = Math.round(value * 100) / 100;
+    let value = Math.round(Math.min(totals.serviceTotal, Math.max(0, val)));
+    let percent = totals.serviceTotal > 0 ? Math.round((value / totals.serviceTotal) * 100) : 0;
     onChangeDiscount?.(value, percent);
   };
 
@@ -105,7 +101,7 @@ export function SummaryCard({
               <ClearableNumberInput
                 min="0"
                 max="100"
-                step="0.01"
+                step="1"
                 placeholder="0%"
                 value={billDiscountPercent === 0 ? "" : billDiscountPercent}
                 onChange={handlePercentChange}
@@ -118,8 +114,8 @@ export function SummaryCard({
               <ClearableNumberInput
                 min="0"
                 max={totals.serviceTotal}
-                step="0.01"
-                placeholder="0.00"
+                step="1"
+                placeholder="0"
                 value={billDiscount === 0 ? "" : billDiscount}
                 onChange={handleValueChange}
                 className="w-full text-xs text-[#292D29] pl-3 font-semibold"
@@ -241,10 +237,11 @@ export function SummaryCard({
             <span className="text-sm font-bold text-[#747A72] pointer-events-none">₹</span>
             <ClearableNumberInput
               min="0"
-              placeholder={amountToCollect > 0 ? amountToCollect.toFixed(2) : "0.00"}
+              step="1"
+              placeholder={amountToCollect > 0 ? String(Math.round(amountToCollect)) : "0"}
               value={amountPaid}
               onChange={(val) => {
-                onChangeAmountPaid?.(val);
+                onChangeAmountPaid?.(val === "" ? "" : Math.round(Number(val)));
               }}
               className="w-full text-sm font-bold text-[#292D29] pl-3"
             />

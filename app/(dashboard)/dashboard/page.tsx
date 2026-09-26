@@ -19,6 +19,7 @@ import { normalizeAttendanceStatus } from "@/types/attendance";
 import { formatCurrency } from "@/components/salon-dashboard/types";
 import type { Staff } from "@/types/staff";
 import { useAppData } from "@/context/AppDataContext";
+import { toast } from "react-hot-toast";
 import {
   CalendarDays,
   CreditCard,
@@ -44,6 +45,8 @@ import * as customerService from "@/services/customers";
 import * as expensesService from "@/services/expenses";
 import { toLocalDateString } from "@/lib/utils/date";
 import { getInvoicePayments, getInvoicePaymentRatio, getInvoiceSalesBreakdown } from "@/lib/utils/settlements";
+import { TodayAppointmentsSection } from "@/components/dashboard/TodayAppointmentsSection";
+import { useRouter } from "next/navigation";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 interface Invoice {
@@ -226,12 +229,14 @@ function PaymentBreakdown({
 function StaffAttendanceRow({
   member,
   attendance,
-  onMarkAttendance,
+  todayServicesCount,
+  onToggleAttendance,
   loading,
 }: {
   member: Staff;
   attendance?: AttendanceRecord;
-  onMarkAttendance: (member: Staff, status: "present" | "absent") => void;
+  todayServicesCount: number;
+  onToggleAttendance: (member: Staff) => void;
   loading?: boolean;
 }) {
   const norm = normalizeAttendanceStatus(attendance?.status);
@@ -240,70 +245,85 @@ function StaffAttendanceRow({
 
   return (
     <div
-      className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border p-3 transition-all duration-150 ${
+      className={`flex flex-col justify-between rounded-2xl border p-4 transition-all duration-150 ${
         isPresent
-          ? "border-[#CCD2C8] bg-[#E8ECE5]/30 shadow-2xs"
+          ? "border-[#CCD2C8] bg-[#F7F9F6] shadow-2xs"
           : isAbsent
-          ? "border-[#F8D7D7] bg-[#FBEBEB]/30 shadow-2xs"
+          ? "border-[#F8D7D7] bg-[#FDF7F7] shadow-2xs"
           : "border-[#E0E4DD] bg-[#FFFFFF] hover:border-[#CCD2C8]"
       }`}
     >
       {/* 1. Full Staff Name & 2. Current Attendance Status */}
-      <div className="flex flex-wrap items-center gap-2.5 min-w-0 flex-1">
-        <span className="text-xs font-bold text-[#2F352F] leading-snug break-words">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-bold text-[#2F352F] truncate" title={member.name}>
           {member.name}
         </span>
         
         {/* Status Badge */}
         {isPresent ? (
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-[#CCD2C8] bg-[#E8ECE5] px-2.5 py-0.5 text-[9px] font-extrabold tracking-wider text-[#2F352F]">
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-[#CCD2C8] bg-[#E8ECE5] px-2 py-0.5 text-[9px] font-extrabold tracking-wider text-[#2F352F] shrink-0">
             <span className="size-1.5 rounded-full bg-[#5F7A62]" />
             PRESENT
           </span>
         ) : isAbsent ? (
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-[#F8D7D7] bg-[#FBEBEB] px-2.5 py-0.5 text-[9px] font-extrabold tracking-wider text-[#B55B5B]">
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-[#F8D7D7] bg-[#FBEBEB] px-2 py-0.5 text-[9px] font-extrabold tracking-wider text-[#B55B5B] shrink-0">
             <span className="size-1.5 rounded-full bg-[#B55B5B]" />
             ABSENT
           </span>
         ) : (
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-[#E0E4DD] bg-[#F7F7F4] px-2.5 py-0.5 text-[9px] font-bold tracking-wider text-[#747A72]">
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-[#E0E4DD] bg-[#F7F7F4] px-2 py-0.5 text-[9px] font-bold tracking-wider text-[#747A72] shrink-0">
             <span className="size-1.5 rounded-full bg-[#CCD2C8]" />
             NOT MARKED
           </span>
         )}
       </div>
 
-      {/* 3. Mark Present button & 4. Mark Absent button */}
-      <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto">
-        <button
-          type="button"
-          onClick={() => onMarkAttendance(member, "present")}
-          disabled={loading}
-          className={`flex-1 sm:flex-initial inline-flex h-8 items-center justify-center gap-1.5 rounded-lg px-3.5 text-[11px] font-bold transition-all duration-150 cursor-pointer disabled:opacity-50 ${
-            isPresent
-              ? "bg-[#5F7A62] text-white shadow-2xs border border-[#5F7A62]"
-              : "bg-[#FFFFFF] border border-[#CCD2C8] text-[#2F352F] hover:bg-[#E8ECE5] hover:border-[#6F776D]"
-          }`}
-          title="Mark Present"
-        >
-          {isPresent && <CheckCircle2 size={12} className="text-white" />}
-          <span>Present</span>
-        </button>
+      {/* 3. Today's Services count only */}
+      <div className="my-2.5 rounded-xl border border-[#E0E4DD]/70 bg-[#F7F7F4] px-3 py-2">
+        <span className="text-[10px] uppercase font-bold text-[#747A72] tracking-wider block">
+          Today&apos;s Services
+        </span>
+        <span className="text-lg font-extrabold tracking-tight text-[#2F352F] mt-0.5 block">
+          {todayServicesCount}
+        </span>
+      </div>
 
-        <button
-          type="button"
-          onClick={() => onMarkAttendance(member, "absent")}
-          disabled={loading}
-          className={`flex-1 sm:flex-initial inline-flex h-8 items-center justify-center gap-1.5 rounded-lg px-3.5 text-[11px] font-bold transition-all duration-150 cursor-pointer disabled:opacity-50 ${
-            isAbsent
-              ? "bg-[#B55B5B] text-white shadow-2xs border border-[#B55B5B]"
-              : "bg-[#FFFFFF] border border-[#E0E4DD] text-[#747A72] hover:bg-[#FBEBEB] hover:text-[#B55B5B] hover:border-[#F8D7D7]"
-          }`}
-          title="Mark Absent"
-        >
-          {isAbsent && <X size={12} className="text-white" />}
-          <span>Absent</span>
-        </button>
+      {/* 4. Single Attendance Toggle Button */}
+      <div className="mt-auto pt-1">
+        {isPresent ? (
+          <button
+            type="button"
+            onClick={() => onToggleAttendance(member)}
+            disabled={loading}
+            className="w-full inline-flex h-9 items-center justify-center gap-2 rounded-xl bg-[#E8ECE5] border border-[#CCD2C8] text-[#2F352F] text-xs font-bold transition-all duration-150 hover:bg-[#5F7A62] hover:text-white hover:border-[#5F7A62] cursor-pointer shadow-2xs active:scale-[0.98] disabled:opacity-50"
+            title="Click to mark Absent"
+          >
+            <span className="size-2 rounded-full bg-[#5F7A62]" />
+            <span>Present</span>
+          </button>
+        ) : isAbsent ? (
+          <button
+            type="button"
+            onClick={() => onToggleAttendance(member)}
+            disabled={loading}
+            className="w-full inline-flex h-9 items-center justify-center gap-2 rounded-xl bg-[#FBEBEB] border border-[#F8D7D7] text-[#B55B5B] text-xs font-bold transition-all duration-150 hover:bg-[#B55B5B] hover:text-white hover:border-[#B55B5B] cursor-pointer shadow-2xs active:scale-[0.98] disabled:opacity-50"
+            title="Click to mark Present"
+          >
+            <span className="size-2 rounded-full bg-[#B55B5B]" />
+            <span>Absent</span>
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => onToggleAttendance(member)}
+            disabled={loading}
+            className="w-full inline-flex h-9 items-center justify-center gap-2 rounded-xl bg-[#F7F7F4] border border-[#E0E4DD] text-[#747A72] text-xs font-bold transition-all duration-150 hover:bg-[#E8ECE5] hover:text-[#2F352F] hover:border-[#6F776D] cursor-pointer shadow-2xs active:scale-[0.98] disabled:opacity-50"
+            title="Click to mark Present"
+          >
+            <span className="size-2 rounded-full bg-[#CCD2C8]" />
+            <span>Not Marked</span>
+          </button>
+        )}
       </div>
     </div>
   );
@@ -424,6 +444,7 @@ function ModalOverlay({
 // ── Main Dashboard ─────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
+  const router = useRouter();
   const { staff, refreshStaff, loadingAppData } = useAppData();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [invoicesLoaded, setInvoicesLoaded] = useState(false);
@@ -820,21 +841,49 @@ export default function DashboardPage() {
 
   // ── Handlers ───────────────────────────────────────────────────────────
 
-  const handleDashboardMarkAttendance = useCallback(
-    async (member: Staff, status: "present" | "absent") => {
+  const handleDashboardToggleAttendance = useCallback(
+    async (member: Staff) => {
       if (!member.id) return;
+      const currentNorm = normalizeAttendanceStatus(todayAttendanceMap[member.id]?.status);
+      const newStatus: "present" | "absent" = currentNorm === "PRESENT" ? "absent" : "present";
+      const previousRecord = todayAttendanceMap[member.id];
+
+      // Optimistic update
+      const optimisticRecord: AttendanceRecord = {
+        id: previousRecord?.id || `temp-${member.id}`,
+        employeeId: member.id,
+        employeeName: member.name,
+        date: todayStr,
+        status: newStatus,
+        createdAt: previousRecord?.createdAt ? String(previousRecord.createdAt) : new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      setTodayAttendanceMap((prev) => ({ ...prev, [member.id!]: optimisticRecord }));
       setDashboardActionLoadingId(member.id);
+
       try {
-        const rec = await attendanceService.markAttendance(member.id, member.name, todayStr, status);
+        const rec = await attendanceService.markAttendance(member.id, member.name, todayStr, newStatus);
         setTodayAttendanceMap((prev) => ({ ...prev, [member.id!]: rec }));
         await refreshStaff();
-      } catch (err) {
-        console.error("Dashboard mark attendance failed:", err);
+      } catch (err: any) {
+        console.error("Dashboard toggle attendance failed:", err);
+        // Revert optimistic update
+        setTodayAttendanceMap((prev) => {
+          const updated = { ...prev };
+          if (previousRecord) {
+            updated[member.id!] = previousRecord;
+          } else {
+            delete updated[member.id!];
+          }
+          return updated;
+        });
+        toast.error(`Failed to update attendance for ${member.name}`);
       } finally {
         setDashboardActionLoadingId(null);
       }
     },
-    [todayStr, refreshStaff]
+    [todayAttendanceMap, todayStr, refreshStaff]
   );
 
   const openModal = useCallback((key: keyof typeof modals) => {
@@ -975,23 +1024,37 @@ export default function DashboardPage() {
               </button>
             </div>
 
-            <div className="mt-3 flex gap-3">
+            <div className="mt-3 grid grid-cols-2 gap-3">
               <Link
                 href="/staff"
-                className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] py-2.5 text-xs font-semibold text-[#292D29] transition hover:border-[#6F776D] hover:bg-[#E8ECE5]"
+                className="flex items-center justify-center gap-2 rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] py-2.5 text-xs font-semibold text-[#292D29] transition hover:border-[#6F776D] hover:bg-[#E8ECE5]"
               >
                 <UsersRound size={14} />
                 Manage Staff
               </Link>
               <Link
                 href="/invoices"
-                className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] py-2.5 text-xs font-semibold text-[#292D29] transition hover:border-[#6F776D] hover:bg-[#E8ECE5]"
+                className="flex items-center justify-center gap-2 rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] py-2.5 text-xs font-semibold text-[#292D29] transition hover:border-[#6F776D] hover:bg-[#E8ECE5]"
               >
                 <Receipt size={14} />
                 All Invoices
               </Link>
             </div>
           </section>
+
+          {/* Today's Appointments Section */}
+          <TodayAppointmentsSection
+            onOpenBilling={(appt) => {
+              const params = new URLSearchParams();
+              if (appt.customerId) params.set("customerId", appt.customerId);
+              if (appt.customerName) params.set("customerName", appt.customerName);
+              if (appt.customerPhone) params.set("customerPhone", appt.customerPhone);
+              if (appt.serviceId) params.set("serviceId", appt.serviceId);
+              if (appt.staffId) params.set("staffId", appt.staffId);
+              if (appt.id) params.set("appointmentId", appt.id);
+              router.push(`/billing?${params.toString()}`);
+            }}
+          />
 
           {/* Today's Invoices */}
           <section className="rounded-2xl border border-[#E0E4DD] bg-[#FFFFFF] shadow-xs overflow-hidden">
@@ -1100,13 +1163,14 @@ export default function DashboardPage() {
               </Link>
             </div>
           ) : (
-            <div className="flex flex-col space-y-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {sortedDashboardStaff.map((member) => (
                 <StaffAttendanceRow
                   key={member.id}
                   member={member}
                   attendance={member.id ? todayAttendanceMap[member.id] : undefined}
-                  onMarkAttendance={handleDashboardMarkAttendance}
+                  todayServicesCount={member.id ? (staffServicesTodayMap[member.id] || 0) : 0}
+                  onToggleAttendance={handleDashboardToggleAttendance}
                   loading={dashboardActionLoadingId === member.id}
                 />
               ))}

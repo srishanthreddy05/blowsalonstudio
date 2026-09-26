@@ -2,19 +2,23 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Bell, Package, UserCheck, UserX, Check, Sparkles } from "lucide-react";
+import { Bell, Package, UserCheck, UserX, Check, Sparkles, CalendarDays, Clock } from "lucide-react";
 import * as productService from "@/services/products";
 import * as customerService from "@/services/customers";
 import * as notificationService from "@/services/notifications";
+import * as appointmentService from "@/services/appointments";
 import type { Product } from "@/types/product";
 import type { Customer } from "@/types/customer";
 import type { Notification } from "@/types/notification";
+import type { Appointment } from "@/types/appointment";
+import { toLocalDateString } from "@/lib/utils/date";
 import Link from "next/link";
 
 export default function DashboardNotifications() {
   const [lowStockProducts, setLowStockProducts] = useState<Product[]>([]);
   const [expiringMemberships, setExpiringMemberships] = useState<Customer[]>([]);
   const [dbNotifications, setDbNotifications] = useState<Notification[]>([]);
+  const [todayAppointments, setTodayAppointments] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(true);
   const [isOpen, setIsOpen] = useState(false);
   const [dropdownPos, setDropdownPos] = useState({ top: 0, right: 0 });
@@ -40,7 +44,13 @@ export default function DashboardNotifications() {
       });
       setExpiringMemberships(expiring);
 
-      // 3. Fetch unread notifications from DB
+      // 3. Fetch today's pending/scheduled appointments
+      const todayStr = toLocalDateString(new Date());
+      const appts = await appointmentService.getByDate(todayStr);
+      const activeAppts = appts.filter((a) => a.status === "scheduled" || a.status === "confirmed");
+      setTodayAppointments(activeAppts);
+
+      // 4. Fetch unread notifications from DB
       const allNotifications = await notificationService.getAll();
       const unread = allNotifications.filter((n) => !n.read);
       setDbNotifications(unread);
@@ -100,7 +110,11 @@ export default function DashboardNotifications() {
     setExpiringMemberships((prev) => prev.filter((c) => c.id !== customerId));
   };
 
-  const totalAlertsCount = lowStockProducts.length + expiringMemberships.length + dbNotifications.length;
+  const totalAlertsCount =
+    lowStockProducts.length +
+    expiringMemberships.length +
+    todayAppointments.length +
+    dbNotifications.length;
 
   if (loading) {
     return (
@@ -146,8 +160,8 @@ export default function DashboardNotifications() {
                   <Bell size={16} />
                 </div>
                 <div>
-                  <h2 className="text-sm font-bold text-[#292D29] text-left">Notifications & Alerts</h2>
-                  <p className="text-[10px] text-[#747A72] font-medium mt-0.5 text-left">Stock and membership updates</p>
+                  <h2 className="text-sm font-bold text-[#292D29] text-left">Notifications & Reminders</h2>
+                  <p className="text-[10px] text-[#747A72] font-medium mt-0.5 text-left">Appointments, stock and membership updates</p>
                 </div>
               </div>
               {totalAlertsCount > 0 && (
@@ -162,10 +176,39 @@ export default function DashboardNotifications() {
                 <div className="flex flex-col items-center justify-center py-8 text-center text-[#747A72]">
                   <Sparkles size={22} className="text-[#5F7A62] mb-2" />
                   <p className="text-xs font-semibold text-[#292D29]">All caught up!</p>
-                  <p className="text-[10px] text-[#747A72] mt-0.5">No pending stock or membership alerts.</p>
+                  <p className="text-[10px] text-[#747A72] mt-0.5">No pending appointments or inventory alerts.</p>
                 </div>
               ) : (
                 <>
+                  {/* Today's Appointments Reminders */}
+                  {todayAppointments.map((appt) => (
+                    <div
+                      key={appt.id}
+                      className="flex items-center justify-between gap-3 p-3 bg-[#E8ECE5]/50 border border-[#CCD2C8] rounded-xl text-xs text-[#2F352F]"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <CalendarDays size={15} className="text-[#6F776D] shrink-0" />
+                        <div className="min-w-0 text-left">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-bold text-[#2F352F] truncate">{appt.customerName || "Customer"}</span>
+                            <span className="text-[9px] font-mono font-bold px-1.5 py-0.2 rounded-md bg-[#FFFFFF] border border-[#CCD2C8] text-[#2F352F]">
+                              {appt.startTime}
+                            </span>
+                          </div>
+                          <span className="text-[10px] text-[#747A72] font-medium truncate block">
+                            {appt.notes || "Customer visit appointment"}
+                          </span>
+                        </div>
+                      </div>
+                      <Link
+                        href="/appointments"
+                        onClick={() => setIsOpen(false)}
+                        className="font-bold text-[11px] text-[#6F776D] hover:text-[#2F352F] hover:underline transition shrink-0"
+                      >
+                        View
+                      </Link>
+                    </div>
+                  ))}
                   {/* 1. Low Stock Products Alerts */}
                   {lowStockProducts.map((p) => (
                     <div

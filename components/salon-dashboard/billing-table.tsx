@@ -78,7 +78,6 @@ export function BillingTable({
   };
 
   const selectServiceDirect = (svc: ServiceOptionItem, variant?: ServiceOptionVariant) => {
-    const firstStaff = staffOptions[0] || "";
     const displayName = variant ? `${svc.name} (${variant.name})` : svc.name;
     const finalPrice = variant ? variant.price : svc.price;
 
@@ -92,7 +91,7 @@ export function BillingTable({
         selectedVariant: variant ? variant.name : undefined,
         priceLabel: variant?.priceLabel || svc.priceLabel,
         priceUnit: variant?.priceUnit || svc.priceUnit,
-        staff: firstStaff,
+        staff: "",
         price: finalPrice,
         quantity: 1,
         discount: 0,
@@ -233,12 +232,23 @@ export function BillingTable({
                   </td>
                 <td className="px-2 py-2 w-[160px]">
                   <select
-                    value={row.staff}
+                    value={row.staff || ""}
                     disabled={disabled || row.isCreditSettle}
                     onChange={(event) => updateRow(row.id, { staff: event.target.value })}
-                    className="h-9 w-full rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] px-2.5 text-[#292D29] outline-none transition focus:border-[#6F776D] disabled:bg-[#F7F7F4] disabled:text-[#747A72] text-xs font-semibold cursor-pointer appearance-none"
+                    className={`h-9 w-full rounded-xl border px-2.5 outline-none transition focus:border-[#6F776D] disabled:bg-[#F7F7F4] disabled:text-[#747A72] text-xs font-semibold cursor-pointer appearance-none ${
+                      !row.staff && !row.isCreditSettle
+                        ? "border-[#CCD2C8] bg-[#FFFFFF] text-[#747A72]"
+                        : "border-[#E0E4DD] bg-[#F7F7F4] text-[#292D29]"
+                    }`}
                   >
-                    {staffOptions.length === 0 && !row.isCreditSettle && <option value="">No Options</option>}
+                    <option value="" disabled hidden={Boolean(row.staff)}>
+                      Select Staff...
+                    </option>
+                    {staffOptions.length === 0 && !row.isCreditSettle && (
+                      <option value="" disabled>
+                        No Staff Available
+                      </option>
+                    )}
                     {(row.isCreditSettle || row.staff === "System") && (
                       <option value="System" className="bg-[#FFFFFF] text-[#292D29]">
                         System

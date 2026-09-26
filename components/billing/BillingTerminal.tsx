@@ -16,10 +16,13 @@ import * as productsService from "@/services/products";
 import * as invoicesService from "@/services/invoices";
 import * as creditBalancesService from "@/services/creditBalances";
 import * as advanceBalancesService from "@/services/advanceBalances";
+import * as appointmentService from "@/services/appointments";
+import * as whatsappService from "@/services/whatsapp";
 import type { CreditBalance } from "@/types/creditBalance";
 import { useAppData } from "@/context/AppDataContext";
 import { toLocalDateString } from "@/lib/utils/date";
 import { calculateBillTotals, SERVICE_TAX_RATE } from "@/lib/utils/billing";
+import { generateWhatsAppReceiptText } from "@/lib/utils/whatsappReceipt";
 
 import type { Customer } from "@/types/customer";
 import type { Service } from "@/types/service";
@@ -31,9 +34,27 @@ interface BillingTerminalProps {
   onClose?: () => void;
   onSuccess?: () => void;
   editInvoiceId?: string;
+  initialCustomerId?: string;
+  initialCustomerName?: string;
+  initialCustomerMobile?: string;
+  initialServiceId?: string;
+  initialStaffId?: string;
+  initialStaffName?: string;
+  initialAppointmentId?: string;
 }
 
-export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTerminalProps) {
+export function BillingTerminal({
+  onClose,
+  onSuccess,
+  editInvoiceId,
+  initialCustomerId,
+  initialCustomerName,
+  initialCustomerMobile,
+  initialServiceId,
+  initialStaffId,
+  initialStaffName,
+  initialAppointmentId,
+}: BillingTerminalProps) {
   const { services: servicesContextData, products: productsContextData, packages: packagesContextData, staff: staffContextData, offers: offersContextData, settings, refreshProducts, loadingAppData } = useAppData();
 
   const servicesList = servicesContextData;
@@ -46,6 +67,12 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [validationErrors, setValidationErrors] = useState<string[]>([]);
+  const [whatsappNotice, setWhatsappNotice] = useState<{
+    status: "SENDING" | "SENT" | "FAILED" | "NOT_SENT";
+    text: string;
+    invoiceId?: string;
+  } | null>(null);
   const [loadingInvoice, setLoadingInvoice] = useState(false);
 
   // Invoice Form Fields
@@ -219,6 +246,46 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
       fetchInvoiceForEdit();
     }
   }, [editInvoiceId]);
+
+  useEffect(() => {
+    if (!editInvoiceId) {
+      if (initialCustomerName) setCustomerName(initialCustomerName);
+      if (initialCustomerMobile) setCustomerMobile(initialCustomerMobile);
+      if (initialCustomerId) setFoundCustomerId(initialCustomerId);
+
+      if (initialServiceId || initialStaffId || initialStaffName) {
+        const matchedService = servicesList.find((s) => s.id === initialServiceId || s.name === initialServiceId);
+        const matchedStaff = staffContextData.find(
+          (stf) => (initialStaffId && stf.id === initialStaffId) || (initialStaffName && stf.name === initialStaffName)
+        );
+
+        if (matchedService || matchedStaff) {
+          const newRow: ServiceRow = {
+            id: 1,
+            serviceId: matchedService?.id,
+            service: matchedService?.name || "",
+            category: matchedService?.category,
+            staff: matchedStaff?.name || "",
+            price: matchedService?.price || 0,
+            quantity: 1,
+            discount: 0,
+          };
+          setServices([newRow]);
+        }
+      }
+    }
+  }, [
+    editInvoiceId,
+    initialCustomerId,
+    initialCustomerName,
+    initialCustomerMobile,
+    initialServiceId,
+    initialStaffId,
+    initialStaffName,
+    servicesList,
+    staffContextData,
+  ]);
+
 
   // Customer lookup by phone
   useEffect(() => {
@@ -475,10 +542,10 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
     }
   }, [services, billDiscount]);
 
-  const amountToCollect = Math.max(0, totals.grandTotal - advanceApplied);
+  const amountToCollect = Math.max(0, Math.round(totals.grandTotal - advanceApplied));
 
   useEffect(() => {
-    const amt = Number(amountPaid) || 0;
+    const amt = Math.round(Number(amountPaid) || 0);
     if (!isSplitEdited && amt > 0) {
       setUpiAmount(amt);
       setCashAmount("");
@@ -490,12 +557,12 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
     }
   }, [amountPaid, isSplitEdited]);
 
-  const cashVal = cashAmount === "" ? 0 : Number(cashAmount);
-  const upiVal = upiAmount === "" ? 0 : Number(upiAmount);
-  const cardVal = cardAmount === "" ? 0 : Number(cardAmount);
+  const cashVal = cashAmount === "" ? 0 : Math.round(Number(cashAmount));
+  const upiVal = upiAmount === "" ? 0 : Math.round(Number(upiAmount));
+  const cardVal = cardAmount === "" ? 0 : Math.round(Number(cardAmount));
   const totalPaid = cashVal + upiVal + cardVal;
   const paymentDiff = amountToCollect - totalPaid;
-  const change = Math.max(0, (Number(amountPaid) || 0) - amountToCollect);
+  const change = Math.max(0, (Math.round(Number(amountPaid) || 0)) - amountToCollect);
   
   // Reset advanceToAdd if change becomes 0
   useEffect(() => {
@@ -513,11 +580,11 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
 
   // Sync amountPaid with totalPaid if splits are edited and totalPaid exceeds amountToCollect
   useEffect(() => {
-    const totalPaid = (cashAmount === "" ? 0 : Number(cashAmount)) + 
-                      (upiAmount === "" ? 0 : Number(upiAmount)) + 
-                      (cardAmount === "" ? 0 : Number(cardAmount));
-    if (totalPaid > amountToCollect) {
-      setAmountPaid(totalPaid);
+    const currentTotalPaid = (cashAmount === "" ? 0 : Math.round(Number(cashAmount))) + 
+                             (upiAmount === "" ? 0 : Math.round(Number(upiAmount))) + 
+                             (cardAmount === "" ? 0 : Math.round(Number(cardAmount)));
+    if (currentTotalPaid > amountToCollect) {
+      setAmountPaid(currentTotalPaid);
       setIsAmountPaidEdited(true);
     }
   }, [cashAmount, upiAmount, cardAmount, amountToCollect]);
@@ -552,25 +619,68 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onClose, services, products, customerName, customerMobile, cashAmount, upiAmount, cardAmount, selectedOfferId]);
 
+  // Auto-clear or update validation errors dynamically as the user fills in fields
+  useEffect(() => {
+    if (validationErrors.length > 0) {
+      const currentErrors: string[] = [];
+      const trimmedName = customerName.trim();
+      const trimmedMobile = customerMobile.trim();
+
+      if (!trimmedName) {
+        currentErrors.push("Customer name is required.");
+      }
+
+      if (!trimmedMobile) {
+        currentErrors.push("Customer mobile number is required.");
+      } else if (trimmedMobile.length < 10) {
+        currentErrors.push("Please enter a valid 10-digit mobile number.");
+      }
+
+      if (services.length === 0 && products.length === 0) {
+        currentErrors.push("Please add at least one service or product.");
+      }
+
+      services.forEach((s) => {
+        if (!s.isCreditSettle && !s.isSystemService && s.service !== "Membership Fee" && !s.staff?.trim()) {
+          currentErrors.push(`Please select staff for ${s.service}.`);
+        }
+      });
+
+      setValidationErrors(currentErrors);
+    }
+  }, [customerName, customerMobile, services, products, validationErrors.length]);
+
   const handleSaveBill = async () => {
+    const errors: string[] = [];
     const trimmedName = customerName.trim();
     const trimmedMobile = customerMobile.trim();
 
-    if (!trimmedName || !trimmedMobile) {
-      setMessage({ type: "error", text: "Please enter customer name and mobile number." });
-      return;
+    if (!trimmedName) {
+      errors.push("Customer name is required.");
     }
 
-    if (trimmedMobile.length < 10) {
-      setMessage({ type: "error", text: "Please enter a valid 10-digit mobile number." });
-      return;
+    if (!trimmedMobile) {
+      errors.push("Customer mobile number is required.");
+    } else if (trimmedMobile.length < 10) {
+      errors.push("Please enter a valid 10-digit mobile number.");
     }
 
     if (services.length === 0 && products.length === 0) {
-      setMessage({ type: "error", text: "Please add at least one service or product." });
+      errors.push("Please add at least one service or product.");
+    }
+
+    services.forEach((s) => {
+      if (!s.isCreditSettle && !s.isSystemService && s.service !== "Membership Fee" && !s.staff?.trim()) {
+        errors.push(`Please select staff for ${s.service}.`);
+      }
+    });
+
+    if (errors.length > 0) {
+      setValidationErrors(errors);
       return;
     }
 
+    setValidationErrors([]);
     setSaving(true);
     setMessage(null);
 
@@ -691,8 +801,8 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
         const matchedStaff = staffContextData.find((s) => s.name === row.staff);
         const serviceBaseAmount = Math.max((Number(row.price) || 0) - (Number(row.discount) || 0), 0);
         const serviceAmount = row.isCreditSettle
-          ? serviceBaseAmount
-          : Math.round(serviceBaseAmount * serviceBillDiscountFactor * 100) / 100;
+          ? Math.round(serviceBaseAmount)
+          : Math.round(serviceBaseAmount * serviceBillDiscountFactor);
         
         // Use original staff metadata if it's a credit settlement row
         const staffId = row.isCreditSettle ? (row.originalStaffId || matchedStaff?.id || "system") : (matchedStaff?.id ?? "");
@@ -710,8 +820,8 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
           selectedVariant: row.selectedVariant || null,
           staffId,
           staffName: row.staff,
-          price: Number(row.price) || 0,
-          discount: Number(row.discount) || 0,
+          price: Math.round(Number(row.price) || 0),
+          discount: Math.round(Number(row.discount) || 0),
           amount: serviceAmount,
           staffRole,
           isSystemService,
@@ -731,9 +841,9 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
           productId: row.productId || "",
           productName: row.product,
           quantity: Number(row.quantity) || 1,
-          price: Number(row.price) || 0,
-          discount: Number(row.discount) || 0,
-          amount: Math.max((Number(row.price) || 0) * (Number(row.quantity) || 1) - (Number(row.discount) || 0), 0),
+          price: Math.round(Number(row.price) || 0),
+          discount: Math.round(Number(row.discount) || 0),
+          amount: Math.round(Math.max((Number(row.price) || 0) * (Number(row.quantity) || 1) - (Number(row.discount) || 0), 0)),
           isCreditSettle: row.isCreditSettle || false,
           creditBalanceId: row.creditBalanceId ?? null,
           originalBillDate: row.originalBillDate ?? null,
@@ -862,6 +972,15 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
       }
 
       const invId = savedInvoiceId || editInvoiceId || "";
+      if (initialAppointmentId && invId) {
+        try {
+          await appointmentService.updateStatus(initialAppointmentId, "completed", {
+            completedInvoiceId: invId,
+          });
+        } catch (appErr) {
+          console.warn("Failed to link appointment to invoice:", appErr);
+        }
+      }
       if (advanceToAdd > 0) {
         await advanceBalancesService.addCredit(customerId, customerName, customerMobile, advanceToAdd, invId);
       }
@@ -882,7 +1001,7 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
           for (const s of enrichedServices) {
             const serviceFinalAmount = s.amount * discountFactor;
             const serviceCredit = Math.max(0, serviceFinalAmount * (1 - paidRatio));
-            const roundedServiceCredit = Math.round(serviceCredit * 100) / 100;
+            const roundedServiceCredit = Math.round(serviceCredit);
             
             if (roundedServiceCredit > 0) {
               await creditBalancesService.create({
@@ -897,7 +1016,7 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
                 originalStaffRole: s.staffRole || "Owner",
                 originalServiceId: s.serviceId || "",
                 originalServiceName: s.serviceName || "",
-                originalServiceAmount: serviceFinalAmount,
+                originalServiceAmount: Math.round(serviceFinalAmount),
                 creditAmount: roundedServiceCredit,
                 remainingAmount: roundedServiceCredit,
                 collectionStatus: "pending",
@@ -916,7 +1035,7 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
           for (const p of enrichedProducts) {
             const productFinalAmount = p.amount * discountFactor;
             const productCredit = Math.max(0, productFinalAmount * (1 - paidRatio));
-            const roundedProductCredit = Math.round(productCredit * 100) / 100;
+            const roundedProductCredit = Math.round(productCredit);
             
             if (roundedProductCredit > 0) {
               await creditBalancesService.create({
@@ -931,7 +1050,7 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
                 originalStaffRole: "Owner",
                 originalServiceId: p.productId || "",
                 originalServiceName: p.productName || "",
-                originalServiceAmount: productFinalAmount,
+                originalServiceAmount: Math.round(productFinalAmount),
                 creditAmount: roundedProductCredit,
                 remainingAmount: roundedProductCredit,
                 collectionStatus: "pending",
@@ -981,15 +1100,50 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
         : `Invoice ${msgNum} saved locally — will sync when online!`;
 
       if (advanceApplied > 0 && customerAdvance) {
-        const newAdvanceBalance = Math.round((customerAdvance.balance - advanceApplied) * 100) / 100;
+        const newAdvanceBalance = Math.max(0, Math.round(customerAdvance.balance - advanceApplied));
         if (newAdvanceBalance > 0) {
-          successMsg += ` Advance remaining for ${customerName.trim()}: ₹${newAdvanceBalance}`;
+          successMsg += ` Advance remaining for ${customerName.trim()}: ${formatCurrency(newAdvanceBalance)}`;
         } else if (amountToCollect === 0) {
           successMsg += ` Bill fully covered by advance.`;
         }
       }
       setMessage({ type: "success", text: successMsg });
       setSaved(true);
+
+      // Trigger automated WhatsApp receipt dispatch (non-blocking)
+      const finalInvId = savedInvoiceId || editInvoiceId || "";
+      if (finalInvId && isOnline) {
+        setWhatsappNotice({ status: "SENDING", text: "Sending WhatsApp receipt..." });
+        whatsappService
+          .sendInvoiceWhatsApp(finalInvId)
+          .then((waRes) => {
+            if (waRes.status === "SENT") {
+              setWhatsappNotice({
+                status: "SENT",
+                text: `WhatsApp receipt sent to ${customerName.trim()}`,
+              });
+            } else if (waRes.status === "FAILED") {
+              setWhatsappNotice({
+                status: "FAILED",
+                text: waRes.error || "WhatsApp receipt failed. Is WhatsApp connected?",
+                invoiceId: finalInvId,
+              });
+            } else {
+              setWhatsappNotice({
+                status: "NOT_SENT",
+                text: waRes.error || "Receipt not sent via WhatsApp",
+              });
+            }
+          })
+          .catch((waErr) => {
+            console.warn("Background WhatsApp dispatch warning:", waErr);
+            setWhatsappNotice({
+              status: "FAILED",
+              text: "WhatsApp dispatch error",
+              invoiceId: finalInvId,
+            });
+          });
+      }
 
       if (onSuccess) {
         setTimeout(() => {
@@ -1028,6 +1182,8 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
     setClientStatus(null);
     setFoundCustomerId(null);
     setMessage(null);
+    setValidationErrors([]);
+    setWhatsappNotice(null);
     setSaved(false);
     setCashAmount("");
     setUpiAmount("");
@@ -1054,59 +1210,51 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
       return;
     }
 
-    const formattedServices = services
-      .map((s) => `• ${s.service} - ₹${(Number(s.price) || 0) - (Number(s.discount) || 0)}`)
-      .join("\n");
-    const formattedProducts = products
-      .map((p) => {
-        const qty = Number(p.quantity) || 1;
-        const price = Number(p.price) || 0;
-        const discount = Number(p.discount) || 0;
-        return `• ${p.product} (x${qty}) - ₹${price * qty - discount}`;
-      })
-      .join("\n");
+    const invoicePaymentMethod = cashVal === amountToCollect && amountToCollect > 0
+      ? "Cash" 
+      : upiVal === amountToCollect && amountToCollect > 0
+        ? "UPI" 
+        : cardVal === amountToCollect && amountToCollect > 0
+          ? "Card" 
+          : "Split";
 
-    const greeting = `Hello ${customerName},\n\nThank you for choosing BLOW SALON ✨\n\n`;
+    const previewServices = services.map((s) => ({
+      serviceName: s.service,
+      price: Math.round(Number(s.price) || 0),
+      discount: Math.round(Number(s.discount) || 0),
+      amount: Math.round(Math.max((Number(s.price) || 0) - (Number(s.discount) || 0), 0)),
+      isSystemService: s.isSystemService || s.serviceId === "membership_fee",
+      serviceId: s.serviceId,
+    }));
 
-    let itemsText = "";
-    if (formattedServices) {
-      itemsText += `Services:\n${formattedServices}\n\n`;
-    }
-    if (formattedProducts) {
-      itemsText += `Products:\n${formattedProducts}\n\n`;
-    }
+    const previewProducts = products.map((p) => ({
+      productName: p.product,
+      quantity: Number(p.quantity) || 1,
+      price: Math.round(Number(p.price) || 0),
+      discount: Math.round(Number(p.discount) || 0),
+      amount: Math.round(Math.max((Number(p.price) || 0) * (Number(p.quantity) || 1) - (Number(p.discount) || 0), 0)),
+    }));
 
-    const grandTotal = totals.grandTotal;
-    const totalServices = totals.serviceTotal;
-    const serviceDiscount = totals.serviceDiscount ?? 0;
-    const taxableServiceAmount = totals.taxableServiceAmount ?? Math.max(0, totalServices - serviceDiscount);
-    const taxAmount = totals.taxAmount ?? (taxableServiceAmount > 0 ? Math.round((taxableServiceAmount * 0.05) * 100) / 100 : 0);
-    const totalProducts = totals.productTotal;
-    const totalMemberships = totals.membershipTotal || 0;
-
-    let pricingText = "";
-    pricingText += `Total Services: ₹${totalServices}\n`;
-    if (serviceDiscount > 0) {
-      pricingText += `Service Discount: -₹${serviceDiscount}\n`;
-    }
-    pricingText += `Taxable Services: ₹${taxableServiceAmount}\n`;
-    if (taxAmount > 0) {
-      pricingText += `Service Tax (5%): ₹${taxAmount}\n`;
-    }
-    if (totalProducts > 0) {
-      pricingText += `Retail Products (0% Tax): ₹${totalProducts}\n`;
-    }
-    if (totalMemberships > 0) {
-      pricingText += `Memberships: ₹${totalMemberships}\n`;
-    }
-    pricingText += `Grand Total: ₹${grandTotal}\n\n`;
-
-    const closing =
-      `Invoice No: ${invoiceNumberDisplay}\n` +
-      `We look forward to serving you again.\n\n` +
-      `BLOW SALON`;
-
-    const msg = `${greeting}${itemsText}${pricingText}${closing}`;
+    const msg = generateWhatsAppReceiptText({
+      customerName: customerName.trim() || "Valued Customer",
+      invoiceNumber: invoiceNumberDisplay === "Auto-assigned on save" ? "INV" : invoiceNumberDisplay,
+      date: new Date(dateString) as any,
+      billDate: new Date(dateString) as any,
+      services: previewServices as any,
+      products: previewProducts as any,
+      totalServices: totals.serviceTotal,
+      totalProducts: totals.productTotal,
+      totalMemberships: totals.membershipTotal || 0,
+      subtotal: totals.subtotal,
+      totalDiscount: totals.totalDiscount ?? 0,
+      taxAmount: totals.taxAmount ?? 0,
+      taxRate: totals.taxRate ?? SERVICE_TAX_RATE,
+      grandTotal: totals.grandTotal,
+      paymentMethod: invoicePaymentMethod,
+      paymentStatus: markAsCredit ? "unpaid" : "paid",
+      balanceDue: markAsCredit ? Math.max(0, totals.grandTotal - totalPaid) : 0,
+      advanceUsed: advanceApplied,
+    } as any);
 
     const digits = customerMobile.trim().replace(/\D/g, "");
     const e164 = digits.startsWith("91") && digits.length === 12 ? digits : `91${digits}`;
@@ -1179,6 +1327,56 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
             }`}
         >
           {message.text}
+        </div>
+      )}
+
+      {whatsappNotice && (
+        <div
+          className={`mb-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl border p-3.5 text-xs font-medium max-w-4xl ${
+            whatsappNotice.status === "SENT"
+              ? "border-[#5F7A62]/30 bg-[#E8ECE5] text-[#5F7A62]"
+              : whatsappNotice.status === "FAILED"
+              ? "border-[#F8D7D7] bg-[#FBEBEB] text-[#B55B5B]"
+              : "border-[#CCD2C8] bg-[#F7F7F4] text-[#747A72]"
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            {whatsappNotice.status === "SENT" ? (
+              <span className="font-bold text-[#5F7A62]">✓ WhatsApp:</span>
+            ) : whatsappNotice.status === "FAILED" ? (
+              <span className="font-bold text-[#B55B5B]">⚠ WhatsApp:</span>
+            ) : (
+              <span className="font-bold text-[#747A72]">ℹ WhatsApp:</span>
+            )}
+            <span>{whatsappNotice.text}</span>
+          </div>
+
+          {whatsappNotice.status === "FAILED" && whatsappNotice.invoiceId && (
+            <button
+              type="button"
+              onClick={() => {
+                if (!whatsappNotice.invoiceId) return;
+                setWhatsappNotice({ status: "SENDING", text: "Retrying WhatsApp receipt..." });
+                whatsappService.sendInvoiceWhatsApp(whatsappNotice.invoiceId, true).then((res) => {
+                  if (res.status === "SENT") {
+                    setWhatsappNotice({
+                      status: "SENT",
+                      text: `WhatsApp receipt sent to ${customerName.trim()}`,
+                    });
+                  } else {
+                    setWhatsappNotice({
+                      status: "FAILED",
+                      text: res.error || "Retry failed. Check WhatsApp connection in Settings.",
+                      invoiceId: whatsappNotice.invoiceId,
+                    });
+                  }
+                });
+              }}
+              className="h-7 px-3 rounded-lg border border-[#CCD2C8] bg-[#FFFFFF] hover:bg-[#E8ECE5] text-xs font-bold text-[#2F352F] shadow-2xs transition cursor-pointer"
+            >
+              Retry WhatsApp
+            </button>
+          )}
         </div>
       )}
 
@@ -1502,6 +1700,24 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
               )}
             </section>
 
+            {/* Dedicated Validation Errors Area */}
+            {validationErrors.length > 0 && (
+              <div className="rounded-2xl border border-[#F8D7D7] bg-[#FBEBEB] p-4 text-[#B55B5B] shadow-2xs animate-in fade-in duration-150">
+                <div className="flex items-center gap-2 font-bold text-xs uppercase tracking-wider mb-2.5">
+                  <AlertCircle size={15} className="shrink-0 text-[#B55B5B]" />
+                  <span>Validation Errors</span>
+                </div>
+                <div className="space-y-1.5 text-xs font-semibold max-h-40 overflow-y-auto pl-1">
+                  {validationErrors.map((err, idx) => (
+                    <div key={idx} className="flex items-start gap-2">
+                      <span className="text-[#B55B5B] shrink-0 font-bold">⚠</span>
+                      <span>{err}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Action Buttons */}
             <ActionButtons
               onSave={handleSaveBill}
@@ -1565,12 +1781,13 @@ export function BillingTerminal({ onClose, onSuccess, editInvoiceId }: BillingTe
                       <div className="mt-1.5 h-10 w-full rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] px-2 flex items-center transition focus-within:border-[#6F776D] focus-within:ring-1 focus-within:ring-[#6F776D]">
                         <ClearableNumberInput
                           min="0"
+                          step="1"
                           value={val}
                           placeholder="0"
                           disabled={saved}
                           onChange={(newVal) => {
                             setIsSplitEdited(true);
-                            setFn(newVal === "" ? "" : Math.max(0, newVal));
+                            setFn(newVal === "" ? "" : Math.round(Math.max(0, Number(newVal))));
                           }}
                           className="text-[#292D29] text-xs font-bold disabled:text-[#747A72]"
                         />
