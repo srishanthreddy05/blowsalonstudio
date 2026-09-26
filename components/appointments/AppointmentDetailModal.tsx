@@ -19,10 +19,13 @@ import {
 } from "lucide-react";
 import type { Appointment, AppointmentStatus } from "@/types/appointment";
 import * as appointmentService from "@/services/appointments";
+import * as invoicesService from "@/services/invoices";
+import { formatCurrency } from "@/components/salon-dashboard/types";
 import { RescheduleModal } from "./RescheduleModal";
 import { formatDisplayDate } from "@/lib/utils/date";
 import { toast } from "react-hot-toast";
 import { useRouter } from "next/navigation";
+import { useEffect } from "react";
 
 interface AppointmentDetailModalProps {
   appointment: Appointment;
@@ -45,8 +48,38 @@ export function AppointmentDetailModal({
   const [rescheduleModalOpen, setRescheduleModalOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
+  const [showDuplicateBillingWarning, setShowDuplicateBillingWarning] = useState(false);
+  const [linkedInvoiceData, setLinkedInvoiceData] = useState<{ invoiceNumber?: string; grandTotal?: number } | null>(null);
   const [cancelReason, setCancelReason] = useState("");
   const [actionLoading, setActionLoading] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    if (appointment.completedInvoiceId) {
+      if (appointment.completedInvoiceNumber && appointment.completedInvoiceAmount !== undefined) {
+        setLinkedInvoiceData({
+          invoiceNumber: appointment.completedInvoiceNumber,
+          grandTotal: appointment.completedInvoiceAmount,
+        });
+      } else {
+        invoicesService.getById(appointment.completedInvoiceId).then((inv) => {
+          if (active && inv) {
+            setLinkedInvoiceData({
+              invoiceNumber: inv.invoiceNumber,
+              grandTotal: inv.grandTotal,
+            });
+          }
+        }).catch((err) => {
+          console.error("Failed to fetch linked invoice details:", err);
+        });
+      }
+    } else {
+      setLinkedInvoiceData(null);
+    }
+    return () => {
+      active = false;
+    };
+  }, [appointment.completedInvoiceId, appointment.completedInvoiceNumber, appointment.completedInvoiceAmount]);
 
   if (!isOpen) return null;
 
@@ -315,19 +348,68 @@ export function AppointmentDetailModal({
 
               {/* If Completed */}
               {appointment.status === "completed" && (
-                <div className="space-y-2">
-                  <button
-                    type="button"
-                    onClick={handleOpenBillingClick}
-                    className="w-full h-11 rounded-xl bg-[#5F7A62] hover:bg-[#4E6450] text-white font-bold flex items-center justify-center gap-2 shadow-sm transition cursor-pointer text-sm"
-                  >
-                    <Receipt size={17} />
-                    Open Billing for Customer
-                  </button>
-                  {appointment.completedInvoiceId && (
-                    <p className="text-[11px] text-center text-[#747A72]">
-                      Linked to Invoice: <span className="font-mono font-bold text-[#2F352F]">{appointment.completedInvoiceId}</span>
-                    </p>
+                <div className="space-y-3">
+                  {appointment.completedInvoiceId ? (
+                    <div className="rounded-2xl border border-[#CCD2C8] bg-[#E8ECE5]/50 p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-[#6F776D] flex items-center gap-1.5">
+                          <Receipt size={13} className="text-[#5F7A62]" />
+                          Attached Invoice
+                        </span>
+                        <span className="font-mono text-xs font-bold text-[#5F7A62]">
+                          {linkedInvoiceData?.invoiceNumber || appointment.completedInvoiceNumber || "Invoice Attached"}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center justify-between text-xs pt-1 border-t border-[#CCD2C8]/60">
+                        <span className="text-[#747A72]">Amount Billed:</span>
+                        <span className="font-bold text-sm text-[#2F352F]">
+                          {formatCurrency(linkedInvoiceData?.grandTotal ?? appointment.completedInvoiceAmount ?? 0)}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            router.push(`/invoices/${appointment.completedInvoiceId}`);
+                            onClose();
+                          }}
+                          className="h-10 rounded-xl bg-[#5F7A62] hover:bg-[#4E6450] text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-xs transition cursor-pointer"
+                        >
+                          <Receipt size={14} />
+                          View Invoice
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setShowDuplicateBillingWarning(true)}
+                          className="h-10 rounded-xl border border-[#CCD2C8] bg-[#FFFFFF] hover:bg-[#F7F7F4] text-[#2F352F] font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
+                        >
+                          Open Billing
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="p-3 rounded-2xl border border-[#E0E4DD] bg-[#F7F7F4] flex items-center justify-between">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-[#747A72]">
+                          Invoice Status
+                        </span>
+                        <span className="text-xs text-[#747A72] italic font-medium">
+                          Not billed
+                        </span>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={handleOpenBillingClick}
+                        className="w-full h-11 rounded-xl bg-[#5F7A62] hover:bg-[#4E6450] text-white font-bold flex items-center justify-center gap-2 shadow-sm transition cursor-pointer text-sm"
+                      >
+                        <Receipt size={17} />
+                        Open Billing for Customer
+                      </button>
+                    </div>
                   )}
                 </div>
               )}
@@ -502,6 +584,74 @@ export function AppointmentDetailModal({
                 className="h-9 px-4 rounded-xl bg-[#B55B5B] hover:bg-[#9B4848] text-white text-xs font-bold transition flex items-center gap-1.5"
               >
                 {actionLoading ? "Deleting..." : "Permanently Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Duplicate Billing Confirmation Warning Dialog */}
+      {showDuplicateBillingWarning && (
+        <div
+          className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in duration-150"
+          onClick={() => setShowDuplicateBillingWarning(false)}
+        >
+          <div
+            className="w-full max-w-sm rounded-3xl border border-[#E0E4DD] bg-[#FFFFFF] p-6 shadow-2xl text-[#292D29] space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-3">
+              <div className="grid size-10 place-items-center rounded-2xl bg-[#FAF4E8] text-[#B18A45] border border-[#B18A45]/30">
+                <AlertTriangle size={18} />
+              </div>
+              <div>
+                <h3 className="font-bold text-sm text-[#2F352F]">Existing Invoice Found</h3>
+                <p className="text-xs text-[#747A72]">This appointment already has an invoice linked.</p>
+              </div>
+            </div>
+
+            <div className="p-3 rounded-2xl border border-[#CCD2C8] bg-[#F7F7F4] text-xs space-y-1.5">
+              <div className="flex justify-between">
+                <span className="text-[#747A72]">Invoice:</span>
+                <span className="font-mono font-bold text-[#2F352F]">
+                  {linkedInvoiceData?.invoiceNumber || appointment.completedInvoiceNumber || "Invoice Attached"}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-[#747A72]">Amount:</span>
+                <span className="font-bold text-[#2F352F]">
+                  {formatCurrency(linkedInvoiceData?.grandTotal ?? appointment.completedInvoiceAmount ?? 0)}
+                </span>
+              </div>
+            </div>
+
+            <p className="text-[11px] text-[#747A72] leading-relaxed">
+              Do you want to view the existing invoice or explicitly create another bill for this appointment?
+            </p>
+
+            <div className="flex flex-col gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowDuplicateBillingWarning(false);
+                  router.push(`/invoices/${appointment.completedInvoiceId}`);
+                  onClose();
+                }}
+                className="h-10 rounded-xl bg-[#5F7A62] hover:bg-[#4E6450] text-white text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <Receipt size={14} />
+                View Invoice
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShowDuplicateBillingWarning(false);
+                  handleOpenBillingClick();
+                }}
+                className="h-9 rounded-xl border border-[#CCD2C8] bg-[#FFFFFF] hover:bg-[#F7F7F4] text-xs font-semibold text-[#2F352F] transition cursor-pointer"
+              >
+                Create Another Bill
               </button>
             </div>
           </div>

@@ -4,7 +4,7 @@ import { useEffect, useState, use } from "react";
 import * as invoicesService from "@/services/invoices";
 import * as whatsappService from "@/services/whatsapp";
 import { formatCurrency } from "@/components/salon-dashboard/types";
-import { ChevronLeft, Receipt, Send, Tag, Edit2, CheckCircle2, RotateCcw, MessageSquare, AlertCircle } from "lucide-react";
+import { ChevronLeft, Receipt, Send, Tag, Edit2, CheckCircle2, RotateCcw, MessageSquare, AlertCircle, Calendar } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "react-hot-toast";
@@ -219,6 +219,21 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
               <span className="text-[10px] uppercase font-bold text-[#747A72] tracking-wider">Client Type</span>
               <p className="text-xs font-bold text-[#2F352F] mt-1 capitalize">{customerType}</p>
             </div>
+
+            {(invoice.appointmentDate || invoice.appointmentTime || invoice.appointmentId) && (
+              <div className="rounded-xl border border-[#CCD2C8] bg-[#E8ECE5]/50 p-3 md:col-span-2 lg:col-span-3 xl:col-span-6 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Calendar size={14} className="text-[#5F7A62]" />
+                  <span className="text-[10px] uppercase font-bold text-[#5F7A62] tracking-wider">
+                    Appointment:
+                  </span>
+                  <span className="text-xs font-bold text-[#2F352F]">
+                    {invoice.appointmentDate ? formatDisplayDate(invoice.appointmentDate) : "Linked Appointment"}
+                    {invoice.appointmentTime ? ` • ${invoice.appointmentTime}` : ""}
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Services Table */}

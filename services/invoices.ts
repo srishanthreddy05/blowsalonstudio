@@ -25,6 +25,15 @@ import { getSettings } from "./settings";
 const COLLECTION = "invoices";
 const COUNTER_DOC = doc(db, "counters", "invoice");  // /counters/invoice { lastNumber: 1000 }
 
+// Helper to strip undefined values so Firestore doesn't error
+function stripUndefined<T extends Record<string, unknown>>(obj: T): T {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value !== undefined) out[key] = value;
+  }
+  return out as T;
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /**
@@ -334,7 +343,7 @@ export async function create(
     const timeKey = `${hhStr}:${minStr}:${secStr}`;
 
     const docRef = providedDocRef || doc(collection(db, COLLECTION));
-    const invoiceData = {
+    const invoiceData = stripUndefined({
       ...rest,
       customerName: toTitleCase(rest.customerName),
       services: normalizedServices,
@@ -346,7 +355,7 @@ export async function create(
       createdAt: serverTimestamp(),
       dateKey,
       timeKey,
-    };
+    });
 
     if (providedBatch) {
       providedBatch.set(docRef, invoiceData);

@@ -11,9 +11,11 @@ import {
   CheckCircle2,
   FileText,
   Phone,
+  Receipt,
 } from "lucide-react";
 import type { Appointment } from "@/types/appointment";
 import * as appointmentService from "@/services/appointments";
+import { formatCurrency } from "@/components/salon-dashboard/types";
 import { AddAppointmentModal } from "./AddAppointmentModal";
 import { AppointmentDetailModal } from "./AppointmentDetailModal";
 import { toLocalDateString } from "@/lib/utils/date";
@@ -530,6 +532,25 @@ function DayView({
                       {appt.notes}
                     </p>
                   )}
+                  {appt.status === "completed" && (
+                    <div className="mt-1 flex items-center gap-1.5 text-[11px]">
+                      {appt.completedInvoiceId ? (
+                        <span className="font-semibold text-[#5F7A62] flex items-center gap-1">
+                          <Receipt size={11} />
+                          {appt.completedInvoiceNumber || "Billed"}
+                          {appt.completedInvoiceAmount !== undefined && (
+                            <span className="text-[#2F352F] font-bold">
+                              • {formatCurrency(appt.completedInvoiceAmount)}
+                            </span>
+                          )}
+                        </span>
+                      ) : (
+                        <span className="text-[#747A72] italic text-[10px]">
+                          Not Billed
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -646,6 +667,12 @@ function WeekView({
                       {appt.notes && (
                         <span className="text-[10px] text-[#747A72] block truncate mt-0.5">
                           {appt.notes}
+                        </span>
+                      )}
+                      {appt.status === "completed" && appt.completedInvoiceNumber && (
+                        <span className="text-[9px] font-semibold text-[#5F7A62] block truncate mt-0.5">
+                          {appt.completedInvoiceNumber}
+                          {appt.completedInvoiceAmount !== undefined && ` • ${formatCurrency(appt.completedInvoiceAmount)}`}
                         </span>
                       )}
                     </div>

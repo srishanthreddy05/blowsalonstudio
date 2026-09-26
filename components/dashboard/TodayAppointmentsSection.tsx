@@ -8,12 +8,14 @@ import {
   ChevronRight,
   FileText,
   Phone,
+  Receipt,
 } from "lucide-react";
 import type { Appointment } from "@/types/appointment";
 import * as appointmentService from "@/services/appointments";
 import { AddAppointmentModal } from "@/components/appointments/AddAppointmentModal";
 import { AppointmentDetailModal } from "@/components/appointments/AppointmentDetailModal";
 import { toLocalDateString } from "@/lib/utils/date";
+import { formatCurrency } from "@/components/salon-dashboard/types";
 import Link from "next/link";
 
 interface TodayAppointmentsSectionProps {
@@ -207,6 +209,25 @@ export function TodayAppointmentsSection({
                         {appt.notes}
                       </p>
                     )}
+                    {appt.status === "completed" && (
+                      <div className="mt-1 flex items-center gap-1.5 text-[10px]">
+                        {appt.completedInvoiceId ? (
+                          <span className="font-semibold text-[#5F7A62] flex items-center gap-1">
+                            <Receipt size={10} />
+                            {appt.completedInvoiceNumber || "Billed"}
+                            {appt.completedInvoiceAmount !== undefined && (
+                              <span className="text-[#2F352F] font-bold">
+                                • {formatCurrency(appt.completedInvoiceAmount)}
+                              </span>
+                            )}
+                          </span>
+                        ) : (
+                          <span className="text-[#747A72] italic">
+                            Not Billed
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -217,6 +238,31 @@ export function TodayAppointmentsSection({
                     <span className={`size-1 rounded-full ${cfg.dotClass}`} />
                     {cfg.label}
                   </span>
+
+                  {appt.status === "completed" && !appt.completedInvoiceId && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (onOpenBilling) {
+                          onOpenBilling(appt);
+                        } else {
+                          const params = new URLSearchParams();
+                          if (appt.customerId) params.set("customerId", appt.customerId);
+                          if (appt.customerName) params.set("customerName", appt.customerName);
+                          if (appt.customerPhone) params.set("customerPhone", appt.customerPhone);
+                          if (appt.serviceId) params.set("serviceId", appt.serviceId);
+                          if (appt.staffId) params.set("staffId", appt.staffId);
+                          if (appt.id) params.set("appointmentId", appt.id);
+                          window.location.href = `/billing?${params.toString()}`;
+                        }
+                      }}
+                      className="h-7 px-2.5 rounded-lg bg-[#5F7A62] hover:bg-[#4E6450] text-white text-[11px] font-bold transition flex items-center gap-1 cursor-pointer"
+                    >
+                      <Receipt size={11} />
+                      Open Billing
+                    </button>
+                  )}
 
                   <button
                     type="button"

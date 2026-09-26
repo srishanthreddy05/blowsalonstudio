@@ -28,4 +28,6 @@ export interface Appointment {
   updatedAt?: string;
   rescheduledFromId?: string;
   completedInvoiceId?: string;
+  completedInvoiceNumber?: string;
+  completedInvoiceAmount?: number;
 }

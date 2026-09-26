@@ -19,8 +19,9 @@ import * as advanceBalancesService from "@/services/advanceBalances";
 import * as appointmentService from "@/services/appointments";
 import * as whatsappService from "@/services/whatsapp";
 import type { CreditBalance } from "@/types/creditBalance";
+import type { Appointment } from "@/types/appointment";
 import { useAppData } from "@/context/AppDataContext";
-import { toLocalDateString } from "@/lib/utils/date";
+import { toLocalDateString, formatDisplayDate } from "@/lib/utils/date";
 import { calculateBillTotals, SERVICE_TAX_RATE } from "@/lib/utils/billing";
 import { generateWhatsAppReceiptText } from "@/lib/utils/whatsappReceipt";
 
@@ -80,6 +81,7 @@ export function BillingTerminal({
   const [customerMobile, setCustomerMobile] = useState("");
   const [clientStatus, setClientStatus] = useState<"regular" | "membership" | "new" | null>(null);
   const [foundCustomerId, setFoundCustomerId] = useState<string | null>(null);
+  const [linkedAppointment, setLinkedAppointment] = useState<Appointment | null>(null);
 
   // Live Customer Search
   const [customerSearchQuery, setCustomerSearchQuery] = useState("");
@@ -248,10 +250,46 @@ export function BillingTerminal({
   }, [editInvoiceId]);
 
   useEffect(() => {
+    let active = true;
     if (!editInvoiceId) {
       if (initialCustomerName) setCustomerName(initialCustomerName);
       if (initialCustomerMobile) setCustomerMobile(initialCustomerMobile);
       if (initialCustomerId) setFoundCustomerId(initialCustomerId);
+
+      if (initialAppointmentId) {
+        appointmentService.getById(initialAppointmentId).then((appt) => {
+          if (!active || !appt) return;
+          setLinkedAppointment(appt);
+          if (appt.customerName && !initialCustomerName) setCustomerName(appt.customerName);
+          if (appt.customerPhone && !initialCustomerMobile) setCustomerMobile(appt.customerPhone);
+          if (appt.customerId && !initialCustomerId) setFoundCustomerId(appt.customerId);
+
+          // If service/staff was not passed via props but is in appointment, prefill service row
+          const sId = initialServiceId || appt.serviceId;
+          const stfId = initialStaffId || appt.staffId;
+          if ((sId || stfId) && services.length === 0) {
+            const matchedService = servicesList.find((s) => s.id === sId || s.name === sId);
+            const matchedStaff = staffContextData.find(
+              (stf) => (stfId && stf.id === stfId) || (stf.name === stfId)
+            );
+            if (matchedService || matchedStaff) {
+              const newRow: ServiceRow = {
+                id: 1,
+                serviceId: matchedService?.id,
+                service: matchedService?.name || "",
+                category: matchedService?.category,
+                staff: matchedStaff?.name || "",
+                price: matchedService?.price || 0,
+                quantity: 1,
+                discount: 0,
+              };
+              setServices([newRow]);
+            }
+          }
+        }).catch((err) => {
+          console.error("Failed to load linked appointment:", err);
+        });
+      }
 
       if (initialServiceId || initialStaffId || initialStaffName) {
         const matchedService = servicesList.find((s) => s.id === initialServiceId || s.name === initialServiceId);
@@ -274,6 +312,9 @@ export function BillingTerminal({
         }
       }
     }
+    return () => {
+      active = false;
+    };
   }, [
     editInvoiceId,
     initialCustomerId,
@@ -282,6 +323,7 @@ export function BillingTerminal({
     initialServiceId,
     initialStaffId,
     initialStaffName,
+    initialAppointmentId,
     servicesList,
     staffContextData,
   ]);
@@ -931,6 +973,10 @@ export function BillingTerminal({
           customerPhone: customerMobile.trim(),
           customerType: resolvedCustomerType,
 
+          appointmentId: initialAppointmentId || undefined,
+          appointmentDate: linkedAppointment?.date || undefined,
+          appointmentTime: linkedAppointment?.startTime || undefined,
+
           services: enrichedServices as any,
           products: enrichedProducts as any,
 
@@ -972,10 +1018,13 @@ export function BillingTerminal({
       }
 
       const invId = savedInvoiceId || editInvoiceId || "";
+      const finalInvoiceNum = invoiceNumberDisplay === "Auto-assigned on save" ? invoiceNumber : invoiceNumberDisplay;
       if (initialAppointmentId && invId) {
         try {
           await appointmentService.updateStatus(initialAppointmentId, "completed", {
             completedInvoiceId: invId,
+            completedInvoiceNumber: finalInvoiceNum,
+            completedInvoiceAmount: Math.round(totals.grandTotal),
           });
         } catch (appErr) {
           console.warn("Failed to link appointment to invoice:", appErr);
@@ -1389,6 +1438,22 @@ export function BillingTerminal({
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,7fr)_minmax(320px,3fr)]">
         <section className="rounded-2xl border border-[#E0E4DD] bg-[#FFFFFF] p-4 shadow-xs sm:p-5 text-[#292D29]">
+          {linkedAppointment && (
+            <div className="mb-4 rounded-xl border border-[#CCD2C8] bg-[#E8ECE5]/60 p-3 text-xs flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <span className="inline-flex items-center gap-1 font-bold text-[#5F7A62]">
+                  ● Linked to Appointment
+                </span>
+                <span className="text-[#2F352F] font-semibold">
+                  {linkedAppointment.date ? formatDisplayDate(linkedAppointment.date) : ""} • {linkedAppointment.startTime}
+                </span>
+              </div>
+              <span className="text-[11px] text-[#747A72]">
+                Customer: <strong className="text-[#2F352F]">{linkedAppointment.customerName || customerName}</strong>
+              </span>
+            </div>
+          )}
+
           {/* Quick Customer Search */}
           <div className="relative mb-4" ref={customerDropdownRef}>
             <label className="block text-xs font-semibold uppercase tracking-wider text-[#747A72] mb-1.5">

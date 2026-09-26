@@ -6,6 +6,9 @@ export interface Invoice {
 
   // ── Identity ──────────────────────────────────────────────────────────────
   invoiceNumber: string;            // e.g. "INV-2024-1001"  (was also stored as invoiceNo — now single field)
+  appointmentId?: string;           // Firestore /appointments/{id} if originated from appointment
+  appointmentDate?: string;         // e.g. "2026-09-26"
+  appointmentTime?: string;         // e.g. "13:00"
 
   // ── Date ──────────────────────────────────────────────────────────────────
   // Stored as Firestore Timestamp so date-range queries and orderBy("date") work correctly.
