@@ -139,30 +139,52 @@ export async function POST(
 
       try {
         // Build template component parameters dynamically
-        const bodyParameters: Array<{ type: string; text: string }> = [];
-        const varKeys = Object.keys(campaign.templateVariables || {}).sort((a, b) => Number(a) - Number(b));
+        let components: Array<Record<string, unknown>> | undefined = undefined;
 
-        for (const k of varKeys) {
-          const varTypeOrVal = (campaign.templateVariables[k] ?? "").toString().trim();
-          let resolvedText = varTypeOrVal;
+        if (campaign.templateName === "blow_salon_campaign") {
+          const customerName = (rec.customerName || "Customer").trim();
+          const campaignContent = (
+            campaign.templateVariables?.["2"] ||
+            campaign.templateVariables?.["content"] ||
+            campaign.templateVariables?.["message"] ||
+            "Welcome to BLOW SALON"
+          ).trim();
 
-          if (varTypeOrVal === "customer_name" || varTypeOrVal === "{{customer_name}}") {
-            resolvedText = (rec.customerName || "Customer").trim();
-          } else if (varTypeOrVal === "salon_name" || varTypeOrVal === "{{salon_name}}") {
-            resolvedText = "BLOW SALON";
+          components = [
+            {
+              type: "body",
+              parameters: [
+                { type: "text", text: customerName },
+                { type: "text", text: campaignContent },
+              ],
+            },
+          ];
+        } else {
+          const bodyParameters: Array<{ type: string; text: string }> = [];
+          const varKeys = Object.keys(campaign.templateVariables || {}).sort((a, b) => Number(a) - Number(b));
+
+          for (const k of varKeys) {
+            const varTypeOrVal = (campaign.templateVariables[k] ?? "").toString().trim();
+            let resolvedText = varTypeOrVal;
+
+            if (varTypeOrVal === "customer_name" || varTypeOrVal === "{{customer_name}}") {
+              resolvedText = (rec.customerName || "Customer").trim();
+            } else if (varTypeOrVal === "salon_name" || varTypeOrVal === "{{salon_name}}") {
+              resolvedText = "BLOW SALON";
+            }
+
+            if (resolvedText) {
+              bodyParameters.push({
+                type: "text",
+                text: resolvedText,
+              });
+            }
           }
 
-          if (resolvedText) {
-            bodyParameters.push({
-              type: "text",
-              text: resolvedText,
-            });
+          if (bodyParameters.length > 0) {
+            components = [{ type: "body", parameters: bodyParameters }];
           }
         }
-
-        const components = bodyParameters.length > 0
-          ? [{ type: "body", parameters: bodyParameters }]
-          : undefined;
 
         // Dispatch via Provider
         const sendResult = await provider.sendTemplateMessage(

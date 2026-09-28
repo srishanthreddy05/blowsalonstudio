@@ -1,127 +1,19 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
-import { X, Send, AlertCircle, CheckCircle2, Phone, Sparkles, Info, Check } from "lucide-react";
+import { useState } from "react";
+import { X, Send, AlertCircle, CheckCircle2, Phone, Sparkles, ShieldCheck } from "lucide-react";
 import { toast } from "react-hot-toast";
 import * as whatsappService from "@/services/whatsapp";
-import type { WhatsAppTemplate } from "@/types/whatsapp";
 
 interface SendTestModalProps {
   isOpen: boolean;
   onClose: () => void;
-  templateName?: string;
-  templateLanguage?: string;
-  templateVariables?: Record<string, string>;
-  bodyTextPreview?: string;
 }
 
-export function SendTestModal({
-  isOpen,
-  onClose,
-  templateName: initialTemplateName,
-  templateLanguage: initialTemplateLanguage,
-  templateVariables: initialTemplateVariables,
-  bodyTextPreview: initialBodyTextPreview,
-}: SendTestModalProps) {
+export function SendTestModal({ isOpen, onClose }: SendTestModalProps) {
   const [testPhone, setTestPhone] = useState("");
   const [loading, setLoading] = useState(false);
   const [lastResult, setLastResult] = useState<{ success: boolean; message?: string } | null>(null);
-
-  // Template selection state if not passed in props
-  const [templates, setTemplates] = useState<WhatsAppTemplate[]>([]);
-  const [loadingTemplates, setLoadingTemplates] = useState(false);
-  const [selectedTemplateName, setSelectedTemplateName] = useState(initialTemplateName || "");
-  const [customTemplateInput, setCustomTemplateInput] = useState("");
-
-  // Dynamic variable state: { "1": "val1", "2": "val2", ... }
-  const [customVariables, setCustomVariables] = useState<Record<string, string>>({});
-
-  useEffect(() => {
-    if (!isOpen) return;
-
-    if (!initialTemplateName) {
-      setLoadingTemplates(true);
-      whatsappService
-        .getTemplates()
-        .then((tpls) => {
-          setTemplates(tpls || []);
-          if (tpls && tpls.length > 0) {
-            const firstApproved = tpls.find((t) => t.status === "APPROVED") || tpls[0];
-            setSelectedTemplateName(firstApproved.name);
-          }
-        })
-        .finally(() => setLoadingTemplates(false));
-    } else {
-      setSelectedTemplateName(initialTemplateName);
-    }
-  }, [isOpen, initialTemplateName]);
-
-  const currentTemplate = useMemo(() => {
-    return templates.find((t) => t.name === selectedTemplateName);
-  }, [templates, selectedTemplateName]);
-
-  const activeTemplateName =
-    selectedTemplateName === "__custom__"
-      ? customTemplateInput.trim()
-      : selectedTemplateName || initialTemplateName || customTemplateInput.trim();
-
-  const activeLanguage =
-    initialTemplateLanguage || currentTemplate?.language || "en_US";
-
-  const activePreview =
-    initialBodyTextPreview ||
-    currentTemplate?.bodyText ||
-    "Hello, here is your update from BLOW SALON!";
-
-  // Calculate required variable count dynamically based on the active template
-  const variableCount = useMemo(() => {
-    if (activeTemplateName === "3p_direct_integration_test_template") {
-      return 0;
-    }
-    if (currentTemplate) {
-      return currentTemplate.variableCount || 0;
-    }
-    if (initialTemplateVariables && Object.keys(initialTemplateVariables).length > 0) {
-      return Object.keys(initialTemplateVariables).length;
-    }
-    const matches = (activePreview || "").match(/\{\{(\d+)\}\}/g);
-    return matches ? new Set(matches.map((m) => m.replace(/\D/g, ""))).size : 0;
-  }, [currentTemplate, activeTemplateName, initialTemplateVariables, activePreview]);
-
-  // Sync customVariables whenever active template or variableCount changes
-  useEffect(() => {
-    if (variableCount === 0) {
-      setCustomVariables({});
-    } else {
-      const newVars: Record<string, string> = {};
-      for (let i = 1; i <= variableCount; i++) {
-        const key = String(i);
-        if (initialTemplateVariables && initialTemplateVariables[key]) {
-          newVars[key] = initialTemplateVariables[key];
-        } else if (i === 1) {
-          newVars[key] = "Rahul Sharma";
-        } else if (i === 2) {
-          newVars[key] = "BLOW SALON";
-        } else {
-          newVars[key] = `Value ${i}`;
-        }
-      }
-      setCustomVariables(newVars);
-    }
-  }, [variableCount, initialTemplateVariables, selectedTemplateName]);
-
-  // Generate live interpolated preview
-  const interpolatedPreview = useMemo(() => {
-    let text = activePreview;
-    if (variableCount === 0) return text;
-
-    for (let i = 1; i <= variableCount; i++) {
-      const key = String(i);
-      const val = customVariables[key] || `{{${i}}}`;
-      text = text.replace(new RegExp(`\\{\\{${i}\\}\\}`, "g"), val);
-    }
-    return text;
-  }, [activePreview, variableCount, customVariables]);
 
   const handleSendTest = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -130,37 +22,29 @@ export function SendTestModal({
       return;
     }
 
-    if (!activeTemplateName) {
-      toast.error("Please specify an approved WhatsApp template name.");
-      return;
-    }
-
     setLoading(true);
     setLastResult(null);
 
     try {
-      // If variableCount is 0, send completely empty variables object so zero parameters are passed
-      const payloadVariables = variableCount > 0 ? customVariables : {};
-
+      // 3p_direct_integration_test_template has exactly ZERO variables and ZERO body parameters
       const res = await whatsappService.sendTestTemplate({
         testPhone: testPhone.trim(),
-        templateName: activeTemplateName,
-        templateLanguage: activeLanguage,
-        templateVariables: payloadVariables,
-        sampleCustomerName: customVariables["1"] || "Test Customer",
+        templateName: "3p_direct_integration_test_template",
+        templateLanguage: "en_US",
+        templateVariables: {},
       });
 
       if (res.success) {
         toast.success(`Test template dispatched to ${testPhone}!`);
         setLastResult({
           success: true,
-          message: `Message dispatched successfully (Meta ID: ${res.messageId || "Queued"}). Check your WhatsApp.`,
+          message: `Integration test message dispatched successfully via Meta WhatsApp Cloud API (Message ID: ${res.messageId || "Dispatched"}). Check your WhatsApp.`,
         });
       } else {
         toast.error(res.error || "Failed to dispatch test message");
         setLastResult({
           success: false,
-          message: res.error || "Meta dispatch failed. Please check phone number and template status.",
+          message: res.error || "Meta dispatch failed. Please check phone number and Meta Cloud API credentials.",
         });
       }
     } catch (err: unknown) {
@@ -188,7 +72,7 @@ export function SendTestModal({
                 Send Test WhatsApp Message
               </h3>
               <p className="text-[11px] text-[#747A72]">
-                Template: <span className="font-mono font-semibold text-[#5F7A62]">{activeTemplateName || "Select below"}</span>
+                Meta Integration Test • <span className="font-mono font-semibold text-[#5F7A62]">3p_direct_integration_test_template</span>
               </p>
             </div>
           </div>
@@ -202,43 +86,28 @@ export function SendTestModal({
 
         {/* Content */}
         <form onSubmit={handleSendTest} className="p-6 space-y-4">
-          {/* Template Selector if opened standalone */}
-          {!initialTemplateName && (
-            <div>
-              <label className="block text-xs font-bold text-[#2F352F] mb-1">
-                Select Approved WhatsApp Template *
-              </label>
-              {loadingTemplates ? (
-                <div className="text-xs text-[#747A72] py-2">Loading Meta templates...</div>
-              ) : (
-                <div className="space-y-2">
-                  <select
-                    value={selectedTemplateName}
-                    onChange={(e) => setSelectedTemplateName(e.target.value)}
-                    className="w-full h-10 px-3 rounded-xl border border-[#CCD2C8] bg-[#FFFFFF] text-xs font-medium text-[#2F352F] focus:outline-hidden focus:border-[#5F7A62] cursor-pointer"
-                  >
-                    {templates.map((tpl) => (
-                      <option key={tpl.id || tpl.name} value={tpl.name}>
-                        {tpl.name} ({tpl.language}) — {tpl.category} [{tpl.status}] • {tpl.variableCount || 0} vars
-                      </option>
-                    ))}
-                    <option value="__custom__">+ Enter custom template name</option>
-                  </select>
-
-                  {selectedTemplateName === "__custom__" && (
-                    <input
-                      type="text"
-                      placeholder="e.g. 3p_direct_integration_test_template"
-                      value={customTemplateInput}
-                      onChange={(e) => setCustomTemplateInput(e.target.value)}
-                      className="w-full h-10 px-3 rounded-xl border border-[#CCD2C8] bg-[#FFFFFF] text-xs font-mono text-[#2F352F] focus:outline-hidden focus:border-[#5F7A62]"
-                      required
-                    />
-                  )}
-                </div>
-              )}
+          {/* Active Test Template Information */}
+          <div className="p-3.5 rounded-2xl bg-[#F7F7F4] border border-[#E0E4DD] space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#6F776D]">
+                Approved Integration Test Template
+              </span>
+              <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-[#E8ECE5] text-[#5F7A62] border border-[#5F7A62]/30 flex items-center gap-1">
+                <ShieldCheck size={11} /> Approved
+              </span>
             </div>
-          )}
+            <div className="flex items-baseline gap-2">
+              <span className="font-mono font-bold text-xs text-[#2F352F]">
+                3p_direct_integration_test_template
+              </span>
+              <span className="text-[11px] text-[#747A72]">
+                (Utility • 0 parameters)
+              </span>
+            </div>
+            <p className="text-[11px] text-[#747A72] leading-relaxed">
+              This Meta-approved template verifies end-to-end delivery from the BLOW SALON WhatsApp Cloud API number to your test device with zero parameters.
+            </p>
+          </div>
 
           {/* Test Phone Number */}
           <div>
@@ -257,60 +126,7 @@ export function SendTestModal({
               />
             </div>
             <p className="text-[11px] text-[#747A72] mt-1">
-              Enter your test phone number to receive a live WhatsApp template verification message.
-            </p>
-          </div>
-
-          {/* Dynamic Template Variables */}
-          {variableCount === 0 ? (
-            <div className="p-3 rounded-2xl bg-[#FAF4E8]/60 border border-[#B18A45]/30 text-xs flex items-center gap-2">
-              <Sparkles size={15} className="text-[#B18A45] shrink-0" />
-              <span className="text-[#2F352F]">
-                Template requires <strong>0 dynamic variables</strong>. It will be dispatched directly with 0 parameters.
-              </span>
-            </div>
-          ) : (
-            <div className="space-y-2 p-3.5 rounded-2xl bg-[#F7F7F4] border border-[#E0E4DD]">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-[#6F776D] block">
-                Required Template Variables ({variableCount})
-              </span>
-              <div className="space-y-2">
-                {Array.from({ length: variableCount }).map((_, idx) => {
-                  const varNum = String(idx + 1);
-                  return (
-                    <div key={varNum} className="space-y-1">
-                      <label className="text-[11px] font-semibold text-[#2F352F] flex items-center gap-1">
-                        <span>Variable</span>
-                        <code className="bg-white px-1.5 py-0.5 rounded border border-[#CCD2C8] text-[10px] text-[#5F7A62]">
-                          {`{{${varNum}}}`}
-                        </code>
-                      </label>
-                      <input
-                        type="text"
-                        value={customVariables[varNum] || ""}
-                        onChange={(e) =>
-                          setCustomVariables((prev) => ({
-                            ...prev,
-                            [varNum]: e.target.value,
-                          }))
-                        }
-                        placeholder={varNum === "1" ? "e.g. Rahul Sharma" : `Value for {{${varNum}}}`}
-                        className="w-full h-9 px-3 rounded-xl border border-[#CCD2C8] bg-[#FFFFFF] text-xs text-[#2F352F] focus:outline-hidden focus:border-[#5F7A62]"
-                      />
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* Message Content Preview Box */}
-          <div className="p-3.5 rounded-2xl bg-[#E8ECE5]/30 border border-[#CCD2C8] space-y-1.5">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-[#6F776D] block">
-              Sample Text Preview
-            </span>
-            <p className="text-xs text-[#2F352F] font-sans whitespace-pre-wrap leading-relaxed">
-              {interpolatedPreview}
+              Enter your WhatsApp number to receive the verification template message directly from Meta.
             </p>
           </div>
 
@@ -343,7 +159,7 @@ export function SendTestModal({
             </button>
             <button
               type="submit"
-              disabled={loading || !testPhone.trim() || !activeTemplateName}
+              disabled={loading || !testPhone.trim()}
               className="h-9 px-5 rounded-xl bg-[#5F7A62] hover:bg-[#4E6450] text-[#FAF4E8] text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer disabled:opacity-50"
             >
               {loading ? (
@@ -364,3 +180,4 @@ export function SendTestModal({
     </div>
   );
 }
+

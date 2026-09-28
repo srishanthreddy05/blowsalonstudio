@@ -619,29 +619,66 @@ export default function WhatsAppPage() {
                   {previewOpen && (
                     <div className="p-4 rounded-2xl bg-[#E8ECE5]/30 border border-[#CCD2C8] space-y-2 animate-in fade-in duration-150">
                       <div className="flex items-center justify-between text-[10px] font-bold text-[#6F776D] uppercase">
-                        <span>Message Mockup</span>
-                        <span className="text-[#5F7A62]">Dynamic Generator</span>
+                        <span>Template Preview</span>
+                        <span className="font-mono text-[#5F7A62]">blow_salon_invoice (8 params)</span>
                       </div>
-                      <div className="bg-[#FFFFFF] p-3.5 rounded-xl border border-[#E0E4DD] shadow-2xs font-sans text-xs space-y-1.5 text-[#292D29] whitespace-pre-line leading-relaxed">
-                        <p>Hello *Rahul* 👋</p>
+                      <div className="bg-[#FFFFFF] p-4 rounded-2xl border border-[#E0E4DD] shadow-xs font-sans text-xs space-y-2 text-[#292D29] leading-relaxed">
+                        <p className="font-semibold text-[#2F352F]">Hello Customer 👋</p>
                         <p className="text-[11px] text-[#747A72]">
-                          Thank you for visiting *BLOW SALON*. Here is your official invoice receipt:
+                          Thank you for visiting <strong className="text-[#2F352F]">BLOW SALON</strong>.
                         </p>
-                        <div className="font-mono text-[11px] bg-[#F7F7F4] p-2 rounded-lg border border-[#E0E4DD]">
-                          <p>📄 *Invoice:* INV-260926-001</p>
-                          <p>📅 *Date:* 26 Sep 2026</p>
-                          <p>────────────────────</p>
-                          <p>• Haircut — ₹300</p>
-                          <p>• Beard Trim — ₹150</p>
-                          <p>────────────────────</p>
-                          <p>Subtotal: ₹450</p>
-                          <p>*Total: ₹450*</p>
-                          <p>💳 *Payment:* UPI (PAID)</p>
+
+                        <div className="text-[11px] bg-[#F7F7F4] p-3 rounded-xl border border-[#E0E4DD] space-y-2">
+                          <div className="flex justify-between font-mono text-[11px] text-[#2F352F] pb-1.5 border-b border-[#E0E4DD]">
+                            <span>Invoice: <strong>INV-XXXX</strong></span>
+                            <span>Date: <strong>DD MMM YYYY</strong></span>
+                          </div>
+
+                          <div className="space-y-1">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-[#6F776D] block">
+                              Services & Products
+                            </span>
+                            <div className="flex justify-between">
+                              <span>Haircut</span>
+                              <span className="font-mono">₹500</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>Facial</span>
+                              <span className="font-mono">₹800</span>
+                            </div>
+                          </div>
+
+                          <div className="pt-1.5 border-t border-[#E0E4DD] space-y-0.5 text-[11px]">
+                            <div className="flex justify-between text-[#747A72]">
+                              <span>Subtotal:</span>
+                              <span className="font-mono">₹1,300</span>
+                            </div>
+                            <div className="flex justify-between text-[#747A72]">
+                              <span>Tax:</span>
+                              <span className="font-mono">₹65</span>
+                            </div>
+                            <div className="flex justify-between font-bold text-[#2F352F] pt-0.5">
+                              <span>Total:</span>
+                              <span className="font-mono text-xs">₹1,365</span>
+                            </div>
+                          </div>
+
+                          <div className="pt-1.5 border-t border-[#E0E4DD] text-[11px] text-[#5F7A62] font-semibold space-y-0.5">
+                            <div className="flex justify-between">
+                              <span>Amount Paid:</span>
+                              <span className="font-mono">₹1,365</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>Payment Method:</span>
+                              <span>UPI</span>
+                            </div>
+                          </div>
                         </div>
-                        <p className="text-[11px] text-[#747A72]">
-                          We look forward to welcoming you back soon! ✨
+
+                        <p className="text-[11px] text-[#747A72] pt-1">
+                          Thank you for choosing BLOW SALON. ✨
                           <br />
-                          *BLOW SALON — Management Suite*
+                          We look forward to seeing you again!
                         </p>
                       </div>
                     </div>

@@ -33,7 +33,7 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
     this.phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID?.trim();
     this.businessAccountId = process.env.WHATSAPP_BUSINESS_ACCOUNT_ID?.trim();
     this.businessNumber = process.env.WHATSAPP_BUSINESS_NUMBER?.trim();
-    this.invoiceTemplateName = process.env.WHATSAPP_INVOICE_TEMPLATE_NAME?.trim();
+    this.invoiceTemplateName = process.env.WHATSAPP_INVOICE_TEMPLATE_NAME?.trim() || "blow_salon_invoice";
     this.templateLanguage = (process.env.WHATSAPP_TEMPLATE_LANGUAGE || "en_US").trim();
   }
 
@@ -250,6 +250,42 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10000);
 
+    // Validate parameters before sending to Meta Graph API
+    let bodyParamCount = 0;
+    if (components && Array.isArray(components)) {
+      const bodyComp = components.find((c) => (c.type || "").toString().toLowerCase() === "body");
+      if (bodyComp && Array.isArray(bodyComp.parameters)) {
+        bodyParamCount = bodyComp.parameters.length;
+      }
+    }
+
+    if (templateName === "3p_direct_integration_test_template") {
+      if (bodyParamCount !== 0) {
+        return {
+          success: false,
+          errorCode: "WHATSAPP_TEMPLATE_ERROR",
+          error: `Template parameter mismatch: 3p_direct_integration_test_template expects 0 parameters but received ${bodyParamCount}.`,
+        };
+      }
+      components = undefined;
+    } else if (templateName === "blow_salon_invoice") {
+      if (bodyParamCount !== 8) {
+        return {
+          success: false,
+          errorCode: "WHATSAPP_TEMPLATE_ERROR",
+          error: `Template parameter mismatch: blow_salon_invoice expects 8 parameters but received ${bodyParamCount}.`,
+        };
+      }
+    } else if (templateName === "blow_salon_campaign") {
+      if (bodyParamCount !== 2) {
+        return {
+          success: false,
+          errorCode: "WHATSAPP_TEMPLATE_ERROR",
+          error: `Template parameter mismatch: blow_salon_campaign expects 2 parameters but received ${bodyParamCount}.`,
+        };
+      }
+    }
+
     try {
       const url = `https://graph.facebook.com/${this.apiVersion}/${this.phoneNumberId}/messages`;
 
@@ -325,6 +361,7 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
 
   /**
    * Retrieves message templates from Meta Cloud API (WABA).
+   * Only returns the official BLOW SALON approved templates.
    */
   public async getTemplates(): Promise<any[]> {
     if (!this.accessToken) {
@@ -352,51 +389,59 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
         return [];
       }
 
-      const templatesList = (data.data || []).map((t: any) => {
-        let bodyText = "";
-        let headerText = "";
-        let footerText = "";
-        let variableCount = 0;
-        const variableIndices = new Set<number>();
+      const allowedTemplates = new Set([
+        "blow_salon_campaign",
+        "blow_salon_invoice",
+        "3p_direct_integration_test_template",
+      ]);
 
-        if (Array.isArray(t.components)) {
-          for (const comp of t.components) {
-            if (comp.type === "BODY") {
-              bodyText = comp.text || "";
-              const matches = bodyText.match(/\{\{(\d+)\}\}/g);
-              if (matches) {
-                for (const m of matches) {
-                  const num = parseInt(m.replace(/\D/g, ""), 10);
-                  if (!isNaN(num)) {
-                    variableIndices.add(num);
+      const templatesList = (data.data || [])
+        .filter((t: any) => allowedTemplates.has(t.name))
+        .map((t: any) => {
+          let bodyText = "";
+          let headerText = "";
+          let footerText = "";
+          let variableCount = 0;
+          const variableIndices = new Set<number>();
+
+          if (Array.isArray(t.components)) {
+            for (const comp of t.components) {
+              if (comp.type === "BODY") {
+                bodyText = comp.text || "";
+                const matches = bodyText.match(/\{\{(\d+)\}\}/g);
+                if (matches) {
+                  for (const m of matches) {
+                    const num = parseInt(m.replace(/\D/g, ""), 10);
+                    if (!isNaN(num)) {
+                      variableIndices.add(num);
+                    }
                   }
                 }
+              } else if (comp.type === "HEADER") {
+                headerText = comp.text || "";
+              } else if (comp.type === "FOOTER") {
+                footerText = comp.text || "";
               }
-            } else if (comp.type === "HEADER") {
-              headerText = comp.text || "";
-            } else if (comp.type === "FOOTER") {
-              footerText = comp.text || "";
             }
           }
-        }
 
-        variableCount = variableIndices.size;
-        const variableKeys = Array.from(variableIndices).sort((a, b) => a - b).map(String);
+          variableCount = t.name === "3p_direct_integration_test_template" ? 0 : variableIndices.size;
+          const variableKeys = Array.from(variableIndices).sort((a, b) => a - b).map(String);
 
-        return {
-          id: t.id || t.name,
-          name: t.name,
-          language: t.language,
-          status: t.status,
-          category: t.category,
-          components: t.components || [],
-          bodyText,
-          headerText,
-          footerText,
-          variableCount,
-          variableKeys,
-        };
-      });
+          return {
+            id: t.id || t.name,
+            name: t.name,
+            language: t.language,
+            status: t.status,
+            category: t.category,
+            components: t.components || [],
+            bodyText,
+            headerText,
+            footerText,
+            variableCount,
+            variableKeys,
+          };
+        });
 
       return templatesList;
     } catch (err: unknown) {
@@ -445,133 +490,127 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
       };
     }
 
-    // If an approved Meta template is configured in environment, dispatch via template
-    if (this.invoiceTemplateName) {
-      const customerName = (invoice.customerName || "Valued Customer").trim();
-      const invoiceNumber = invoice.invoiceNumber || (invoice as any).invoiceNo || "INV";
+    // Automatic invoice receipt must ALWAYS use blow_salon_invoice
+    const templateNameToUse = this.invoiceTemplateName || "blow_salon_invoice";
 
-      let invoiceDate = "";
-      if (invoice.billDate) {
-        invoiceDate = formatDisplayDate(toLocalDateString(invoice.billDate));
-      } else if (invoice.date) {
-        invoiceDate = formatDisplayDate(toLocalDateString(invoice.date));
-      } else {
-        invoiceDate = formatDisplayDate(toLocalDateString(new Date()));
-      }
+    // Format {{1}} Customer name
+    const customerName = (invoice.customerName || "Customer").trim();
 
-      const itemNames: string[] = [];
-      (invoice.services || []).forEach((s: any) => {
-        if (!s.isSystemService && s.serviceId !== "membership_fee") {
-          const name = s.serviceName || s.service || "Service";
-          itemNames.push(name);
-        }
-      });
-      (invoice.products || []).forEach((p: any) => {
-        const name = p.productName || p.product || "Product";
-        const qty = Number(p.quantity) || 1;
-        itemNames.push(qty > 1 ? `${name} (x${qty})` : name);
-      });
-      if (invoice.totalMemberships && invoice.totalMemberships > 0) {
-        itemNames.push("Membership Enrollment");
-      }
-      const itemsSummary = itemNames.length > 0 ? itemNames.join(", ") : "Salon Services";
+    // Format {{2}} Invoice number
+    const invoiceNumber = invoice.invoiceNumber || (invoice as any).invoiceNo || "INV";
 
-      const subtotal = `₹${Math.round(invoice.subtotal ?? invoice.grandTotal).toLocaleString("en-IN")}`;
-      const tax = `₹${Math.round(invoice.taxAmount ?? 0).toLocaleString("en-IN")}`;
-      const total = `₹${Math.round(invoice.grandTotal).toLocaleString("en-IN")}`;
-
-      const paymentMethod = invoice.paymentMethod || "Paid";
-      let paymentInfo = `Payment: ${paymentMethod}`;
-      if (invoice.balanceDue && Math.round(invoice.balanceDue) > 0) {
-        paymentInfo += ` | Balance Due: ₹${Math.round(invoice.balanceDue).toLocaleString("en-IN")}`;
-      }
-      if (invoice.advanceUsed && Math.round(invoice.advanceUsed) > 0) {
-        paymentInfo += ` | Advance Used: ₹${Math.round(invoice.advanceUsed).toLocaleString("en-IN")}`;
-      }
-
-      // Map 8 required parameters for blow_salon_invoice
-      const bodyParameters = [
-        { type: "text", text: customerName },
-        { type: "text", text: invoiceNumber },
-        { type: "text", text: invoiceDate },
-        { type: "text", text: itemsSummary },
-        { type: "text", text: subtotal },
-        { type: "text", text: tax },
-        { type: "text", text: total },
-        { type: "text", text: paymentInfo },
-      ];
-
-      const templateResult = await this.sendTemplateMessage(
-        normalized.digits,
-        this.invoiceTemplateName,
-        this.templateLanguage,
-        [
-          {
-            type: "body",
-            parameters: bodyParameters,
-          },
-        ]
-      );
-
-      if (templateResult.success) {
-        logWhatsAppAction({
-          provider: this.providerType,
-          action: "sendInvoiceReceipt[Template]",
-          phone: normalized.digits,
-          invoiceNumber: invoice.invoiceNumber,
-          messageId: templateResult.messageId,
-          result: "SUCCESS",
-        });
-
-        return {
-          success: true,
-          status: "SENT",
-          messageId: templateResult.messageId,
-          formattedMessage: `[Meta Template: ${this.invoiceTemplateName}]`,
-          recipientPhone: normalized.display,
-        };
-      }
-      // If template fails, log and return clean failure
-      return {
-        success: false,
-        status: "FAILED",
-        errorCode: templateResult.errorCode,
-        error: templateResult.error || "Failed to deliver WhatsApp template receipt.",
-        recipientPhone: normalized.display,
-      };
+    // Format {{3}} Invoice date
+    let invoiceDate = "";
+    if (invoice.billDate) {
+      invoiceDate = formatDisplayDate(toLocalDateString(invoice.billDate));
+    } else if (invoice.date) {
+      invoiceDate = formatDisplayDate(toLocalDateString(invoice.date));
+    } else {
+      invoiceDate = formatDisplayDate(toLocalDateString(new Date()));
     }
 
-    // Default: Standard formatted receipt text
-    const messageText = generateWhatsAppReceiptText(invoice);
-    const sendResult = await this.sendMessage(normalized.digits, messageText);
+    // Format {{4}} Services and retail products (NO staff names)
+    const itemLines: string[] = [];
+    (invoice.services || []).forEach((s: any) => {
+      if (!s.isSystemService && s.serviceId !== "membership_fee") {
+        const name = s.serviceName || s.service || "Service";
+        const amount = Math.round(s.amount ?? Math.max(0, (Number(s.price) || 0) - (Number(s.discount) || 0)));
+        itemLines.push(`${name} - ₹${amount.toLocaleString("en-IN")}`);
+      }
+    });
+    (invoice.products || []).forEach((p: any) => {
+      const name = p.productName || p.product || "Product";
+      const qty = Number(p.quantity) || 1;
+      const qtyStr = qty > 1 ? ` (x${qty})` : "";
+      const amount = Math.round(p.amount ?? Math.max(0, (Number(p.price) || 0) * qty - (Number(p.discount) || 0)));
+      itemLines.push(`${name}${qtyStr} - ₹${amount.toLocaleString("en-IN")}`);
+    });
+    if (invoice.totalMemberships && invoice.totalMemberships > 0) {
+      itemLines.push(`Membership Enrollment - ₹${Math.round(invoice.totalMemberships).toLocaleString("en-IN")}`);
+    }
+    const itemsSummary = itemLines.length > 0 ? itemLines.join("\n") : "Salon Services";
 
-    if (sendResult.success) {
+    // Format {{5}} Subtotal
+    const subtotal = `₹${Math.round(invoice.subtotal ?? invoice.grandTotal).toLocaleString("en-IN")}`;
+
+    // Format {{6}} Tax
+    const tax = `₹${Math.round(invoice.taxAmount ?? 0).toLocaleString("en-IN")}`;
+
+    // Format {{7}} Total
+    const total = `₹${Math.round(invoice.grandTotal).toLocaleString("en-IN")}`;
+
+    // Format {{8}} Payment / credit / advance / balance information
+    const paymentLines: string[] = [];
+    const invAny = invoice as any;
+    if (invAny.creditUsed && Math.round(Number(invAny.creditUsed)) > 0) {
+      paymentLines.push(`Previous Credit Applied: ₹${Math.round(Number(invAny.creditUsed)).toLocaleString("en-IN")}`);
+    }
+    if (invoice.advanceUsed && Math.round(Number(invoice.advanceUsed)) > 0) {
+      paymentLines.push(`Advance Applied: ₹${Math.round(Number(invoice.advanceUsed)).toLocaleString("en-IN")}`);
+    }
+    const paid = Math.round(Number(invoice.receivedAmount ?? (invoice.balanceDue ? (invoice.grandTotal - invoice.balanceDue) : invoice.grandTotal)));
+    paymentLines.push(`Amount Paid: ₹${paid.toLocaleString("en-IN")}`);
+    if (invoice.balanceDue && Math.round(Number(invoice.balanceDue)) > 0) {
+      paymentLines.push(`Balance Due: ₹${Math.round(Number(invoice.balanceDue)).toLocaleString("en-IN")}`);
+    }
+    if (invAny.creditRemaining && Math.round(Number(invAny.creditRemaining)) > 0) {
+      paymentLines.push(`Credit Balance: ₹${Math.round(Number(invAny.creditRemaining)).toLocaleString("en-IN")}`);
+    }
+    const paymentMethod = invoice.paymentMethod || "UPI";
+    paymentLines.push(`Payment Method: ${paymentMethod}`);
+    const paymentInfo = paymentLines.join("\n");
+
+    // Exactly 8 parameters mapped for blow_salon_invoice
+    const bodyParameters = [
+      { type: "text", text: customerName },
+      { type: "text", text: invoiceNumber },
+      { type: "text", text: invoiceDate },
+      { type: "text", text: itemsSummary },
+      { type: "text", text: subtotal },
+      { type: "text", text: tax },
+      { type: "text", text: total },
+      { type: "text", text: paymentInfo },
+    ];
+
+    const templateResult = await this.sendTemplateMessage(
+      normalized.digits,
+      templateNameToUse,
+      this.templateLanguage,
+      [
+        {
+          type: "body",
+          parameters: bodyParameters,
+        },
+      ]
+    );
+
+    if (templateResult.success) {
       logWhatsAppAction({
         provider: this.providerType,
-        action: "sendInvoiceReceipt[Text]",
+        action: "sendInvoiceReceipt[Template]",
         phone: normalized.digits,
         invoiceNumber: invoice.invoiceNumber,
-        messageId: sendResult.messageId,
+        messageId: templateResult.messageId,
         result: "SUCCESS",
       });
 
       return {
         success: true,
         status: "SENT",
-        messageId: sendResult.messageId,
-        formattedMessage: messageText,
-        recipientPhone: normalized.display,
-      };
-    } else {
-      return {
-        success: false,
-        status: "FAILED",
-        errorCode: sendResult.errorCode,
-        error: sendResult.error || "Failed to deliver Cloud API WhatsApp receipt.",
-        formattedMessage: messageText,
+        messageId: templateResult.messageId,
+        formattedMessage: `[Meta Template: ${templateNameToUse}]`,
         recipientPhone: normalized.display,
       };
     }
+
+    // If template fails, log and return clean failure
+    return {
+      success: false,
+      status: "FAILED",
+      errorCode: templateResult.errorCode,
+      error: templateResult.error || "Failed to deliver WhatsApp template receipt.",
+      recipientPhone: normalized.display,
+    };
   }
 }
 

@@ -190,9 +190,10 @@ export async function updateSettings(
 
 // ==================== CAMPAIGN & TEMPLATE SERVICE METHODS ====================
 
-export async function getTemplates(): Promise<WhatsAppTemplate[]> {
+export async function getTemplates(purpose?: "campaign" | "invoice" | "test"): Promise<WhatsAppTemplate[]> {
   try {
-    const res = await fetch("/api/whatsapp/templates", { cache: "no-store" });
+    const url = purpose ? `/api/whatsapp/templates?purpose=${encodeURIComponent(purpose)}` : "/api/whatsapp/templates";
+    const res = await fetch(url, { cache: "no-store" });
     if (!res.ok) return [];
     const data = await res.json();
     return data.templates || [];

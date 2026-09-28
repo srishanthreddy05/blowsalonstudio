@@ -69,30 +69,34 @@ export async function POST(request: Request) {
     }
 
     // Build body parameters for variables only if dynamic variables exist
-    const bodyParameters: Array<{ type: string; text: string }> = [];
-    const varKeys = Object.keys(templateVariables || {}).sort((a, b) => Number(a) - Number(b));
+    let components: Array<Record<string, unknown>> | undefined = undefined;
 
-    for (const k of varKeys) {
-      const varTypeOrVal = (templateVariables[k] ?? "").toString().trim();
-      let resolvedText = varTypeOrVal;
+    if (templateName !== "3p_direct_integration_test_template") {
+      const bodyParameters: Array<{ type: string; text: string }> = [];
+      const varKeys = Object.keys(templateVariables || {}).sort((a, b) => Number(a) - Number(b));
 
-      if (varTypeOrVal === "customer_name" || varTypeOrVal === "{{customer_name}}") {
-        resolvedText = (sampleCustomerName || "Customer").trim();
-      } else if (varTypeOrVal === "salon_name" || varTypeOrVal === "{{salon_name}}") {
-        resolvedText = "BLOW SALON";
+      for (const k of varKeys) {
+        const varTypeOrVal = (templateVariables[k] ?? "").toString().trim();
+        let resolvedText = varTypeOrVal;
+
+        if (varTypeOrVal === "customer_name" || varTypeOrVal === "{{customer_name}}") {
+          resolvedText = (sampleCustomerName || "Customer").trim();
+        } else if (varTypeOrVal === "salon_name" || varTypeOrVal === "{{salon_name}}") {
+          resolvedText = "BLOW SALON";
+        }
+
+        if (resolvedText) {
+          bodyParameters.push({
+            type: "text",
+            text: resolvedText,
+          });
+        }
       }
 
-      if (resolvedText) {
-        bodyParameters.push({
-          type: "text",
-          text: resolvedText,
-        });
+      if (bodyParameters.length > 0) {
+        components = [{ type: "body", parameters: bodyParameters }];
       }
     }
-
-    const components = bodyParameters.length > 0
-      ? [{ type: "body", parameters: bodyParameters }]
-      : undefined;
 
     // Send Test Message
     const sendResult = await provider.sendTemplateMessage(

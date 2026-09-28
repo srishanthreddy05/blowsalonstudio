@@ -42,19 +42,20 @@ export function CreateCampaignModal({
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loadingCustomers, setLoadingCustomers] = useState(true);
 
-  // Templates
+  // Templates - strictly blow_salon_campaign
   const [templates, setTemplates] = useState<WhatsAppTemplate[]>([]);
   const [loadingTemplates, setLoadingTemplates] = useState(true);
-  const [selectedTemplateName, setSelectedTemplateName] = useState<string>("");
-  const [customTemplateInput, setCustomTemplateInput] = useState("");
-  const [templateVariables, setTemplateVariables] = useState<Record<string, string>>({});
+  const [selectedTemplateName, setSelectedTemplateName] = useState<string>("blow_salon_campaign");
+  const [campaignMessageContent, setCampaignMessageContent] = useState(
+    "Enjoy 20% off on your next visit. Offer valid until 30 September."
+  );
 
   // UI Flow
   const [testModalOpen, setTestModalOpen] = useState(false);
   const [confirmModalOpen, setConfirmModalOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  // Load Customers and Templates
+  // Load Customers and Campaign Templates
   useEffect(() => {
     if (!isOpen) return;
 
@@ -65,15 +66,14 @@ export function CreateCampaignModal({
       try {
         const [custList, tplList] = await Promise.all([
           customersService.getAll(),
-          whatsappService.getTemplates(),
+          whatsappService.getTemplates("campaign"),
         ]);
         setCustomers(custList || []);
-        setTemplates(tplList || []);
-
-        if (tplList && tplList.length > 0) {
-          const firstApproved = tplList.find((t) => t.status === "APPROVED") || tplList[0];
-          setSelectedTemplateName(firstApproved.name);
-        }
+        
+        // Filter strictly to blow_salon_campaign
+        const campaignTpls = (tplList || []).filter((t) => t.name === "blow_salon_campaign");
+        setTemplates(campaignTpls);
+        setSelectedTemplateName("blow_salon_campaign");
       } catch (err) {
         console.error("Error loading campaign prerequisites:", err);
       } finally {
@@ -87,13 +87,20 @@ export function CreateCampaignModal({
 
   // Selected template object
   const activeTemplate = useMemo(() => {
-    return templates.find((t) => t.name === selectedTemplateName);
-  }, [templates, selectedTemplateName]);
-
-  // Effective Template Name
-  const effectiveTemplateName = selectedTemplateName === "__custom__"
-    ? customTemplateInput.trim()
-    : selectedTemplateName || customTemplateInput.trim();
+    return (
+      templates.find((t) => t.name === "blow_salon_campaign") || {
+        id: "blow_salon_campaign",
+        name: "blow_salon_campaign",
+        language: "en_US",
+        status: "APPROVED" as const,
+        category: "MARKETING" as const,
+        components: [],
+        bodyText: "Hello {{1}} 👋\n\nWe have an update from BLOW SALON.\n\n{{2}}\n\nWe look forward to seeing you soon! ✨",
+        variableCount: 2,
+        variableKeys: ["1", "2"],
+      }
+    );
+  }, [templates]);
 
   // Audience Calculations
   const audienceStats = useMemo(() => {
@@ -133,47 +140,16 @@ export function CreateCampaignModal({
     };
   }, [customers, audienceType, selectedCustomerIds]);
 
-  // Calculate required variable count dynamically based on the active template
-  const templateVarCount = useMemo(() => {
-    if (effectiveTemplateName === "3p_direct_integration_test_template") return 0;
-    if (activeTemplate) {
-      return activeTemplate.variableCount ?? 0;
-    }
-    return 0;
-  }, [activeTemplate, effectiveTemplateName]);
-
-  // Sync templateVariables whenever active template or templateVarCount changes
-  useEffect(() => {
-    if (templateVarCount === 0) {
-      setTemplateVariables({});
-    } else {
-      setTemplateVariables((prev) => {
-        const next: Record<string, string> = {};
-        for (let i = 1; i <= templateVarCount; i++) {
-          const k = String(i);
-          next[k] = prev[k] || (i === 1 ? "customer_name" : i === 2 ? "BLOW SALON" : "");
-        }
-        return next;
-      });
-    }
-  }, [templateVarCount, selectedTemplateName]);
-
-  // Generate live preview text
+  // Generate live preview text with {{1}} = Rahul Sharma and {{2}} = campaignMessageContent
   const previewText = useMemo(() => {
-    let body = activeTemplate?.bodyText || "Hello, here is your update from BLOW SALON.";
-    if (templateVarCount === 0) return body;
+    let body =
+      activeTemplate?.bodyText ||
+      "Hello {{1}} 👋\n\nWe have an update from BLOW SALON.\n\n{{2}}\n\nWe look forward to seeing you soon! ✨";
 
-    const varKeys = Object.keys(templateVariables);
-    for (const k of varKeys) {
-      const val = templateVariables[k] || `{{${k}}}`;
-      let replacement = val;
-      if (val === "customer_name" || val === "{{customer_name}}") replacement = "Rahul Sharma";
-      else if (val === "salon_name" || val === "{{salon_name}}") replacement = "BLOW SALON";
-
-      body = body.replace(new RegExp(`\\{\\{${k}\\}\\}`, "g"), replacement);
-    }
+    body = body.replace(/\{\{1\}\}/g, "Rahul Sharma");
+    body = body.replace(/\{\{2\}\}/g, campaignMessageContent.trim() || "Enjoy 20% off on your next visit. Offer valid until 30 September.");
     return body;
-  }, [activeTemplate, templateVariables, templateVarCount]);
+  }, [activeTemplate, campaignMessageContent]);
 
   // Search filtered customers for custom selection
   const filteredCustomers = useMemo(() => {
@@ -186,66 +162,83 @@ export function CreateCampaignModal({
     );
   }, [customers, customerSearch]);
 
-  const toggleSelectCustomer = (id: string) => {
+  const toggleSelectCustomer = (customerId: string) => {
     setSelectedCustomerIds((prev) =>
-      prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]
+      prev.includes(customerId)
+        ? prev.filter((id) => id !== customerId)
+        : [...prev, customerId]
     );
   };
 
-  const handleSelectAllFiltered = () => {
-    const ids = filteredCustomers.map((c) => c.id!).filter(Boolean);
-    setSelectedCustomerIds(Array.from(new Set([...selectedCustomerIds, ...ids])));
+  const handleSelectAllCustomers = () => {
+    const allIds = filteredCustomers.map((c) => c.id!).filter(Boolean);
+    setSelectedCustomerIds(allIds);
   };
 
-  const handleDeselectAll = () => {
+  const handleClearSelection = () => {
     setSelectedCustomerIds([]);
   };
 
-  // Variable change handler
-  const handleVariableChange = (key: string, value: string) => {
-    setTemplateVariables((prev) => ({ ...prev, [key]: value }));
+  // Validation before confirmation
+  const handleProceedToConfirmation = (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!name.trim()) {
+      toast.error("Please enter a campaign name.");
+      return;
+    }
+
+    if (audienceType === "CUSTOM" && selectedCustomerIds.length === 0) {
+      toast.error("Please select at least one customer for custom audience.");
+      return;
+    }
+
+    if (audienceStats.eligible === 0) {
+      toast.error("No eligible recipients found in the selected audience.");
+      return;
+    }
+
+    if (!campaignMessageContent.trim()) {
+      toast.error("Please enter your campaign message/content.");
+      return;
+    }
+
+    setConfirmModalOpen(true);
   };
 
-  const handleCreateAndSend = async (autoStartSend: boolean) => {
-    if (!name.trim()) {
-      toast.error("Please provide a campaign name.");
-      return;
-    }
-    if (!effectiveTemplateName) {
-      toast.error("Please select or enter an approved WhatsApp template name.");
-      return;
-    }
-    if (audienceStats.eligible === 0) {
-      toast.error("No eligible recipients found in the selected audience segment.");
-      return;
-    }
-
+  // Submit and Create Campaign Record
+  const handleConfirmAndCreate = async (sendImmediately: boolean) => {
     setSubmitting(true);
     try {
-      // 1. Create Campaign
-      const createRes = await whatsappService.createCampaign({
+      // Exactly 2 parameters mapped for blow_salon_campaign
+      const templateVariablesPayload: Record<string, string> = {
+        "1": "customer_name",
+        "2": campaignMessageContent.trim(),
+      };
+
+      const res = await whatsappService.createCampaign({
         name: name.trim(),
-        templateName: effectiveTemplateName,
+        templateName: "blow_salon_campaign",
         templateLanguage: activeTemplate?.language || "en_US",
-        templateCategory: activeTemplate?.category || "MARKETING",
+        templateCategory: "MARKETING",
         audienceType,
-        customCustomerIds: audienceType === "CUSTOM" ? selectedCustomerIds : [],
-        templateVariables,
+        customCustomerIds: audienceType === "CUSTOM" ? selectedCustomerIds : undefined,
+        templateVariables: templateVariablesPayload,
       });
 
-      const campaign = createRes.campaign;
-      toast.success(`Campaign "${campaign.name}" created with ${campaign.eligibleCount} eligible recipients!`);
-
-      // 2. Start Sending if confirmed
-      if (autoStartSend && campaign.id) {
-        toast.loading("Queuing and dispatching campaign messages...", { id: "send-campaign" });
-        const sendRes = await whatsappService.sendCampaign(campaign.id);
-        toast.success(`Campaign dispatched! Sent: ${sendRes.sentCount}, Failed: ${sendRes.failedCount}`, {
-          id: "send-campaign",
-        });
+      if (!res.success || !res.campaign) {
+        throw new Error("Failed to initialize campaign.");
       }
 
-      onCampaignCreated(campaign);
+      const created = res.campaign;
+
+      if (sendImmediately) {
+        toast.loading("Queuing campaign for dispatch...", { id: "send-campaign" });
+        await whatsappService.sendCampaign(created.id);
+        toast.success(`Campaign "${created.name}" sent to queue!`, { id: "send-campaign" });
+      }
+
+      onCampaignCreated(created);
       onClose();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to execute campaign";
@@ -272,7 +265,7 @@ export function CreateCampaignModal({
                 Create WhatsApp Campaign
               </h2>
               <p className="text-xs text-[#747A72]">
-                Deliver approved Meta WhatsApp templates to segmented customer audiences
+                Deliver approved Meta marketing template to segmented salon customers
               </p>
             </div>
           </div>
@@ -280,12 +273,12 @@ export function CreateCampaignModal({
             onClick={onClose}
             className="p-2 rounded-xl text-[#747A72] hover:bg-[#E8ECE5] hover:text-[#2F352F] transition cursor-pointer"
           >
-            <X size={20} />
+            <X size={18} />
           </button>
         </div>
 
         {/* Modal Body */}
-        <div className="p-6 space-y-6 overflow-y-auto flex-1 text-xs">
+        <form onSubmit={handleProceedToConfirmation} className="p-6 space-y-6 overflow-y-auto flex-1">
           {/* 1. Campaign Name */}
           <div className="space-y-1.5">
             <label className="block font-bold text-[#2F352F] text-xs">
@@ -293,75 +286,71 @@ export function CreateCampaignModal({
             </label>
             <input
               type="text"
+              required
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Festive Glow Special Offer, Weekend Hair Spa Discount"
-              className="w-full h-10 px-3.5 rounded-xl border border-[#CCD2C8] bg-[#FFFFFF] text-xs font-semibold text-[#2F352F] focus:outline-none focus:border-[#5F7A62]"
+              placeholder="e.g. Festive Offer, Diwali Special, Weekend Hair Spa Discount"
+              className="w-full h-10 px-3.5 rounded-xl border border-[#CCD2C8] bg-[#FFFFFF] text-xs text-[#2F352F] placeholder:text-[#8C9389] focus:outline-none focus:border-[#5F7A62]"
             />
           </div>
 
-          {/* 2. Audience Segment Selection */}
+          {/* 2. Target Audience Segmentation */}
           <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <label className="block font-bold text-[#2F352F] text-xs">
-                2. Target Audience Segment
-              </label>
-              <span className="text-[11px] text-[#747A72]">
-                Total in Database: <strong className="text-[#2F352F]">{customers.length}</strong>
-              </span>
-            </div>
+            <label className="block font-bold text-[#2F352F] text-xs">
+              2. Target Audience & Opt-in Consent Filter
+            </label>
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
               {[
-                { id: "ALL", label: "All Customers", desc: "Every client" },
-                { id: "REGULAR", label: "Regular Clients", desc: "Standard tier" },
-                { id: "MEMBERSHIP", label: "Members Only", desc: "Active members" },
-                { id: "CUSTOM", label: "Custom Selection", desc: "Choose clients" },
-              ].map((aud) => (
+                { id: "ALL", label: "All Customers", desc: "All client records" },
+                { id: "REGULAR", label: "Regular Clients", desc: "Frequent visitors" },
+                { id: "MEMBERSHIP", label: "Members Only", desc: "Active package holders" },
+                { id: "CUSTOM", label: "Custom Selection", desc: "Search & pick list" },
+              ].map((tab) => (
                 <button
-                  key={aud.id}
+                  key={tab.id}
                   type="button"
-                  onClick={() => setAudienceType(aud.id as WhatsAppAudienceType)}
+                  onClick={() => setAudienceType(tab.id as WhatsAppAudienceType)}
                   className={`p-3 rounded-2xl border text-left transition cursor-pointer ${
-                    audienceType === aud.id
+                    audienceType === tab.id
                       ? "bg-[#E8ECE5] border-[#5F7A62] text-[#2F352F] shadow-2xs"
                       : "bg-[#FFFFFF] border-[#CCD2C8] text-[#747A72] hover:bg-[#F7F7F4] hover:text-[#2F352F]"
                   }`}
                 >
-                  <span className="font-bold text-xs block text-[#2F352F]">{aud.label}</span>
-                  <span className="text-[10px] text-[#747A72]">{aud.desc}</span>
+                  <span className="font-bold text-xs block">{tab.label}</span>
+                  <span className="text-[10px] text-[#747A72] mt-0.5 block">{tab.desc}</span>
                 </button>
               ))}
             </div>
 
-            {/* Custom Selection Table */}
+            {/* Custom Audience Search and Select */}
             {audienceType === "CUSTOM" && (
               <div className="p-4 rounded-2xl bg-[#F7F7F4] border border-[#E0E4DD] space-y-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="relative flex-1 min-w-[200px]">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="relative flex-1">
                     <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#747A72]" />
                     <input
                       type="text"
+                      placeholder="Search customer name or phone..."
                       value={customerSearch}
                       onChange={(e) => setCustomerSearch(e.target.value)}
-                      placeholder="Search customers by name or phone..."
-                      className="w-full h-8 pl-9 pr-3 rounded-xl border border-[#CCD2C8] bg-white text-xs text-[#2F352F] focus:outline-none"
+                      className="w-full h-9 pl-9 pr-3 rounded-xl border border-[#CCD2C8] bg-white text-xs text-[#2F352F]"
                     />
                   </div>
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      onClick={handleSelectAllFiltered}
-                      className="px-2.5 py-1 rounded-lg border border-[#CCD2C8] bg-white text-[11px] font-semibold text-[#2F352F] hover:bg-[#E8ECE5] transition cursor-pointer"
+                      onClick={handleSelectAllCustomers}
+                      className="h-9 px-3 rounded-xl border border-[#CCD2C8] bg-white text-xs font-semibold text-[#2F352F] hover:bg-[#E8ECE5] transition"
                     >
-                      Select All Filtered ({filteredCustomers.length})
+                      Select All
                     </button>
                     <button
                       type="button"
-                      onClick={handleDeselectAll}
-                      className="px-2.5 py-1 rounded-lg border border-[#CCD2C8] bg-white text-[11px] text-[#747A72] hover:text-[#2F352F] transition cursor-pointer"
+                      onClick={handleClearSelection}
+                      className="h-9 px-3 rounded-xl border border-[#CCD2C8] bg-white text-xs font-semibold text-[#747A72] hover:bg-[#FBEBEB] hover:text-[#B55B5B] transition"
                     >
-                      Clear Selection
+                      Clear
                     </button>
                   </div>
                 </div>
@@ -461,118 +450,65 @@ export function CreateCampaignModal({
             </div>
           </div>
 
-          {/* 3. WhatsApp Message Template */}
+          {/* 3. Approved Meta Template Selection (Only blow_salon_campaign) */}
           <div className="space-y-3">
             <label className="block font-bold text-[#2F352F] text-xs">
-              3. Select Approved Meta WhatsApp Template
+              3. Approved Meta WhatsApp Marketing Template
             </label>
 
-            {templates.length > 0 ? (
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                {templates.map((tpl) => (
-                  <button
-                    key={tpl.name}
-                    type="button"
-                    onClick={() => {
-                      setSelectedTemplateName(tpl.name);
-                    }}
-                    className={`p-3 rounded-2xl border text-left transition cursor-pointer flex flex-col justify-between ${
-                      selectedTemplateName === tpl.name
-                        ? "bg-[#E8ECE5] border-[#5F7A62] text-[#2F352F] shadow-2xs"
-                        : "bg-[#FFFFFF] border-[#CCD2C8] text-[#747A72] hover:bg-[#F7F7F4] hover:text-[#2F352F]"
-                    }`}
-                  >
-                    <div>
-                      <div className="flex items-center justify-between gap-1 mb-1">
-                        <span className="font-mono font-bold text-xs text-[#2F352F] truncate">
-                          {tpl.name}
-                        </span>
-                        <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-[#FAF4E8] text-[#B18A45] shrink-0">
-                          {tpl.language}
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-[#747A72] line-clamp-2">
-                        {tpl.bodyText || "Template message"}
-                      </p>
-                    </div>
-                    <div className="mt-2 text-[10px] font-semibold text-[#5F7A62] flex items-center gap-1">
-                      <Check size={12} />
-                      <span>Approved</span>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <div className="p-4 rounded-2xl bg-[#F7F7F4] border border-[#E0E4DD] space-y-2">
-                <p className="text-xs font-semibold text-[#2F352F] flex items-center gap-1.5">
-                  <Info size={14} className="text-[#B18A45]" />
-                  Enter Approved Template Name
+            <div className="p-4 rounded-2xl border border-[#5F7A62] bg-[#E8ECE5]/40 flex items-start justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono font-bold text-xs text-[#2F352F]">
+                    blow_salon_campaign
+                  </span>
+                  <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-[#FAF4E8] text-[#B18A45] border border-[#B18A45]/30">
+                    Marketing Template
+                  </span>
+                  <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-[#E8ECE5] text-[#5F7A62] border border-[#5F7A62]/30 flex items-center gap-1">
+                    <Check size={10} /> Approved
+                  </span>
+                </div>
+                <p className="text-[11px] text-[#747A72] mt-1">
+                  Official BLOW SALON marketing template. Requires exactly 2 parameters: customer name {"{{1}}"} and campaign message {"{{2}}"}.
                 </p>
-                <p className="text-[11px] text-[#747A72]">
-                  Ensure this template name is registered and approved in your Meta WhatsApp Business Manager (WABA).
-                </p>
-                <input
-                  type="text"
-                  value={customTemplateInput}
-                  onChange={(e) => setCustomTemplateInput(e.target.value)}
-                  placeholder="e.g. blow_festive_offer, blow_salon_campaign_1"
-                  className="w-full h-10 px-3.5 rounded-xl border border-[#CCD2C8] bg-[#FFFFFF] text-xs font-mono text-[#2F352F] focus:outline-none focus:border-[#5F7A62]"
-                />
               </div>
-            )}
+            </div>
           </div>
 
-          {/* 4. Template Variables Mapping */}
+          {/* 4. Campaign Message / Content Mapping */}
           <div className="space-y-3">
             <label className="block font-bold text-[#2F352F] text-xs">
-              4. Map Template Variables
+              4. Campaign Content & Offer Message {"{{2}}"} *
             </label>
 
-            {templateVarCount === 0 ? (
-              <div className="p-4 rounded-2xl bg-[#FAF4E8]/60 border border-[#B18A45]/30 text-xs flex items-center gap-2">
-                <Sparkles size={16} className="text-[#B18A45] shrink-0" />
-                <span className="text-[#2F352F]">
-                  This approved template requires <strong>0 dynamic body parameters</strong>. Messages will be dispatched directly to recipients.
+            <div className="p-4 rounded-2xl bg-[#F7F7F4] border border-[#E0E4DD] space-y-3">
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[11px] font-bold text-[#2F352F]">
+                    Enter Campaign Message (substitutes into {"{{2}}"}):
+                  </span>
+                  <span className="text-[10px] text-[#747A72] font-mono">
+                    {campaignMessageContent.length} chars
+                  </span>
+                </div>
+                <textarea
+                  rows={3}
+                  required
+                  value={campaignMessageContent}
+                  onChange={(e) => setCampaignMessageContent(e.target.value)}
+                  placeholder="e.g. Enjoy 20% off on all hair and beauty services this week! Valid until 30 September."
+                  className="w-full p-3 rounded-xl border border-[#CCD2C8] bg-white text-xs text-[#2F352F] leading-relaxed focus:outline-none focus:border-[#5F7A62]"
+                />
+              </div>
+
+              <div className="text-[11px] text-[#747A72] flex items-center gap-1.5">
+                <Info size={13} className="text-[#5F7A62] shrink-0" />
+                <span>
+                  Variable <code>{"{{1}}"}</code> is automatically mapped to each recipient customer’s name.
                 </span>
               </div>
-            ) : (
-              <div className="p-4 rounded-2xl bg-[#F7F7F4] border border-[#E0E4DD] space-y-3">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {Array.from({ length: templateVarCount }).map((_, idx) => {
-                    const varNum = String(idx + 1);
-                    return (
-                      <div key={varNum} className="space-y-1">
-                        <label className="text-[11px] font-bold text-[#2F352F] flex items-center gap-1">
-                          <span>Variable</span>
-                          <code className="bg-white px-1.5 py-0.5 rounded border border-[#CCD2C8] text-[10px] text-[#5F7A62]">
-                            {`{{${varNum}}}`}
-                          </code>
-                        </label>
-                        {varNum === "1" ? (
-                          <select
-                            value={templateVariables["1"] || "customer_name"}
-                            onChange={(e) => handleVariableChange("1", e.target.value)}
-                            className="w-full h-9 px-3 rounded-xl border border-[#CCD2C8] bg-white text-xs font-medium text-[#2F352F]"
-                          >
-                            <option value="customer_name">Dynamic: Client Name (e.g. Rahul Sharma)</option>
-                            <option value="salon_name">Dynamic: Salon Name (BLOW SALON)</option>
-                            <option value="Valued Customer">Static: "Valued Customer"</option>
-                          </select>
-                        ) : (
-                          <input
-                            type="text"
-                            value={templateVariables[varNum] || ""}
-                            onChange={(e) => handleVariableChange(varNum, e.target.value)}
-                            placeholder={varNum === "2" ? "e.g. 20% OFF or BLOW SALON" : `Value for {{${varNum}}}`}
-                            className="w-full h-9 px-3 rounded-xl border border-[#CCD2C8] bg-white text-xs text-[#2F352F]"
-                          />
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
+            </div>
           </div>
 
           {/* 5. Live WhatsApp Preview */}
@@ -598,133 +534,115 @@ export function CreateCampaignModal({
                   </div>
                 </div>
 
-                <p className="whitespace-pre-wrap leading-relaxed text-[#2F352F]">
+                <div className="whitespace-pre-line text-[#2F352F] leading-relaxed py-1">
                   {previewText}
-                </p>
+                </div>
 
-                <div className="text-[9px] text-[#747A72] text-right font-mono">
-                  10:30 AM ✓✓
+                <div className="text-right text-[9px] text-[#8C9389] pt-1">
+                  Now • Delivered
                 </div>
               </div>
             </div>
           </div>
-        </div>
 
-        {/* Modal Footer */}
-        <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-4 border-t border-[#E0E4DD] bg-[#F7F7F4] shrink-0">
-          <button
-            type="button"
-            onClick={() => setTestModalOpen(true)}
-            className="h-10 px-4 rounded-xl border border-[#CCD2C8] bg-white hover:bg-[#E8ECE5] text-xs font-bold text-[#2F352F] transition flex items-center gap-1.5 cursor-pointer shadow-2xs"
-          >
-            <Smartphone size={14} className="text-[#5F7A62]" />
-            <span>Send Test Message</span>
-          </button>
-
-          <div className="flex items-center gap-3">
+          {/* Form Actions */}
+          <div className="flex items-center justify-end gap-3 pt-4 border-t border-[#E0E4DD]">
             <button
               type="button"
               onClick={onClose}
-              className="h-10 px-4 rounded-xl border border-[#CCD2C8] text-xs font-semibold text-[#747A72] hover:text-[#2F352F] hover:bg-white transition cursor-pointer"
+              className="h-10 px-4 rounded-xl border border-[#CCD2C8] bg-[#FFFFFF] hover:bg-[#F7F7F4] text-xs font-semibold text-[#747A72] hover:text-[#2F352F] transition cursor-pointer"
             >
               Cancel
             </button>
             <button
-              type="button"
-              disabled={submitting || audienceStats.eligible === 0 || !name.trim()}
-              onClick={() => setConfirmModalOpen(true)}
-              className="h-10 px-6 rounded-xl bg-[#5F7A62] hover:bg-[#4E6450] text-white text-xs font-bold transition flex items-center gap-2 shadow-xs cursor-pointer disabled:opacity-50"
+              type="submit"
+              disabled={audienceStats.eligible === 0 || !name.trim() || !campaignMessageContent.trim()}
+              className="h-10 px-5 rounded-xl bg-[#2F352F] hover:bg-[#1E221E] text-[#FAF4E8] text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer disabled:opacity-50"
             >
-              <Send size={14} />
-              <span>Review & Launch Campaign ({audienceStats.eligible})</span>
+              <span>Review & Confirm</span>
+              <ChevronRight size={14} />
             </button>
           </div>
-        </div>
-      </div>
+        </form>
 
-      {/* Test Message Modal */}
-      <SendTestModal
-        isOpen={testModalOpen}
-        onClose={() => setTestModalOpen(false)}
-        templateName={effectiveTemplateName || "sample_template"}
-        templateLanguage={activeTemplate?.language || "en_US"}
-        templateVariables={templateVariables}
-        bodyTextPreview={previewText}
-      />
-
-      {/* Confirmation Modal */}
-      {confirmModalOpen && (
-        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <div className="bg-white border border-[#E0E4DD] rounded-3xl w-full max-w-md p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150 text-xs">
-            <div className="flex items-center gap-3">
-              <div className="grid size-11 place-items-center rounded-2xl bg-[#FAF4E8] text-[#B18A45] border border-[#B18A45]/30">
-                <Send size={20} />
-              </div>
+        {/* Confirmation Modal */}
+        {confirmModalOpen && (
+          <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+            <div className="bg-[#FFFFFF] border border-[#E0E4DD] rounded-3xl w-full max-w-md p-6 shadow-2xl space-y-5 animate-in fade-in zoom-95 duration-150">
               <div>
                 <h3 className="font-serif text-base font-bold text-[#2F352F]">
                   Confirm WhatsApp Campaign
                 </h3>
-                <p className="text-[11px] text-[#747A72]">
-                  Please review the campaign details before dispatching
+                <p className="text-xs text-[#747A72] mt-0.5">
+                  Verify recipient counts and template variables before launching
                 </p>
               </div>
-            </div>
 
-            <div className="p-4 rounded-2xl bg-[#F7F7F4] border border-[#E0E4DD] space-y-2.5 font-sans">
-              <div className="flex justify-between">
-                <span className="text-[#747A72]">Campaign:</span>
-                <span className="font-bold text-[#2F352F]">{name}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-[#747A72]">Audience:</span>
-                <span className="font-semibold text-[#2F352F]">{audienceType}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-[#747A72]">Template:</span>
-                <span className="font-mono text-[#2F352F]">{effectiveTemplateName}</span>
-              </div>
-              <div className="flex justify-between border-t border-[#E0E4DD] pt-2">
-                <span className="text-[#5F7A62] font-bold">Eligible Recipients:</span>
-                <span className="font-mono font-extrabold text-[#5F7A62] text-sm">{audienceStats.eligible}</span>
-              </div>
-              {audienceStats.excluded > 0 && (
-                <div className="flex justify-between text-[11px] text-[#B55B5B]">
-                  <span>Excluded (Opt-out/Invalid):</span>
-                  <span className="font-mono">{audienceStats.excluded}</span>
+              <div className="space-y-2 p-3.5 rounded-2xl bg-[#F7F7F4] border border-[#E0E4DD] text-xs">
+                <div className="flex justify-between py-1 border-b border-[#E0E4DD]">
+                  <span className="text-[#747A72]">Campaign:</span>
+                  <span className="font-bold text-[#2F352F]">{name}</span>
                 </div>
-              )}
-            </div>
+                <div className="flex justify-between py-1 border-b border-[#E0E4DD]">
+                  <span className="text-[#747A72]">Audience:</span>
+                  <span className="font-medium text-[#2F352F]">{audienceType}</span>
+                </div>
+                <div className="flex justify-between py-1 border-b border-[#E0E4DD]">
+                  <span className="text-[#747A72]">Template:</span>
+                  <span className="font-mono font-semibold text-[#5F7A62]">
+                    blow_salon_campaign (2 vars)
+                  </span>
+                </div>
+                <div className="flex justify-between py-1 border-b border-[#E0E4DD]">
+                  <span className="text-[#5F7A62] font-semibold">Eligible Recipients:</span>
+                  <span className="font-mono font-bold text-[#5F7A62]">{audienceStats.eligible}</span>
+                </div>
+                <div className="flex justify-between py-1 border-b border-[#E0E4DD]">
+                  <span className="text-[#B55B5B]">Excluded Recipients:</span>
+                  <span className="font-mono font-bold text-[#B55B5B]">{audienceStats.excluded}</span>
+                </div>
+                <div className="flex justify-between py-1">
+                  <span className="text-[#747A72]">Estimated Messages:</span>
+                  <span className="font-mono font-bold text-[#2F352F]">{audienceStats.eligible}</span>
+                </div>
+              </div>
 
-            <div className="flex items-center justify-end gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => setConfirmModalOpen(false)}
-                className="h-9 px-4 rounded-xl border border-[#CCD2C8] text-xs font-semibold text-[#747A72] hover:text-[#2F352F] transition cursor-pointer"
-              >
-                Back
-              </button>
-              <button
-                type="button"
-                disabled={submitting}
-                onClick={() => handleCreateAndSend(true)}
-                className="h-9 px-5 rounded-xl bg-[#5F7A62] hover:bg-[#4E6450] text-white text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer disabled:opacity-50"
-              >
-                {submitting ? (
-                  <>
-                    <div className="size-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    <span>Launching...</span>
-                  </>
-                ) : (
-                  <>
-                    <Send size={13} />
-                    <span>Confirm & Launch</span>
-                  </>
-                )}
-              </button>
+              <div className="text-[11px] text-[#747A72] bg-[#FAF4E8] p-3 rounded-xl border border-[#B18A45]/30">
+                Messages will be sent safely through the Meta WhatsApp Cloud API with automatic rate limiting.
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-2">
+                <button
+                  type="button"
+                  disabled={submitting}
+                  onClick={() => setConfirmModalOpen(false)}
+                  className="h-9 px-4 rounded-xl border border-[#CCD2C8] text-xs font-semibold text-[#747A72] hover:bg-[#F7F7F4] transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={submitting}
+                  onClick={() => handleConfirmAndCreate(true)}
+                  className="h-9 px-4 rounded-xl bg-[#5F7A62] hover:bg-[#4E6450] text-[#FAF4E8] text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer disabled:opacity-50"
+                >
+                  {submitting ? (
+                    <>
+                      <div className="size-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      <span>Processing...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Send size={13} />
+                      <span>Confirm & Send Now</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
