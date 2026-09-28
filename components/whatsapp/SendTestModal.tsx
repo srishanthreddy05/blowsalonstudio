@@ -110,8 +110,6 @@ export function SendTestModal({
     }
   }, [variableCount, initialTemplateVariables, selectedTemplateName]);
 
-  if (!isOpen) return null;
-
   // Generate live interpolated preview
   const interpolatedPreview = useMemo(() => {
     let text = activePreview;
@@ -173,6 +171,8 @@ export function SendTestModal({
       setLoading(false);
     }
   };
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
