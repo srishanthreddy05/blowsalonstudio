@@ -23,29 +23,37 @@ export async function GET() {
         }
       }
     } catch (settingsErr) {
-      console.warn("Could not read whatsapp settings, using default true:", settingsErr);
+      console.warn(
+        "[WhatsApp Status] Could not read whatsapp settings, using default true:",
+        settingsErr instanceof Error ? settingsErr.message : settingsErr
+      );
     }
 
     return NextResponse.json({
       status: statusResult.status,
-      connectedNumber: statusResult.connectedNumber,
-      qrCode: statusResult.qrCode,
+      connectedNumber: statusResult.connectedNumber || null,
+      qrCode: statusResult.qrCode || null,
       provider: statusResult.provider,
-      errorMessage: statusResult.errorMessage,
+      errorMessage: statusResult.errorMessage || null,
       autoSendInvoice,
       updatedAt: new Date().toISOString(),
     });
   } catch (error: unknown) {
-    const msg = error instanceof Error ? error.message : "Failed to fetch WhatsApp status";
+    const errorMsg = error instanceof Error ? error.message : "Failed to fetch WhatsApp status";
+    console.error("[WhatsApp Status] Error:", errorMsg);
+
+    // Controlled graceful response - never return 500 on status checks
     return NextResponse.json(
       {
-        status: "ERROR",
+        status: "DISCONNECTED",
+        connectedNumber: null,
+        qrCode: null,
         provider: "QR_WHATSAPP",
-        errorMessage: msg,
+        errorMessage: "WhatsApp service is currently unavailable.",
         autoSendInvoice: true,
         updatedAt: new Date().toISOString(),
       },
-      { status: 500 }
+      { status: 200 }
     );
   }
 }

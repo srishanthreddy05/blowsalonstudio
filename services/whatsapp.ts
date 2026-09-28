@@ -9,13 +9,21 @@ export async function getStatus(): Promise<WhatsAppStatusResponse> {
   try {
     const res = await fetch("/api/whatsapp/status", { cache: "no-store" });
     if (!res.ok) {
-      throw new Error(`Failed to fetch status: ${res.statusText}`);
+      const errData = await res.json().catch(() => ({}));
+      return {
+        status: "DISCONNECTED",
+        provider: "QR_WHATSAPP",
+        errorMessage: errData.errorMessage || "WhatsApp service is unavailable.",
+        autoSendInvoice: true,
+        updatedAt: new Date().toISOString(),
+      };
     }
-    return await res.json();
+    const data = await res.json();
+    return data;
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "Error getting status";
+    const msg = err instanceof Error ? err.message : "WhatsApp service is unavailable";
     return {
-      status: "ERROR",
+      status: "DISCONNECTED",
       provider: "QR_WHATSAPP",
       errorMessage: msg,
       autoSendInvoice: true,
@@ -25,25 +33,35 @@ export async function getStatus(): Promise<WhatsAppStatusResponse> {
 }
 
 export async function connect(): Promise<WhatsAppStatusResponse> {
-  const res = await fetch("/api/whatsapp/connect", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-  });
-  if (!res.ok) {
+  try {
+    const res = await fetch("/api/whatsapp/connect", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
     const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || "Failed to initiate WhatsApp connection");
+    if (!res.ok || data.success === false) {
+      throw new Error(data.error || "Failed to initiate WhatsApp connection");
+    }
+    return data;
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "Failed to initiate WhatsApp connection";
+    throw new Error(msg);
   }
-  return await res.json();
 }
 
 export async function disconnect(): Promise<void> {
-  const res = await fetch("/api/whatsapp/disconnect", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-  });
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || "Failed to disconnect WhatsApp");
+  try {
+    const res = await fetch("/api/whatsapp/disconnect", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || "Failed to disconnect WhatsApp");
+    }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "Failed to disconnect WhatsApp";
+    throw new Error(msg);
   }
 }
 

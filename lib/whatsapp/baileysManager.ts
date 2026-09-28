@@ -52,26 +52,36 @@ class BaileysManager {
   private reconnectTimeout: NodeJS.Timeout | null = null;
 
   constructor() {
-    this.ensureAuthDir();
-    // Check if previous auth session exists
-    if (this.hasSavedSession()) {
-      // Auto-connect on server start
-      this.initSocket().catch((err) => {
-        console.error("[WhatsApp Baileys] Auto-connect error:", err);
-      });
+    try {
+      this.ensureAuthDir();
+      if (this.hasSavedSession()) {
+        this.initSocket().catch((err) => {
+          console.error("[WhatsApp Baileys] Auto-connect error:", err instanceof Error ? err.message : err);
+        });
+      }
+    } catch (initErr) {
+      console.warn("[WhatsApp Baileys] In-process storage warning:", initErr instanceof Error ? initErr.message : initErr);
     }
   }
 
   private ensureAuthDir() {
-    if (!fs.existsSync(AUTH_DIR)) {
-      fs.mkdirSync(AUTH_DIR, { recursive: true });
+    try {
+      if (!fs.existsSync(AUTH_DIR)) {
+        fs.mkdirSync(AUTH_DIR, { recursive: true });
+      }
+    } catch (fsErr) {
+      console.warn("[WhatsApp Baileys] Cannot create auth directory in current environment:", fsErr instanceof Error ? fsErr.message : fsErr);
     }
   }
 
   private hasSavedSession(): boolean {
-    if (!fs.existsSync(AUTH_DIR)) return false;
-    const files = fs.readdirSync(AUTH_DIR);
-    return files.length > 0 && files.some((f) => f.includes("creds.json"));
+    try {
+      if (!fs.existsSync(AUTH_DIR)) return false;
+      const files = fs.readdirSync(AUTH_DIR);
+      return files.length > 0 && files.some((f) => f.includes("creds.json"));
+    } catch {
+      return false;
+    }
   }
 
   public async getStatus(): Promise<{

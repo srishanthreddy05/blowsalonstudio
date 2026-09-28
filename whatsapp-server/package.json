@@ -1,0 +1,14 @@
+{
+  "name": "blow-salon-whatsapp-server",
+  "version": "1.0.0",
+  "description": "BLOW SALON Persistent WhatsApp Web Session Backend Service",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^7.0.0-rc14",
+    "pino": "^10.3.1",
+    "qrcode": "^1.5.4"
+  }
+}

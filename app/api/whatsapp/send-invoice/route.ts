@@ -197,15 +197,15 @@ export async function POST(request: Request) {
       },
     });
   } catch (error: unknown) {
-    const errorMsg = error instanceof Error ? error.message : "Internal error sending WhatsApp invoice";
-    console.error("[WhatsApp API] send-invoice error:", error);
+    const errorMsg = error instanceof Error ? error.message : "Error dispatching WhatsApp invoice";
+    console.error("[WhatsApp Send-Invoice] Safe Error:", errorMsg);
     return NextResponse.json(
       {
         success: false,
         status: "FAILED",
         error: errorMsg,
       },
-      { status: 500 }
+      { status: 200 }
     );
   }
 }

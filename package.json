@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "whatsapp:server": "node whatsapp-server/index.js"
   },
   "dependencies": {
     "@whiskeysockets/baileys": "^7.0.0-rc14",

@@ -13,19 +13,21 @@ export async function POST() {
     return NextResponse.json({
       success: true,
       status: statusResult.status,
-      connectedNumber: statusResult.connectedNumber,
-      qrCode: statusResult.qrCode,
+      connectedNumber: statusResult.connectedNumber || null,
+      qrCode: statusResult.qrCode || null,
       provider: statusResult.provider,
-      errorMessage: statusResult.errorMessage,
+      errorMessage: statusResult.errorMessage || null,
     });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : "Failed to initiate WhatsApp connection";
+    console.error("[WhatsApp Connect] Error:", msg);
     return NextResponse.json(
       {
         success: false,
+        status: "DISCONNECTED",
         error: msg,
       },
-      { status: 500 }
+      { status: 200 }
     );
   }
 }
