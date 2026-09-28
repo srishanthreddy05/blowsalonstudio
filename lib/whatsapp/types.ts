@@ -3,12 +3,14 @@ import type {
   WhatsAppConnectionStatus,
   WhatsAppMessageStatus,
   WhatsAppProviderType,
+  WhatsAppErrorCode,
 } from "@/types/whatsapp";
 
 export interface SendMessageResult {
   success: boolean;
   messageId?: string | null;
   error?: string | null;
+  errorCode?: WhatsAppErrorCode | null;
 }
 
 export interface SendInvoiceResult {
@@ -16,6 +18,7 @@ export interface SendInvoiceResult {
   status: WhatsAppMessageStatus;
   messageId?: string | null;
   error?: string | null;
+  errorCode?: WhatsAppErrorCode | null;
   formattedMessage?: string;
   recipientPhone?: string;
 }
@@ -26,33 +29,46 @@ export interface ProviderStatusResult {
   connectedNumber?: string;
   qrCode?: string;
   errorMessage?: string;
+  errorCode?: WhatsAppErrorCode;
 }
 
 export interface IWhatsAppProvider {
   readonly providerType: WhatsAppProviderType;
 
   /**
-   * Initializes or wakes up the provider connection.
+   * Initializes or tests connection for the provider.
    */
   connect(): Promise<void>;
 
   /**
-   * Disconnects the session and clears authentication state.
+   * Disconnects the session (if applicable).
    */
   disconnect(): Promise<void>;
 
   /**
-   * Retrieves the current connection status and QR code if required.
+   * Retrieves the current connection/configuration status.
    */
   getStatus(): Promise<ProviderStatusResult>;
 
   /**
-   * Sends a plain text message to a normalized recipient phone number.
+   * Sends a plain text message to a recipient phone number.
    */
   sendMessage(phoneNumber: string, message: string): Promise<SendMessageResult>;
+
+  /**
+   * Sends an approved Meta WhatsApp template message (Cloud API).
+   */
+  sendTemplateMessage?(
+    phoneNumber: string,
+    templateName: string,
+    languageCode?: string,
+    components?: Array<Record<string, unknown>>
+  ): Promise<SendMessageResult>;
 
   /**
    * Formats and sends an invoice receipt message for a given Invoice.
    */
   sendInvoiceReceipt(invoice: Invoice, customerPhone?: string): Promise<SendInvoiceResult>;
 }
+
+export type WhatsAppProvider = IWhatsAppProvider;

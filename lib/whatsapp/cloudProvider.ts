@@ -5,54 +5,140 @@ import type {
   SendMessageResult,
   SendInvoiceResult,
 } from "./types";
-import { generateWhatsAppReceiptText } from "../utils/whatsappReceipt";
-import { normalizePhoneNumber } from "../utils/phone";
+import type { WhatsAppErrorCode } from "@/types/whatsapp";
+import { generateWhatsAppReceiptText } from "@/lib/utils/whatsappReceipt";
+import { normalizePhoneNumber } from "@/lib/utils/phone";
+import { logWhatsAppAction } from "./logger";
 
 /**
- * Future Provider: Official WhatsApp Business Cloud API.
- * Configured via environment variables (WHATSAPP_ACCESS_TOKEN, WHATSAPP_PHONE_NUMBER_ID).
+ * Meta WhatsApp Cloud API Provider.
+ * Server-side implementation communicating directly with Meta Graph API.
+ * Compatible with Vercel Serverless / Edge-free standard Node.js runtime.
  */
 export class CloudWhatsAppProvider implements IWhatsAppProvider {
   public readonly providerType = "WHATSAPP_CLOUD_API" as const;
 
+  private apiVersion: string;
   private accessToken?: string;
   private phoneNumberId?: string;
+  private businessAccountId?: string;
+  private businessNumber?: string;
+  private invoiceTemplateName?: string;
+  private templateLanguage: string;
 
   constructor() {
-    this.accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
-    this.phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+    this.apiVersion = (process.env.WHATSAPP_CLOUD_API_VERSION || "v21.0").trim().replace(/^v?/, "v");
+    this.accessToken = process.env.WHATSAPP_ACCESS_TOKEN?.trim();
+    this.phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID?.trim();
+    this.businessAccountId = process.env.WHATSAPP_BUSINESS_ACCOUNT_ID?.trim();
+    this.businessNumber = process.env.WHATSAPP_BUSINESS_NUMBER?.trim();
+    this.invoiceTemplateName = process.env.WHATSAPP_INVOICE_TEMPLATE_NAME?.trim();
+    this.templateLanguage = (process.env.WHATSAPP_TEMPLATE_LANGUAGE || "en_US").trim();
+  }
+
+  /**
+   * Helper to classify Meta Graph API errors into standardized error categories.
+   */
+  private classifyMetaError(code?: number, message?: string): { errorCode: WhatsAppErrorCode; cleanMessage: string } {
+    const msg = message || "WhatsApp Cloud API request failed.";
+
+    if (code === 190 || code === 102 || code === 10) {
+      return {
+        errorCode: "WHATSAPP_AUTH_ERROR",
+        cleanMessage: "WhatsApp authentication failed. The access token may be expired or invalid.",
+      };
+    }
+
+    if (code === 131030 || code === 131042 || code === 131000 || code === 131026 || code === 131005) {
+      return {
+        errorCode: "WHATSAPP_PHONE_NOT_REGISTERED",
+        cleanMessage: "The WhatsApp phone number is not registered or active with Meta.",
+      };
+    }
+
+    if (code === 130429 || code === 80007 || code === 4) {
+      return {
+        errorCode: "WHATSAPP_RATE_LIMIT",
+        cleanMessage: "Meta WhatsApp API rate limit reached. Please try again shortly.",
+      };
+    }
+
+    if (code && code >= 132000 && code <= 132015) {
+      return {
+        errorCode: "WHATSAPP_TEMPLATE_ERROR",
+        cleanMessage: `Meta template error: ${msg}`,
+      };
+    }
+
+    return {
+      errorCode: "WHATSAPP_API_ERROR",
+      cleanMessage: msg,
+    };
   }
 
   public async connect(): Promise<void> {
-    // Cloud API uses bearer token authentication, always ready if credentials are configured
+    // Cloud API uses HTTP bearer tokens — validation happens during getStatus/sendMessage
+    if (!this.accessToken || !this.phoneNumberId) {
+      throw new Error("WhatsApp Cloud API credentials not configured in environment variables.");
+    }
   }
 
   public async disconnect(): Promise<void> {
-    // Cloud API has no persistent web socket session to disconnect
+    // No persistent connection to close
   }
 
   public async getStatus(): Promise<ProviderStatusResult> {
     const isConfigured = Boolean(this.accessToken && this.phoneNumberId);
+
+    if (!isConfigured) {
+      return {
+        status: "DISCONNECTED",
+        provider: this.providerType,
+        errorCode: "WHATSAPP_NOT_CONFIGURED",
+        errorMessage: "WhatsApp Cloud API not configured. Missing WHATSAPP_ACCESS_TOKEN or WHATSAPP_PHONE_NUMBER_ID.",
+      };
+    }
+
     return {
-      status: isConfigured ? "CONNECTED" : "DISCONNECTED",
+      status: "CONNECTED",
       provider: this.providerType,
-      connectedNumber: process.env.WHATSAPP_BUSINESS_NUMBER || undefined,
-      errorMessage: isConfigured ? undefined : "WhatsApp Cloud API credentials not configured in environment variables.",
+      connectedNumber: this.businessNumber || undefined,
+      errorMessage: undefined,
     };
   }
 
   public async sendMessage(phoneNumber: string, message: string): Promise<SendMessageResult> {
     const status = await this.getStatus();
-    if (status.status !== "CONNECTED") {
+    if (status.status !== "CONNECTED" || !this.accessToken || !this.phoneNumberId) {
+      logWhatsAppAction({
+        provider: this.providerType,
+        action: "sendMessage",
+        phone: phoneNumber,
+        result: "UNCONFIGURED",
+        errorCode: "WHATSAPP_NOT_CONFIGURED",
+        error: "WhatsApp Cloud API is not configured.",
+      });
       return {
         success: false,
+        errorCode: "WHATSAPP_NOT_CONFIGURED",
         error: "WhatsApp Cloud API is not configured.",
       };
     }
 
+    const normalized = normalizePhoneNumber(phoneNumber);
+    if (!normalized.isValid) {
+      return {
+        success: false,
+        errorCode: "WHATSAPP_API_ERROR",
+        error: `Invalid phone number format: "${phoneNumber}".`,
+      };
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+
     try {
-      const normalized = normalizePhoneNumber(phoneNumber);
-      const url = `https://graph.facebook.com/v19.0/${this.phoneNumberId}/messages`;
+      const url = `https://graph.facebook.com/${this.apiVersion}/${this.phoneNumberId}/messages`;
 
       const response = await fetch(url, {
         method: "POST",
@@ -65,28 +151,174 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
           recipient_type: "individual",
           to: normalized.digits,
           type: "text",
-          text: { preview_url: false, body: message },
+          text: {
+            preview_url: false,
+            body: message,
+          },
         }),
+        signal: controller.signal,
       });
 
-      const data = await response.json();
+      const data = await response.json().catch(() => ({}));
+
       if (!response.ok) {
+        const errorInfo = data.error || {};
+        const { errorCode, cleanMessage } = this.classifyMetaError(errorInfo.code, errorInfo.message);
+
+        logWhatsAppAction({
+          provider: this.providerType,
+          action: "sendMessage",
+          phone: normalized.digits,
+          result: "FAILED",
+          errorCode,
+          error: errorInfo.message || cleanMessage,
+        });
+
         return {
           success: false,
-          error: data.error?.message || "Cloud API message dispatch failed.",
+          errorCode,
+          error: cleanMessage,
         };
       }
 
+      const messageId = data.messages?.[0]?.id || null;
+
+      logWhatsAppAction({
+        provider: this.providerType,
+        action: "sendMessage",
+        phone: normalized.digits,
+        result: "SUCCESS",
+        messageId,
+      });
+
       return {
         success: true,
-        messageId: data.messages?.[0]?.id,
+        messageId,
       };
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Error calling WhatsApp Cloud API";
+      const isAbort = err instanceof Error && err.name === "AbortError";
+      const errorMsg = isAbort ? "WhatsApp Cloud API request timed out (10s)." : err instanceof Error ? err.message : "Error calling Meta Cloud API";
+
+      logWhatsAppAction({
+        provider: this.providerType,
+        action: "sendMessage",
+        phone: normalized.digits,
+        result: "FAILED",
+        errorCode: "WHATSAPP_API_ERROR",
+        error: errorMsg,
+      });
+
       return {
         success: false,
-        error: msg,
+        errorCode: "WHATSAPP_API_ERROR",
+        error: errorMsg,
       };
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  /**
+   * Sends an approved Meta WhatsApp Template Message.
+   */
+  public async sendTemplateMessage(
+    phoneNumber: string,
+    templateName: string,
+    languageCode?: string,
+    components?: Array<Record<string, unknown>>
+  ): Promise<SendMessageResult> {
+    const status = await this.getStatus();
+    if (status.status !== "CONNECTED" || !this.accessToken || !this.phoneNumberId) {
+      return {
+        success: false,
+        errorCode: "WHATSAPP_NOT_CONFIGURED",
+        error: "WhatsApp Cloud API is not configured.",
+      };
+    }
+
+    const normalized = normalizePhoneNumber(phoneNumber);
+    if (!normalized.isValid) {
+      return {
+        success: false,
+        errorCode: "WHATSAPP_API_ERROR",
+        error: `Invalid phone number format: "${phoneNumber}".`,
+      };
+    }
+
+    const lang = languageCode || this.templateLanguage || "en_US";
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+    try {
+      const url = `https://graph.facebook.com/${this.apiVersion}/${this.phoneNumberId}/messages`;
+
+      const payload: Record<string, unknown> = {
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to: normalized.digits,
+        type: "template",
+        template: {
+          name: templateName,
+          language: { code: lang },
+          ...(components && components.length > 0 ? { components } : {}),
+        },
+      };
+
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        const errorInfo = data.error || {};
+        const { errorCode, cleanMessage } = this.classifyMetaError(errorInfo.code, errorInfo.message);
+
+        logWhatsAppAction({
+          provider: this.providerType,
+          action: "sendTemplateMessage",
+          phone: normalized.digits,
+          result: "FAILED",
+          errorCode,
+          error: errorInfo.message || cleanMessage,
+        });
+
+        return {
+          success: false,
+          errorCode,
+          error: cleanMessage,
+        };
+      }
+
+      const messageId = data.messages?.[0]?.id || null;
+
+      logWhatsAppAction({
+        provider: this.providerType,
+        action: "sendTemplateMessage",
+        phone: normalized.digits,
+        result: "SUCCESS",
+        messageId,
+      });
+
+      return {
+        success: true,
+        messageId,
+      };
+    } catch (err: unknown) {
+      const errorMsg = err instanceof Error ? err.message : "Failed to dispatch template message";
+      return {
+        success: false,
+        errorCode: "WHATSAPP_TEMPLATE_ERROR",
+        error: errorMsg,
+      };
+    } finally {
+      clearTimeout(timeoutId);
     }
   }
 
@@ -101,15 +333,93 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
       return {
         success: false,
         status: "NOT_SENT",
+        errorCode: "WHATSAPP_API_ERROR",
         error: "Customer does not have a valid WhatsApp phone number.",
         recipientPhone: targetPhone,
       };
     }
 
+    const currentStatus = await this.getStatus();
+    if (currentStatus.status !== "CONNECTED") {
+      logWhatsAppAction({
+        provider: this.providerType,
+        action: "sendInvoiceReceipt",
+        phone: normalized.digits,
+        invoiceNumber: invoice.invoiceNumber,
+        result: "UNCONFIGURED",
+        errorCode: currentStatus.errorCode || "WHATSAPP_NOT_CONFIGURED",
+        error: currentStatus.errorMessage,
+      });
+
+      return {
+        success: false,
+        status: "NOT_SENT",
+        errorCode: currentStatus.errorCode || "WHATSAPP_NOT_CONFIGURED",
+        error: currentStatus.errorMessage || "WhatsApp Cloud API is not configured.",
+        recipientPhone: normalized.display,
+      };
+    }
+
+    // If an approved Meta template is configured in environment, dispatch via template
+    if (this.invoiceTemplateName) {
+      const templateResult = await this.sendTemplateMessage(
+        normalized.digits,
+        this.invoiceTemplateName,
+        this.templateLanguage,
+        [
+          {
+            type: "body",
+            parameters: [
+              { type: "text", text: (invoice.customerName || "Valued Customer").trim() },
+              { type: "text", text: invoice.invoiceNumber || "INV" },
+              { type: "text", text: `₹${Math.round(invoice.grandTotal).toLocaleString("en-IN")}` },
+            ],
+          },
+        ]
+      );
+
+      if (templateResult.success) {
+        logWhatsAppAction({
+          provider: this.providerType,
+          action: "sendInvoiceReceipt[Template]",
+          phone: normalized.digits,
+          invoiceNumber: invoice.invoiceNumber,
+          messageId: templateResult.messageId,
+          result: "SUCCESS",
+        });
+
+        return {
+          success: true,
+          status: "SENT",
+          messageId: templateResult.messageId,
+          formattedMessage: `[Meta Template: ${this.invoiceTemplateName}]`,
+          recipientPhone: normalized.display,
+        };
+      }
+      // If template fails, log and return clean failure
+      return {
+        success: false,
+        status: "FAILED",
+        errorCode: templateResult.errorCode,
+        error: templateResult.error || "Failed to deliver WhatsApp template receipt.",
+        recipientPhone: normalized.display,
+      };
+    }
+
+    // Default: Standard formatted receipt text
     const messageText = generateWhatsAppReceiptText(invoice);
     const sendResult = await this.sendMessage(normalized.digits, messageText);
 
     if (sendResult.success) {
+      logWhatsAppAction({
+        provider: this.providerType,
+        action: "sendInvoiceReceipt[Text]",
+        phone: normalized.digits,
+        invoiceNumber: invoice.invoiceNumber,
+        messageId: sendResult.messageId,
+        result: "SUCCESS",
+      });
+
       return {
         success: true,
         status: "SENT",
@@ -121,6 +431,7 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
       return {
         success: false,
         status: "FAILED",
+        errorCode: sendResult.errorCode,
         error: sendResult.error || "Failed to deliver Cloud API WhatsApp receipt.",
         formattedMessage: messageText,
         recipientPhone: normalized.display,
@@ -128,3 +439,5 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
     }
   }
 }
+
+export { CloudWhatsAppProvider as MetaCloudWhatsAppProvider };

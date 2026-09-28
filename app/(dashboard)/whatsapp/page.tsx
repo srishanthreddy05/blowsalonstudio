@@ -234,7 +234,12 @@ export default function WhatsAppPage() {
                     WhatsApp Number Connection
                   </h2>
                   <p className="text-xs text-[#747A72]">
-                    Provider: <span className="font-semibold text-[#2F352F]">QR WhatsApp (Web Session)</span>
+                    Provider:{" "}
+                    <span className="font-semibold text-[#2F352F]">
+                      {statusData?.provider === "WHATSAPP_CLOUD_API"
+                        ? "Meta WhatsApp Cloud API"
+                        : "QR WhatsApp (Web Session)"}
+                    </span>
                   </p>
                 </div>
               </div>
@@ -260,38 +265,42 @@ export default function WhatsAppPage() {
                         Connected Phone Number
                       </span>
                       <span className="font-mono text-base font-bold text-[#2F352F]">
-                        {statusData?.connectedNumber || "Connected Number"}
+                        {statusData?.connectedNumber || "Meta Cloud Registered Number"}
                       </span>
                     </div>
                   </div>
 
                   <div className="flex items-center gap-1.5 text-xs text-[#5F7A62] font-semibold">
                     <CheckCircle2 size={16} />
-                    <span>Active Session</span>
+                    <span>Active Provider</span>
                   </div>
                 </div>
 
                 <div className="text-xs text-[#747A72] space-y-1 bg-[#F7F7F4] p-3.5 rounded-2xl border border-[#E0E4DD]">
                   <p className="flex items-center gap-1.5 text-[#2F352F] font-semibold">
                     <ShieldCheck size={14} className="text-[#5F7A62]" />
-                    Session Persisted
+                    {statusData?.provider === "WHATSAPP_CLOUD_API" ? "Meta Cloud API Active" : "Session Persisted"}
                   </p>
                   <p>
-                    Authentication credentials are saved locally. You do not need to rescan the QR code on server restarts.
+                    {statusData?.provider === "WHATSAPP_CLOUD_API"
+                      ? "Official Meta Cloud API is active. Receipts are dispatched securely via Meta Graph API."
+                      : "Authentication credentials are saved locally. You do not need to rescan the QR code on server restarts."}
                   </p>
                 </div>
 
-                <div className="flex items-center justify-end gap-3 pt-2">
-                  <button
-                    type="button"
-                    disabled={actionLoading}
-                    onClick={handleDisconnect}
-                    className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-[#F8D7D7] bg-[#FBEBEB] hover:bg-[#F5DCDC] px-4 text-xs font-bold text-[#B55B5B] transition cursor-pointer disabled:opacity-50"
-                  >
-                    <Unlink size={13} />
-                    <span>Disconnect WhatsApp</span>
-                  </button>
-                </div>
+                {statusData?.provider === "QR_WHATSAPP" && (
+                  <div className="flex items-center justify-end gap-3 pt-2">
+                    <button
+                      type="button"
+                      disabled={actionLoading}
+                      onClick={handleDisconnect}
+                      className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-[#F8D7D7] bg-[#FBEBEB] hover:bg-[#F5DCDC] px-4 text-xs font-bold text-[#B55B5B] transition cursor-pointer disabled:opacity-50"
+                    >
+                      <Unlink size={13} />
+                      <span>Disconnect WhatsApp</span>
+                    </button>
+                  </div>
+                )}
               </div>
             ) : isQrRequired && statusData?.qrCode ? (
               /* QR Code Scanning State */
@@ -348,44 +357,50 @@ export default function WhatsAppPage() {
               /* Disconnected / Ready to Connect State */
               <div className="space-y-4 text-center py-4">
                 <div className="grid size-14 place-items-center rounded-2xl bg-[#F7F7F4] text-[#6F776D] border border-[#E0E4DD] mx-auto">
-                  <QrCode size={28} />
+                  <WhatsAppBrandIcon size={28} />
                 </div>
                 <div>
                   <h3 className="font-serif text-base font-bold text-[#2F352F]">
-                    No WhatsApp Number Linked
+                    {statusData?.provider === "WHATSAPP_CLOUD_API"
+                      ? "Meta WhatsApp Cloud API"
+                      : "No WhatsApp Number Linked"}
                   </h3>
                   <p className="text-xs text-[#747A72] max-w-sm mx-auto mt-1">
-                    Connect your salon phone number by scanning a QR code to enable automatic bill delivery.
+                    {statusData?.provider === "WHATSAPP_CLOUD_API"
+                      ? "Official Meta Cloud API integration. Receipts dispatch automatically upon billing once Meta phone number registration completes."
+                      : "Connect your salon phone number by scanning a QR code to enable automatic bill delivery."}
                   </p>
                 </div>
 
                 {statusData?.errorMessage && (
-                  <div className="p-3 rounded-xl bg-[#FBEBEB] border border-[#F8D7D7] text-[#B55B5B] text-xs text-left max-w-md mx-auto flex items-center gap-2">
-                    <AlertCircle size={15} className="shrink-0" />
+                  <div className="p-3 rounded-xl bg-[#FAF4E8] border border-[#B18A45]/30 text-[#8C6D2D] text-xs text-left max-w-md mx-auto flex items-center gap-2">
+                    <AlertCircle size={15} className="shrink-0 text-[#B18A45]" />
                     <span>{statusData.errorMessage}</span>
                   </div>
                 )}
 
-                <div className="pt-2">
-                  <button
-                    type="button"
-                    disabled={actionLoading}
-                    onClick={handleConnect}
-                    className="inline-flex h-10 items-center gap-2 rounded-xl bg-[#6F776D] hover:bg-[#2F352F] px-5 text-xs font-bold text-white shadow-xs transition cursor-pointer disabled:opacity-50"
-                  >
-                    {actionLoading || isConnecting ? (
-                      <>
-                        <div className="size-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                        <span>Starting Connection...</span>
-                      </>
-                    ) : (
-                      <>
-                        <QrCode size={15} />
-                        <span>Connect WhatsApp via QR</span>
-                      </>
-                    )}
-                  </button>
-                </div>
+                {statusData?.provider === "QR_WHATSAPP" && (
+                  <div className="pt-2">
+                    <button
+                      type="button"
+                      disabled={actionLoading}
+                      onClick={handleConnect}
+                      className="inline-flex h-10 items-center gap-2 rounded-xl bg-[#6F776D] hover:bg-[#2F352F] px-5 text-xs font-bold text-white shadow-xs transition cursor-pointer disabled:opacity-50"
+                    >
+                      {actionLoading || isConnecting ? (
+                        <>
+                          <div className="size-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                          <span>Starting Connection...</span>
+                        </>
+                      ) : (
+                        <>
+                          <QrCode size={15} />
+                          <span>Connect WhatsApp via QR</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>

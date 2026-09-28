@@ -12,6 +12,10 @@ export async function GET() {
     const provider = getWhatsAppProvider();
     const statusResult = await provider.getStatus();
 
+    const isMetaConfigured = Boolean(
+      process.env.WHATSAPP_ACCESS_TOKEN && process.env.WHATSAPP_PHONE_NUMBER_ID
+    );
+
     // Fetch autoSend setting from Firestore
     let autoSendInvoice = true;
     try {
@@ -35,6 +39,8 @@ export async function GET() {
       qrCode: statusResult.qrCode || null,
       provider: statusResult.provider,
       errorMessage: statusResult.errorMessage || null,
+      errorCode: statusResult.errorCode || null,
+      metaCloudConfigured: isMetaConfigured,
       autoSendInvoice,
       updatedAt: new Date().toISOString(),
     });
@@ -48,8 +54,9 @@ export async function GET() {
         status: "DISCONNECTED",
         connectedNumber: null,
         qrCode: null,
-        provider: "QR_WHATSAPP",
+        provider: "WHATSAPP_CLOUD_API",
         errorMessage: "WhatsApp service is currently unavailable.",
+        errorCode: "WHATSAPP_NOT_CONFIGURED",
         autoSendInvoice: true,
         updatedAt: new Date().toISOString(),
       },

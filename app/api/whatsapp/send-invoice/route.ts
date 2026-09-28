@@ -121,6 +121,7 @@ export async function POST(request: Request) {
     // 4. Resolve Target Phone
     const targetRawPhone = (overridePhone || invoiceData.customerPhone || "").trim();
     const normalized = normalizePhoneNumber(targetRawPhone);
+    const provider = getWhatsAppProvider();
 
     if (!normalized.isValid) {
       const nowIso = new Date().toISOString();
@@ -133,8 +134,9 @@ export async function POST(request: Request) {
         normalizedPhone: normalized.e164 || "",
         message: "Customer phone number is missing or invalid.",
         status: "NOT_SENT",
-        provider: "QR_WHATSAPP",
+        provider: provider.providerType,
         errorMessage: "Customer phone number is missing or invalid.",
+        errorCode: "WHATSAPP_API_ERROR",
         messageId: null,
         sentAt: null,
         createdAt: nowIso,
@@ -156,7 +158,6 @@ export async function POST(request: Request) {
     }
 
     // 5. Send via Provider
-    const provider = getWhatsAppProvider();
     const sendResult = await provider.sendInvoiceReceipt(invoiceData, targetRawPhone);
 
     // 6. Record Audit in Firestore (Guaranteed no undefined values)
@@ -172,6 +173,7 @@ export async function POST(request: Request) {
       status: sendResult.status,
       provider: provider.providerType,
       errorMessage: sendResult.error || null,
+      errorCode: sendResult.errorCode || null,
       messageId: sendResult.messageId || null,
       sentAt: sendResult.status === "SENT" ? nowIso : null,
       createdAt: nowIso,
@@ -191,6 +193,7 @@ export async function POST(request: Request) {
       success: sendResult.success,
       status: sendResult.status,
       error: sendResult.error || null,
+      errorCode: sendResult.errorCode || null,
       messageRecord: {
         id: savedDocId || undefined,
         ...messageRecord,
@@ -204,6 +207,7 @@ export async function POST(request: Request) {
         success: false,
         status: "FAILED",
         error: errorMsg,
+        errorCode: "WHATSAPP_API_ERROR",
       },
       { status: 200 }
     );
