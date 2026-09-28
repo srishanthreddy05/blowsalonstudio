@@ -209,6 +209,20 @@ export class QRWhatsAppProvider implements IWhatsAppProvider {
     return baileysManager.sendTextMessage(phoneNumber, message);
   }
 
+  public async sendTemplateMessage(
+    phoneNumber: string,
+    templateName: string
+  ): Promise<SendMessageResult> {
+    return {
+      success: false,
+      error: `Template messaging ("${templateName}") is exclusively supported on Meta WhatsApp Cloud API.`,
+    };
+  }
+
+  public async getTemplates(): Promise<any[]> {
+    return [];
+  }
+
   public async sendInvoiceReceipt(
     invoice: Invoice,
     overridePhone?: string

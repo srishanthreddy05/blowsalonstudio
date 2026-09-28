@@ -322,6 +322,80 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
     }
   }
 
+  /**
+   * Retrieves message templates from Meta Cloud API (WABA).
+   */
+  public async getTemplates(): Promise<any[]> {
+    if (!this.accessToken) {
+      return [];
+    }
+    const wabaId = this.businessAccountId || "1755242905734759";
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+    try {
+      const url = `https://graph.facebook.com/${this.apiVersion}/${wabaId}/message_templates?limit=100`;
+      const response = await fetch(url, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${this.accessToken}`,
+          "Content-Type": "application/json",
+        },
+        signal: controller.signal,
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const errorInfo = data.error || {};
+        console.warn("[WhatsApp Cloud Provider] Could not fetch templates from Meta:", errorInfo.message || response.statusText);
+        return [];
+      }
+
+      const templatesList = (data.data || []).map((t: any) => {
+        let bodyText = "";
+        let headerText = "";
+        let footerText = "";
+        let variableCount = 0;
+
+        if (Array.isArray(t.components)) {
+          for (const comp of t.components) {
+            if (comp.type === "BODY") {
+              bodyText = comp.text || "";
+              const matches = bodyText.match(/\{\{\d+\}\}/g);
+              if (matches) {
+                variableCount = Math.max(variableCount, matches.length);
+              }
+            } else if (comp.type === "HEADER") {
+              headerText = comp.text || "";
+            } else if (comp.type === "FOOTER") {
+              footerText = comp.text || "";
+            }
+          }
+        }
+
+        return {
+          id: t.id || t.name,
+          name: t.name,
+          language: t.language,
+          status: t.status,
+          category: t.category,
+          components: t.components || [],
+          bodyText,
+          headerText,
+          footerText,
+          variableCount,
+        };
+      });
+
+      return templatesList;
+    } catch (err: unknown) {
+      console.warn("[WhatsApp Cloud Provider] Template fetch error:", err instanceof Error ? err.message : err);
+      return [];
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
   public async sendInvoiceReceipt(
     invoice: Invoice,
     overridePhone?: string

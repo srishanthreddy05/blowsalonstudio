@@ -8,4 +8,9 @@ export interface Customer {
   membershipDuration?: number | null;
   membershipStart?: string | null;
   membershipEnd?: string | null;
+  // WhatsApp Marketing & Communication Consent
+  whatsappOptIn?: boolean;
+  whatsappOptInAt?: string | null;
+  whatsappOptOut?: boolean;
+  whatsappOptOutAt?: string | null;
 }

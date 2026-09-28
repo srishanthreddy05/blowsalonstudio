@@ -4,6 +4,7 @@ import type {
   WhatsAppMessageStatus,
   WhatsAppProviderType,
   WhatsAppErrorCode,
+  WhatsAppTemplate,
 } from "@/types/whatsapp";
 
 export interface SendMessageResult {
@@ -58,12 +59,17 @@ export interface IWhatsAppProvider {
   /**
    * Sends an approved Meta WhatsApp template message (Cloud API).
    */
-  sendTemplateMessage?(
+  sendTemplateMessage(
     phoneNumber: string,
     templateName: string,
     languageCode?: string,
     components?: Array<Record<string, unknown>>
   ): Promise<SendMessageResult>;
+
+  /**
+   * Retrieves approved WhatsApp Business message templates.
+   */
+  getTemplates?(): Promise<WhatsAppTemplate[]>;
 
   /**
    * Formats and sends an invoice receipt message for a given Invoice.

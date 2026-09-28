@@ -8,6 +8,7 @@ import {
   getDocs,
   updateDoc,
   doc,
+  increment,
 } from "firebase/firestore";
 import type { WhatsAppMessageStatus } from "@/types/whatsapp";
 import { maskPhoneNumber } from "@/lib/whatsapp/logger";
@@ -16,6 +17,8 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 const MESSAGES_COLLECTION = "whatsapp_messages";
+const RECIPIENTS_COLLECTION = "whatsapp_campaign_recipients";
+const CAMPAIGNS_COLLECTION = "whatsapp_campaigns";
 
 /**
  * Defensive utility to recursively strip any 'undefined' properties before passing to Firestore.
@@ -126,17 +129,18 @@ export async function POST(request: Request) {
                   `[WhatsApp Webhook] Status update: ID=${messageId} -> ${mappedStatus} (Phone: ${maskPhoneNumber(recipientPhone)})`
                 );
 
-                // Update matching Firestore audit doc
+                const nowIso = new Date().toISOString();
+
+                // 1. Update matching unified Firestore audit doc (whatsapp_messages)
                 try {
-                  const q = query(
+                  const qMsg = query(
                     collection(db, MESSAGES_COLLECTION),
                     where("messageId", "==", messageId)
                   );
-                  const querySnap = await getDocs(q);
+                  const msgSnap = await getDocs(qMsg);
 
-                  if (!querySnap.empty) {
-                    const nowIso = new Date().toISOString();
-                    const docSnap = querySnap.docs[0];
+                  if (!msgSnap.empty) {
+                    const docSnap = msgSnap.docs[0];
                     const updatePayload: Record<string, any> = {
                       status: mappedStatus,
                       updatedAt: nowIso,
@@ -157,10 +161,68 @@ export async function POST(request: Request) {
                       sanitizeFirestoreDoc(updatePayload)
                     );
                   }
-                } catch (updateErr) {
+                } catch (msgErr) {
                   console.error(
-                    `[WhatsApp Webhook] Failed to update Firestore message doc ${messageId}:`,
-                    updateErr instanceof Error ? updateErr.message : updateErr
+                    `[WhatsApp Webhook] Failed to update message audit doc ${messageId}:`,
+                    msgErr instanceof Error ? msgErr.message : msgErr
+                  );
+                }
+
+                // 2. Update matching campaign recipient doc (whatsapp_campaign_recipients)
+                try {
+                  const qRec = query(
+                    collection(db, RECIPIENTS_COLLECTION),
+                    where("metaMessageId", "==", messageId)
+                  );
+                  const recSnap = await getDocs(qRec);
+
+                  if (!recSnap.empty) {
+                    const recDoc = recSnap.docs[0];
+                    const recData = recDoc.data();
+                    const campaignId = recData.campaignId;
+
+                    const recUpdate: Record<string, any> = {
+                      status: mappedStatus,
+                      updatedAt: nowIso,
+                    };
+
+                    if (mappedStatus === "DELIVERED") {
+                      recUpdate.deliveredAt = nowIso;
+                    } else if (mappedStatus === "READ") {
+                      recUpdate.readAt = nowIso;
+                    } else if (mappedStatus === "FAILED") {
+                      const errorObj = statusObj.errors?.[0];
+                      recUpdate.errorMessage = errorObj?.message || errorObj?.title || "Delivery failed";
+                    }
+
+                    await updateDoc(
+                      doc(db, RECIPIENTS_COLLECTION, recDoc.id),
+                      sanitizeFirestoreDoc(recUpdate)
+                    );
+
+                    // 3. Update Campaign Counters
+                    if (campaignId) {
+                      const campaignCounterUpdate: Record<string, any> = {
+                        updatedAt: nowIso,
+                      };
+                      if (mappedStatus === "DELIVERED") {
+                        campaignCounterUpdate.deliveredCount = increment(1);
+                      } else if (mappedStatus === "READ") {
+                        campaignCounterUpdate.readCount = increment(1);
+                      } else if (mappedStatus === "FAILED") {
+                        campaignCounterUpdate.failedCount = increment(1);
+                      }
+
+                      await updateDoc(
+                        doc(db, CAMPAIGNS_COLLECTION, campaignId),
+                        sanitizeFirestoreDoc(campaignCounterUpdate)
+                      );
+                    }
+                  }
+                } catch (recErr) {
+                  console.error(
+                    `[WhatsApp Webhook] Failed to update campaign recipient doc ${messageId}:`,
+                    recErr instanceof Error ? recErr.message : recErr
                   );
                 }
               }
@@ -185,7 +247,6 @@ export async function POST(request: Request) {
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : "Error processing WhatsApp webhook";
     console.error("[WhatsApp Webhook] POST error:", errorMsg);
-    // Return 200 to prevent Meta from disabling the webhook endpoint during transient errors
     return NextResponse.json({ success: false, error: errorMsg }, { status: 200 });
   }
 }
