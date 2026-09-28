@@ -31,3 +31,4 @@ export async function GET(request: Request) {
     return NextResponse.json({ templates: [], error: errorMsg }, { status: 200 });
   }
 }
+

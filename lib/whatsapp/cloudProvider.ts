@@ -6,7 +6,6 @@ import type {
   SendInvoiceResult,
 } from "./types";
 import type { WhatsAppErrorCode } from "@/types/whatsapp";
-import { generateWhatsAppReceiptText } from "@/lib/utils/whatsappReceipt";
 import { normalizePhoneNumber } from "@/lib/utils/phone";
 import { formatDisplayDate, toLocalDateString } from "@/lib/utils/date";
 import { logWhatsAppAction } from "./logger";

@@ -2,23 +2,20 @@ import type { IWhatsAppProvider } from "./types";
 import { QRWhatsAppProvider } from "./qrProvider";
 import { CloudWhatsAppProvider, MetaCloudWhatsAppProvider } from "./cloudProvider";
 
-let activeProvider: IWhatsAppProvider | null = null;
+let activeQrProvider: IWhatsAppProvider | null = null;
 
 export function getWhatsAppProvider(): IWhatsAppProvider {
-  if (activeProvider) {
-    return activeProvider;
-  }
-
   const providerType = (process.env.WHATSAPP_PROVIDER || "meta_cloud").toLowerCase().trim();
 
   if (providerType === "qr" || providerType === "qr_whatsapp") {
-    activeProvider = new QRWhatsAppProvider();
-  } else {
-    // Default to Meta WhatsApp Cloud API Provider
-    activeProvider = new CloudWhatsAppProvider();
+    if (!activeQrProvider) {
+      activeQrProvider = new QRWhatsAppProvider();
+    }
+    return activeQrProvider;
   }
 
-  return activeProvider;
+  // Meta WhatsApp Cloud API Provider
+  return new CloudWhatsAppProvider();
 }
 
 export { MetaCloudWhatsAppProvider, CloudWhatsAppProvider, QRWhatsAppProvider };
