@@ -68,24 +68,26 @@ export async function POST(request: Request) {
       );
     }
 
-    // Build body parameters for variables
+    // Build body parameters for variables only if dynamic variables exist
     const bodyParameters: Array<{ type: string; text: string }> = [];
     const varKeys = Object.keys(templateVariables || {}).sort((a, b) => Number(a) - Number(b));
 
     for (const k of varKeys) {
-      const varTypeOrVal = templateVariables[k] || "";
+      const varTypeOrVal = (templateVariables[k] ?? "").toString().trim();
       let resolvedText = varTypeOrVal;
 
       if (varTypeOrVal === "customer_name" || varTypeOrVal === "{{customer_name}}") {
-        resolvedText = sampleCustomerName.trim();
+        resolvedText = (sampleCustomerName || "Customer").trim();
       } else if (varTypeOrVal === "salon_name" || varTypeOrVal === "{{salon_name}}") {
         resolvedText = "BLOW SALON";
       }
 
-      bodyParameters.push({
-        type: "text",
-        text: resolvedText,
-      });
+      if (resolvedText) {
+        bodyParameters.push({
+          type: "text",
+          text: resolvedText,
+        });
+      }
     }
 
     const components = bodyParameters.length > 0

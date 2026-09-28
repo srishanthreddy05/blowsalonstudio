@@ -47,10 +47,7 @@ export function CreateCampaignModal({
   const [loadingTemplates, setLoadingTemplates] = useState(true);
   const [selectedTemplateName, setSelectedTemplateName] = useState<string>("");
   const [customTemplateInput, setCustomTemplateInput] = useState("");
-  const [templateVariables, setTemplateVariables] = useState<Record<string, string>>({
-    "1": "customer_name",
-    "2": "BLOW SALON",
-  });
+  const [templateVariables, setTemplateVariables] = useState<Record<string, string>>({});
 
   // UI Flow
   const [testModalOpen, setTestModalOpen] = useState(false);
@@ -136,9 +133,35 @@ export function CreateCampaignModal({
     };
   }, [customers, audienceType, selectedCustomerIds]);
 
+  // Calculate required variable count dynamically based on the active template
+  const templateVarCount = useMemo(() => {
+    if (effectiveTemplateName === "3p_direct_integration_test_template") return 0;
+    if (activeTemplate) {
+      return activeTemplate.variableCount ?? 0;
+    }
+    return 0;
+  }, [activeTemplate, effectiveTemplateName]);
+
+  // Sync templateVariables whenever active template or templateVarCount changes
+  useEffect(() => {
+    if (templateVarCount === 0) {
+      setTemplateVariables({});
+    } else {
+      setTemplateVariables((prev) => {
+        const next: Record<string, string> = {};
+        for (let i = 1; i <= templateVarCount; i++) {
+          const k = String(i);
+          next[k] = prev[k] || (i === 1 ? "customer_name" : i === 2 ? "BLOW SALON" : "");
+        }
+        return next;
+      });
+    }
+  }, [templateVarCount, selectedTemplateName]);
+
   // Generate live preview text
   const previewText = useMemo(() => {
-    let body = activeTemplate?.bodyText || "Hello {{1}}, welcome to {{2}}! Enjoy your visit at BLOW SALON.";
+    let body = activeTemplate?.bodyText || "Hello, here is your update from BLOW SALON.";
+    if (templateVarCount === 0) return body;
 
     const varKeys = Object.keys(templateVariables);
     for (const k of varKeys) {
@@ -150,7 +173,7 @@ export function CreateCampaignModal({
       body = body.replace(new RegExp(`\\{\\{${k}\\}\\}`, "g"), replacement);
     }
     return body;
-  }, [activeTemplate, templateVariables]);
+  }, [activeTemplate, templateVariables, templateVarCount]);
 
   // Search filtered customers for custom selection
   const filteredCustomers = useMemo(() => {
@@ -505,39 +528,51 @@ export function CreateCampaignModal({
               4. Map Template Variables
             </label>
 
-            <div className="p-4 rounded-2xl bg-[#F7F7F4] border border-[#E0E4DD] space-y-3">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {/* Variable 1 */}
-                <div className="space-y-1">
-                  <label className="text-[11px] font-bold text-[#2F352F] block">
-                    Variable {"{{1}}"} (e.g. Customer Name)
-                  </label>
-                  <select
-                    value={templateVariables["1"] || "customer_name"}
-                    onChange={(e) => handleVariableChange("1", e.target.value)}
-                    className="w-full h-9 px-3 rounded-xl border border-[#CCD2C8] bg-white text-xs font-medium text-[#2F352F]"
-                  >
-                    <option value="customer_name">Dynamic: Client Name (e.g. Rahul Sharma)</option>
-                    <option value="salon_name">Dynamic: Salon Name (BLOW SALON)</option>
-                    <option value="Valued Customer">Static: "Valued Customer"</option>
-                  </select>
-                </div>
-
-                {/* Variable 2 */}
-                <div className="space-y-1">
-                  <label className="text-[11px] font-bold text-[#2F352F] block">
-                    Variable {"{{2}}"} (e.g. Offer / Salon Name)
-                  </label>
-                  <input
-                    type="text"
-                    value={templateVariables["2"] || ""}
-                    onChange={(e) => handleVariableChange("2", e.target.value)}
-                    placeholder="e.g. 20% OFF or BLOW SALON"
-                    className="w-full h-9 px-3 rounded-xl border border-[#CCD2C8] bg-white text-xs text-[#2F352F]"
-                  />
+            {templateVarCount === 0 ? (
+              <div className="p-4 rounded-2xl bg-[#FAF4E8]/60 border border-[#B18A45]/30 text-xs flex items-center gap-2">
+                <Sparkles size={16} className="text-[#B18A45] shrink-0" />
+                <span className="text-[#2F352F]">
+                  This approved template requires <strong>0 dynamic body parameters</strong>. Messages will be dispatched directly to recipients.
+                </span>
+              </div>
+            ) : (
+              <div className="p-4 rounded-2xl bg-[#F7F7F4] border border-[#E0E4DD] space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {Array.from({ length: templateVarCount }).map((_, idx) => {
+                    const varNum = String(idx + 1);
+                    return (
+                      <div key={varNum} className="space-y-1">
+                        <label className="text-[11px] font-bold text-[#2F352F] flex items-center gap-1">
+                          <span>Variable</span>
+                          <code className="bg-white px-1.5 py-0.5 rounded border border-[#CCD2C8] text-[10px] text-[#5F7A62]">
+                            {`{{${varNum}}}`}
+                          </code>
+                        </label>
+                        {varNum === "1" ? (
+                          <select
+                            value={templateVariables["1"] || "customer_name"}
+                            onChange={(e) => handleVariableChange("1", e.target.value)}
+                            className="w-full h-9 px-3 rounded-xl border border-[#CCD2C8] bg-white text-xs font-medium text-[#2F352F]"
+                          >
+                            <option value="customer_name">Dynamic: Client Name (e.g. Rahul Sharma)</option>
+                            <option value="salon_name">Dynamic: Salon Name (BLOW SALON)</option>
+                            <option value="Valued Customer">Static: "Valued Customer"</option>
+                          </select>
+                        ) : (
+                          <input
+                            type="text"
+                            value={templateVariables[varNum] || ""}
+                            onChange={(e) => handleVariableChange(varNum, e.target.value)}
+                            placeholder={varNum === "2" ? "e.g. 20% OFF or BLOW SALON" : `Value for {{${varNum}}}`}
+                            className="w-full h-9 px-3 rounded-xl border border-[#CCD2C8] bg-white text-xs text-[#2F352F]"
+                          />
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
-            </div>
+            )}
           </div>
 
           {/* 5. Live WhatsApp Preview */}

@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { X, Send, AlertCircle, CheckCircle2, Phone, Sparkles } from "lucide-react";
+import { useState, useEffect, useMemo } from "react";
+import { X, Send, AlertCircle, CheckCircle2, Phone, Sparkles, Info, Check } from "lucide-react";
 import { toast } from "react-hot-toast";
 import * as whatsappService from "@/services/whatsapp";
 import type { WhatsAppTemplate } from "@/types/whatsapp";
@@ -24,7 +24,6 @@ export function SendTestModal({
   bodyTextPreview: initialBodyTextPreview,
 }: SendTestModalProps) {
   const [testPhone, setTestPhone] = useState("");
-  const [sampleName, setSampleName] = useState("Rahul Sharma");
   const [loading, setLoading] = useState(false);
   const [lastResult, setLastResult] = useState<{ success: boolean; message?: string } | null>(null);
 
@@ -33,6 +32,9 @@ export function SendTestModal({
   const [loadingTemplates, setLoadingTemplates] = useState(false);
   const [selectedTemplateName, setSelectedTemplateName] = useState(initialTemplateName || "");
   const [customTemplateInput, setCustomTemplateInput] = useState("");
+
+  // Dynamic variable state: { "1": "val1", "2": "val2", ... }
+  const [customVariables, setCustomVariables] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (!isOpen) return;
@@ -54,9 +56,10 @@ export function SendTestModal({
     }
   }, [isOpen, initialTemplateName]);
 
-  if (!isOpen) return null;
+  const currentTemplate = useMemo(() => {
+    return templates.find((t) => t.name === selectedTemplateName);
+  }, [templates, selectedTemplateName]);
 
-  const currentTemplate = templates.find((t) => t.name === selectedTemplateName);
   const activeTemplateName =
     selectedTemplateName === "__custom__"
       ? customTemplateInput.trim()
@@ -68,7 +71,59 @@ export function SendTestModal({
   const activePreview =
     initialBodyTextPreview ||
     currentTemplate?.bodyText ||
-    "Hello {{1}}, here is your exclusive update from BLOW SALON!";
+    "Hello, here is your update from BLOW SALON!";
+
+  // Calculate required variable count dynamically based on the active template
+  const variableCount = useMemo(() => {
+    if (activeTemplateName === "3p_direct_integration_test_template") {
+      return 0;
+    }
+    if (currentTemplate) {
+      return currentTemplate.variableCount || 0;
+    }
+    if (initialTemplateVariables && Object.keys(initialTemplateVariables).length > 0) {
+      return Object.keys(initialTemplateVariables).length;
+    }
+    const matches = (activePreview || "").match(/\{\{(\d+)\}\}/g);
+    return matches ? new Set(matches.map((m) => m.replace(/\D/g, ""))).size : 0;
+  }, [currentTemplate, activeTemplateName, initialTemplateVariables, activePreview]);
+
+  // Sync customVariables whenever active template or variableCount changes
+  useEffect(() => {
+    if (variableCount === 0) {
+      setCustomVariables({});
+    } else {
+      const newVars: Record<string, string> = {};
+      for (let i = 1; i <= variableCount; i++) {
+        const key = String(i);
+        if (initialTemplateVariables && initialTemplateVariables[key]) {
+          newVars[key] = initialTemplateVariables[key];
+        } else if (i === 1) {
+          newVars[key] = "Rahul Sharma";
+        } else if (i === 2) {
+          newVars[key] = "BLOW SALON";
+        } else {
+          newVars[key] = `Value ${i}`;
+        }
+      }
+      setCustomVariables(newVars);
+    }
+  }, [variableCount, initialTemplateVariables, selectedTemplateName]);
+
+  if (!isOpen) return null;
+
+  // Generate live interpolated preview
+  const interpolatedPreview = useMemo(() => {
+    let text = activePreview;
+    if (variableCount === 0) return text;
+
+    for (let i = 1; i <= variableCount; i++) {
+      const key = String(i);
+      const val = customVariables[key] || `{{${i}}}`;
+      text = text.replace(new RegExp(`\\{\\{${i}\\}\\}`, "g"), val);
+    }
+    return text;
+  }, [activePreview, variableCount, customVariables]);
 
   const handleSendTest = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -86,12 +141,15 @@ export function SendTestModal({
     setLastResult(null);
 
     try {
+      // If variableCount is 0, send completely empty variables object so zero parameters are passed
+      const payloadVariables = variableCount > 0 ? customVariables : {};
+
       const res = await whatsappService.sendTestTemplate({
         testPhone: testPhone.trim(),
         templateName: activeTemplateName,
         templateLanguage: activeLanguage,
-        templateVariables: initialTemplateVariables || { "1": "customer_name", "2": "BLOW SALON" },
-        sampleCustomerName: sampleName.trim() || "Test Customer",
+        templateVariables: payloadVariables,
+        sampleCustomerName: customVariables["1"] || "Test Customer",
       });
 
       if (res.success) {
@@ -161,7 +219,7 @@ export function SendTestModal({
                   >
                     {templates.map((tpl) => (
                       <option key={tpl.id || tpl.name} value={tpl.name}>
-                        {tpl.name} ({tpl.language}) — {tpl.category} [{tpl.status}]
+                        {tpl.name} ({tpl.language}) — {tpl.category} [{tpl.status}] • {tpl.variableCount || 0} vars
                       </option>
                     ))}
                     <option value="__custom__">+ Enter custom template name</option>
@@ -170,7 +228,7 @@ export function SendTestModal({
                   {selectedTemplateName === "__custom__" && (
                     <input
                       type="text"
-                      placeholder="e.g. festive_offer_2026"
+                      placeholder="e.g. 3p_direct_integration_test_template"
                       value={customTemplateInput}
                       onChange={(e) => setCustomTemplateInput(e.target.value)}
                       className="w-full h-10 px-3 rounded-xl border border-[#CCD2C8] bg-[#FFFFFF] text-xs font-mono text-[#2F352F] focus:outline-hidden focus:border-[#5F7A62]"
@@ -182,6 +240,7 @@ export function SendTestModal({
             </div>
           )}
 
+          {/* Test Phone Number */}
           <div>
             <label className="block text-xs font-bold text-[#2F352F] mb-1">
               Test WhatsApp Number *
@@ -202,18 +261,48 @@ export function SendTestModal({
             </p>
           </div>
 
-          <div>
-            <label className="block text-xs font-bold text-[#2F352F] mb-1">
-              Sample Customer Name (for preview substitution)
-            </label>
-            <input
-              type="text"
-              value={sampleName}
-              onChange={(e) => setSampleName(e.target.value)}
-              placeholder="e.g. Rahul Sharma"
-              className="w-full h-10 px-3 rounded-xl border border-[#CCD2C8] bg-[#FFFFFF] text-xs text-[#2F352F] focus:outline-hidden focus:border-[#5F7A62]"
-            />
-          </div>
+          {/* Dynamic Template Variables */}
+          {variableCount === 0 ? (
+            <div className="p-3 rounded-2xl bg-[#FAF4E8]/60 border border-[#B18A45]/30 text-xs flex items-center gap-2">
+              <Sparkles size={15} className="text-[#B18A45] shrink-0" />
+              <span className="text-[#2F352F]">
+                Template requires <strong>0 dynamic variables</strong>. It will be dispatched directly with 0 parameters.
+              </span>
+            </div>
+          ) : (
+            <div className="space-y-2 p-3.5 rounded-2xl bg-[#F7F7F4] border border-[#E0E4DD]">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#6F776D] block">
+                Required Template Variables ({variableCount})
+              </span>
+              <div className="space-y-2">
+                {Array.from({ length: variableCount }).map((_, idx) => {
+                  const varNum = String(idx + 1);
+                  return (
+                    <div key={varNum} className="space-y-1">
+                      <label className="text-[11px] font-semibold text-[#2F352F] flex items-center gap-1">
+                        <span>Variable</span>
+                        <code className="bg-white px-1.5 py-0.5 rounded border border-[#CCD2C8] text-[10px] text-[#5F7A62]">
+                          {`{{${varNum}}}`}
+                        </code>
+                      </label>
+                      <input
+                        type="text"
+                        value={customVariables[varNum] || ""}
+                        onChange={(e) =>
+                          setCustomVariables((prev) => ({
+                            ...prev,
+                            [varNum]: e.target.value,
+                          }))
+                        }
+                        placeholder={varNum === "1" ? "e.g. Rahul Sharma" : `Value for {{${varNum}}}`}
+                        className="w-full h-9 px-3 rounded-xl border border-[#CCD2C8] bg-[#FFFFFF] text-xs text-[#2F352F] focus:outline-hidden focus:border-[#5F7A62]"
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Message Content Preview Box */}
           <div className="p-3.5 rounded-2xl bg-[#E8ECE5]/30 border border-[#CCD2C8] space-y-1.5">
@@ -221,7 +310,7 @@ export function SendTestModal({
               Sample Text Preview
             </span>
             <p className="text-xs text-[#2F352F] font-sans whitespace-pre-wrap leading-relaxed">
-              {activePreview}
+              {interpolatedPreview}
             </p>
           </div>
 

@@ -77,6 +77,7 @@ export interface WhatsAppTemplate {
   headerText?: string;
   footerText?: string;
   variableCount: number;
+  variableKeys?: string[];
   variableSampleMap?: Record<string, string>;
 }
 

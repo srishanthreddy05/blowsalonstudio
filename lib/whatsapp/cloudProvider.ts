@@ -8,6 +8,7 @@ import type {
 import type { WhatsAppErrorCode } from "@/types/whatsapp";
 import { generateWhatsAppReceiptText } from "@/lib/utils/whatsappReceipt";
 import { normalizePhoneNumber } from "@/lib/utils/phone";
+import { formatDisplayDate, toLocalDateString } from "@/lib/utils/date";
 import { logWhatsAppAction } from "./logger";
 
 /**
@@ -356,14 +357,20 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
         let headerText = "";
         let footerText = "";
         let variableCount = 0;
+        const variableIndices = new Set<number>();
 
         if (Array.isArray(t.components)) {
           for (const comp of t.components) {
             if (comp.type === "BODY") {
               bodyText = comp.text || "";
-              const matches = bodyText.match(/\{\{\d+\}\}/g);
+              const matches = bodyText.match(/\{\{(\d+)\}\}/g);
               if (matches) {
-                variableCount = Math.max(variableCount, matches.length);
+                for (const m of matches) {
+                  const num = parseInt(m.replace(/\D/g, ""), 10);
+                  if (!isNaN(num)) {
+                    variableIndices.add(num);
+                  }
+                }
               }
             } else if (comp.type === "HEADER") {
               headerText = comp.text || "";
@@ -372,6 +379,9 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
             }
           }
         }
+
+        variableCount = variableIndices.size;
+        const variableKeys = Array.from(variableIndices).sort((a, b) => a - b).map(String);
 
         return {
           id: t.id || t.name,
@@ -384,6 +394,7 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
           headerText,
           footerText,
           variableCount,
+          variableKeys,
         };
       });
 
@@ -436,6 +447,60 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
 
     // If an approved Meta template is configured in environment, dispatch via template
     if (this.invoiceTemplateName) {
+      const customerName = (invoice.customerName || "Valued Customer").trim();
+      const invoiceNumber = invoice.invoiceNumber || (invoice as any).invoiceNo || "INV";
+
+      let invoiceDate = "";
+      if (invoice.billDate) {
+        invoiceDate = formatDisplayDate(toLocalDateString(invoice.billDate));
+      } else if (invoice.date) {
+        invoiceDate = formatDisplayDate(toLocalDateString(invoice.date));
+      } else {
+        invoiceDate = formatDisplayDate(toLocalDateString(new Date()));
+      }
+
+      const itemNames: string[] = [];
+      (invoice.services || []).forEach((s: any) => {
+        if (!s.isSystemService && s.serviceId !== "membership_fee") {
+          const name = s.serviceName || s.service || "Service";
+          itemNames.push(name);
+        }
+      });
+      (invoice.products || []).forEach((p: any) => {
+        const name = p.productName || p.product || "Product";
+        const qty = Number(p.quantity) || 1;
+        itemNames.push(qty > 1 ? `${name} (x${qty})` : name);
+      });
+      if (invoice.totalMemberships && invoice.totalMemberships > 0) {
+        itemNames.push("Membership Enrollment");
+      }
+      const itemsSummary = itemNames.length > 0 ? itemNames.join(", ") : "Salon Services";
+
+      const subtotal = `₹${Math.round(invoice.subtotal ?? invoice.grandTotal).toLocaleString("en-IN")}`;
+      const tax = `₹${Math.round(invoice.taxAmount ?? 0).toLocaleString("en-IN")}`;
+      const total = `₹${Math.round(invoice.grandTotal).toLocaleString("en-IN")}`;
+
+      const paymentMethod = invoice.paymentMethod || "Paid";
+      let paymentInfo = `Payment: ${paymentMethod}`;
+      if (invoice.balanceDue && Math.round(invoice.balanceDue) > 0) {
+        paymentInfo += ` | Balance Due: ₹${Math.round(invoice.balanceDue).toLocaleString("en-IN")}`;
+      }
+      if (invoice.advanceUsed && Math.round(invoice.advanceUsed) > 0) {
+        paymentInfo += ` | Advance Used: ₹${Math.round(invoice.advanceUsed).toLocaleString("en-IN")}`;
+      }
+
+      // Map 8 required parameters for blow_salon_invoice
+      const bodyParameters = [
+        { type: "text", text: customerName },
+        { type: "text", text: invoiceNumber },
+        { type: "text", text: invoiceDate },
+        { type: "text", text: itemsSummary },
+        { type: "text", text: subtotal },
+        { type: "text", text: tax },
+        { type: "text", text: total },
+        { type: "text", text: paymentInfo },
+      ];
+
       const templateResult = await this.sendTemplateMessage(
         normalized.digits,
         this.invoiceTemplateName,
@@ -443,11 +508,7 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
         [
           {
             type: "body",
-            parameters: [
-              { type: "text", text: (invoice.customerName || "Valued Customer").trim() },
-              { type: "text", text: invoice.invoiceNumber || "INV" },
-              { type: "text", text: `₹${Math.round(invoice.grandTotal).toLocaleString("en-IN")}` },
-            ],
+            parameters: bodyParameters,
           },
         ]
       );

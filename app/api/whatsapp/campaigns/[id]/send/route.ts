@@ -143,7 +143,7 @@ export async function POST(
         const varKeys = Object.keys(campaign.templateVariables || {}).sort((a, b) => Number(a) - Number(b));
 
         for (const k of varKeys) {
-          const varTypeOrVal = campaign.templateVariables[k] || "";
+          const varTypeOrVal = (campaign.templateVariables[k] ?? "").toString().trim();
           let resolvedText = varTypeOrVal;
 
           if (varTypeOrVal === "customer_name" || varTypeOrVal === "{{customer_name}}") {
@@ -152,10 +152,12 @@ export async function POST(
             resolvedText = "BLOW SALON";
           }
 
-          bodyParameters.push({
-            type: "text",
-            text: resolvedText,
-          });
+          if (resolvedText) {
+            bodyParameters.push({
+              type: "text",
+              text: resolvedText,
+            });
+          }
         }
 
         const components = bodyParameters.length > 0
