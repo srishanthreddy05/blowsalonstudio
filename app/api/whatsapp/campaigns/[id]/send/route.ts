@@ -17,6 +17,7 @@ import type {
 } from "@/types/whatsapp";
 import { getWhatsAppProvider } from "@/lib/whatsapp/providerFactory";
 import { getTemplateLanguage } from "@/lib/whatsapp/templateRegistry";
+import { calculateCampaignStats } from "@/lib/whatsapp/campaignStats";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -263,9 +264,15 @@ export async function POST(
       }
     }
 
-    // 6. Update Final Campaign Status
+    // 6. Update Final Campaign Status and stats from Single Source of Truth
     const completedAt = new Date().toISOString();
-    let finalStatus: WhatsAppCampaign["status"] = "COMPLETED";
+    const allRecSnap = await getDocs(
+      query(collection(db, RECIPIENTS_COLLECTION), where("campaignId", "==", id))
+    );
+    const allRecs = allRecSnap.docs.map((d) => ({ id: d.id, ...d.data() } as WhatsAppCampaignRecipient));
+    const stats = calculateCampaignStats(allRecs);
+
+    let finalStatus: WhatsAppCampaign["status"] = stats.status || "COMPLETED";
     if (failedCount > 0 && sentCount === 0) {
       finalStatus = "FAILED";
     } else if (failedCount > 0) {
@@ -276,8 +283,12 @@ export async function POST(
       campaignRef,
       sanitizeFirestoreDoc({
         status: finalStatus,
-        sentCount,
-        failedCount,
+        totalRecipients: stats.totalRecipients,
+        sentCount: stats.sentCount,
+        deliveredCount: stats.deliveredCount,
+        readCount: stats.readCount,
+        failedCount: stats.failedCount,
+        excludedCount: stats.excludedCount,
         completedAt,
         updatedAt: completedAt,
       })
@@ -286,8 +297,10 @@ export async function POST(
     return NextResponse.json({
       success: true,
       status: finalStatus,
-      sentCount,
-      failedCount,
+      sentCount: stats.sentCount,
+      deliveredCount: stats.deliveredCount,
+      readCount: stats.readCount,
+      failedCount: stats.failedCount,
       totalProcessed: recipients.length,
     });
   } catch (error: unknown) {

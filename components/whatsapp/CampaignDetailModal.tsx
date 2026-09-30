@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import {
   X,
   Sparkles,
@@ -22,6 +22,7 @@ import type { WhatsAppCampaign, WhatsAppCampaignRecipient } from "@/types/whatsa
 import { statusConfig } from "./CampaignsList";
 import { formatDisplayDate } from "@/lib/utils/date";
 import { normalizeCount } from "@/lib/utils/firestore";
+import { calculateCampaignStats } from "@/lib/whatsapp/campaignStats";
 
 interface CampaignDetailModalProps {
   campaign: WhatsAppCampaign;
@@ -90,12 +91,30 @@ export default function CampaignDetailModal({
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
 
-  const pill = statusConfig[campaign.status] || statusConfig.DRAFT;
-  const canSend = campaign.status === "DRAFT" || campaign.status === "QUEUED";
-  const canCancel = campaign.status === "QUEUED" || campaign.status === "SENDING";
+  // Calculate live stats directly from recipient delivery records (Single Source of Truth)
+  const stats = useMemo(() => {
+    if (recipients.length > 0) {
+      return calculateCampaignStats(recipients);
+    }
+    return {
+      totalRecipients: normalizeCount(campaign.totalRecipients),
+      eligibleCount: normalizeCount(campaign.eligibleCount),
+      excludedCount: normalizeCount(campaign.excludedCount),
+      sentCount: normalizeCount(campaign.sentCount),
+      deliveredCount: normalizeCount(campaign.deliveredCount),
+      readCount: normalizeCount(campaign.readCount),
+      failedCount: normalizeCount(campaign.failedCount),
+      status: campaign.status,
+    };
+  }, [recipients, campaign]);
+
+  const currentStatus = stats.status || campaign.status;
+  const pill = statusConfig[currentStatus] || statusConfig.DRAFT;
+  const canSend = currentStatus === "DRAFT" || currentStatus === "QUEUED";
+  const canCancel = currentStatus === "QUEUED" || currentStatus === "SENDING";
   const canRetry =
-    campaign.failedCount > 0 &&
-    (campaign.status === "COMPLETED_WITH_ERRORS" || campaign.status === "FAILED");
+    stats.failedCount > 0 &&
+    (currentStatus === "COMPLETED_WITH_ERRORS" || currentStatus === "FAILED");
 
   const filteredRecipients = recipients.filter((r) => {
     const matchesSearch =
@@ -204,7 +223,7 @@ export default function CampaignDetailModal({
                 Total
               </div>
               <div className="text-xl font-bold text-[#2F352F] mt-1">
-                {normalizeCount(campaign.totalRecipients)}
+                {stats.totalRecipients}
               </div>
               <div className="text-[10px] text-[#8C9389]">Audience pool</div>
             </div>
@@ -215,7 +234,7 @@ export default function CampaignDetailModal({
                 Sent
               </div>
               <div className="text-xl font-bold text-[#2B6CB0] mt-1">
-                {normalizeCount(campaign.sentCount)}
+                {stats.sentCount}
               </div>
               <div className="text-[10px] text-[#2B6CB0]/80">Dispatched to Meta</div>
             </div>
@@ -226,9 +245,9 @@ export default function CampaignDetailModal({
                 Delivered
               </div>
               <div className="text-xl font-bold text-[#5F7A62] mt-1">
-                {normalizeCount(campaign.deliveredCount)}
+                {stats.deliveredCount}
               </div>
-              <div className="text-[10px] text-[#5F7A62]/80">Device received</div>
+              <div className="text-[10px] text-[#5F7A62]/80">Delivered to device (incl. read)</div>
             </div>
 
             {/* Read */}
@@ -237,9 +256,9 @@ export default function CampaignDetailModal({
                 Read
               </div>
               <div className="text-xl font-bold text-[#38503B] mt-1">
-                {normalizeCount(campaign.readCount)}
+                {stats.readCount}
               </div>
-              <div className="text-[10px] text-[#38503B]/80">Opened by user</div>
+              <div className="text-[10px] text-[#38503B]/80">Opened by recipient</div>
             </div>
 
             {/* Failed */}
@@ -248,9 +267,9 @@ export default function CampaignDetailModal({
                 Failed
               </div>
               <div className="text-xl font-bold text-[#B55B5B] mt-1">
-                {normalizeCount(campaign.failedCount)}
+                {stats.failedCount}
               </div>
-              <div className="text-[10px] text-[#B55B5B]/80">Meta API error</div>
+              <div className="text-[10px] text-[#B55B5B]/80">Delivery / API error</div>
             </div>
 
             {/* Excluded */}
@@ -259,9 +278,9 @@ export default function CampaignDetailModal({
                 Excluded
               </div>
               <div className="text-xl font-bold text-[#B18A45] mt-1">
-                {normalizeCount(campaign.excludedCount)}
+                {stats.excludedCount}
               </div>
-              <div className="text-[10px] text-[#B18A45]/80">Opt-out/invalid</div>
+              <div className="text-[10px] text-[#B18A45]/80">Opt-out / invalid</div>
             </div>
           </div>
 

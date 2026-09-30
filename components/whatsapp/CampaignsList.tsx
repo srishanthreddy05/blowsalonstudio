@@ -234,10 +234,11 @@ export default function CampaignsList({
                   <th className="py-3.5 px-4">Campaign Name</th>
                   <th className="py-3.5 px-4">Audience</th>
                   <th className="py-3.5 px-4">Template</th>
-                  <th className="py-3.5 px-4 text-center">Recipients</th>
-                  <th className="py-3.5 px-4 text-center">Sent</th>
-                  <th className="py-3.5 px-4 text-center">Delivered</th>
-                  <th className="py-3.5 px-4 text-center">Failed</th>
+                  <th className="py-3.5 px-4 text-center" title="Total recipients in audience pool">Recipients</th>
+                  <th className="py-3.5 px-4 text-center" title="Dispatched to Meta">Sent</th>
+                  <th className="py-3.5 px-4 text-center" title="Delivered to device (includes read messages)">Delivered</th>
+                  <th className="py-3.5 px-4 text-center" title="Opened by recipient">Read</th>
+                  <th className="py-3.5 px-4 text-center" title="Delivery / API failure">Failed</th>
                   <th className="py-3.5 px-4">Status</th>
                   <th className="py-3.5 px-4">Created</th>
                   <th className="py-3.5 px-4 text-right">Actions</th>
@@ -283,22 +284,27 @@ export default function CampaignsList({
                       </td>
 
                       {/* Recipients */}
-                      <td className="py-3.5 px-4 text-center font-semibold">
+                      <td className="py-3.5 px-4 text-center font-semibold" title="Total recipients">
                         {normalizeCount(camp.totalRecipients)}
                       </td>
 
                       {/* Sent */}
-                      <td className="py-3.5 px-4 text-center text-[#5F7A62] font-semibold">
+                      <td className="py-3.5 px-4 text-center text-[#2B6CB0] font-semibold" title="Dispatched to Meta">
                         {normalizeCount(camp.sentCount)}
                       </td>
 
                       {/* Delivered */}
-                      <td className="py-3.5 px-4 text-center text-[#2B6CB0] font-semibold">
+                      <td className="py-3.5 px-4 text-center text-[#5F7A62] font-semibold" title="Delivered to device (includes read messages)">
                         {normalizeCount(camp.deliveredCount)}
                       </td>
 
+                      {/* Read */}
+                      <td className="py-3.5 px-4 text-center text-[#38503B] font-semibold" title="Opened by recipient">
+                        {normalizeCount(camp.readCount)}
+                      </td>
+
                       {/* Failed */}
-                      <td className="py-3.5 px-4 text-center">
+                      <td className="py-3.5 px-4 text-center" title="Failed deliveries">
                         {failedCountNum > 0 ? (
                           <span className="text-[#B55B5B] font-bold">{failedCountNum}</span>
                         ) : (

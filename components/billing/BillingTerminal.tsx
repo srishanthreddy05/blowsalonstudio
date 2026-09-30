@@ -586,13 +586,27 @@ export function BillingTerminal({
 
   const amountToCollect = Math.max(0, Math.round(totals.grandTotal - advanceApplied));
 
+  // Sync amountPaid with amountToCollect by default when not manually edited
+  useEffect(() => {
+    if (!isAmountPaidEdited) {
+      console.log("[AmountPaid WRITE]", {
+        value: amountToCollect,
+        source: "UNEDITED_SYNC_EFFECT",
+        grandTotal: totals.grandTotal,
+        advanceApplied,
+      });
+      setAmountPaid(amountToCollect);
+    }
+  }, [amountToCollect, isAmountPaidEdited]);
+
+  // Sync default UPI amount when amountPaid changes and user has not customized splits
   useEffect(() => {
     const amt = Math.round(Number(amountPaid) || 0);
     if (!isSplitEdited && amt > 0) {
       setUpiAmount(amt);
       setCashAmount("");
       setCardAmount("");
-    } else if (amt === 0) {
+    } else if (amt === 0 && !isSplitEdited) {
       setUpiAmount("");
       setCashAmount("");
       setCardAmount("");
@@ -612,24 +626,6 @@ export function BillingTerminal({
       setAdvanceToAdd(0);
     }
   }, [change]);
-
-  // Keep amountPaid synced with amountToCollect by default
-  useEffect(() => {
-    if (!isAmountPaidEdited) {
-      setAmountPaid(amountToCollect);
-    }
-  }, [amountToCollect, isAmountPaidEdited]);
-
-  // Sync amountPaid with totalPaid if splits are edited and totalPaid exceeds amountToCollect
-  useEffect(() => {
-    const currentTotalPaid = (cashAmount === "" ? 0 : Math.round(Number(cashAmount))) + 
-                             (upiAmount === "" ? 0 : Math.round(Number(upiAmount))) + 
-                             (cardAmount === "" ? 0 : Math.round(Number(cardAmount)));
-    if (currentTotalPaid > amountToCollect) {
-      setAmountPaid(currentTotalPaid);
-      setIsAmountPaidEdited(true);
-    }
-  }, [cashAmount, upiAmount, cardAmount, amountToCollect]);
 
   // Keep advanceApplied capped by customerAdvance balance and grandTotal
   useEffect(() => {
@@ -1242,6 +1238,10 @@ export function BillingTerminal({
     setSelectedOfferId("");
     setBillDiscount(0);
     setBillDiscountPercent(0);
+    console.log("[AmountPaid WRITE]", {
+      value: 0,
+      source: "HANDLE_CLOSE_RESET",
+    });
     setAmountPaid(0);
     setIsAmountPaidEdited(false);
     setAdvanceToAdd(0);
@@ -1796,6 +1796,16 @@ export function BillingTerminal({
         </section>
 
         <aside className="space-y-5">
+          {(() => {
+            console.log("[AmountPaid RENDER]", {
+              amountPaid,
+              grandTotal: totals.grandTotal,
+              taxableAmount: totals.taxableServiceAmount ?? 0,
+              taxAmount: totals.taxAmount ?? 0,
+              advanceApplied,
+            });
+            return null;
+          })()}
           <SummaryCard
             totals={totals}
             billDiscount={billDiscount}
@@ -1806,7 +1816,12 @@ export function BillingTerminal({
             }}
             amountPaid={amountPaid}
             onChangeAmountPaid={(val) => {
-              setAmountPaid(val);
+              const parsedVal = val === "" ? "" : Math.round(Math.max(0, Number(val)));
+              console.log("[AmountPaid WRITE]", {
+                value: parsedVal,
+                source: "USER_MANUAL_INPUT_SUMMARY_CARD",
+              });
+              setAmountPaid(parsedVal);
               setIsAmountPaidEdited(true);
             }}
             advanceToAdd={advanceToAdd}
@@ -1821,7 +1836,19 @@ export function BillingTerminal({
                 <button
                   type="button"
                   disabled={saved}
-                  onClick={() => setIsSplitEdited(false)}
+                  onClick={() => {
+                    setIsSplitEdited(false);
+                    setIsAmountPaidEdited(false);
+                    const resetAmt = amountToCollect;
+                    console.log("[AmountPaid WRITE]", {
+                      value: resetAmt,
+                      source: "RESET_TO_FULL_UPI",
+                    });
+                    setAmountPaid(resetAmt);
+                    setUpiAmount(resetAmt);
+                    setCashAmount("");
+                    setCardAmount("");
+                  }}
                   className="text-xs font-semibold text-[#747A72] hover:text-[#292D29] transition underline cursor-pointer disabled:opacity-50 disabled:no-underline"
                 >
                   Reset to Full UPI

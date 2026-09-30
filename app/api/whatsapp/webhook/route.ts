@@ -17,6 +17,7 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 import { sanitizeFirestoreDoc } from "@/lib/utils/firestore";
+import { calculateCampaignStats } from "@/lib/whatsapp/campaignStats";
 
 const MESSAGES_COLLECTION = "whatsapp_messages";
 const RECIPIENTS_COLLECTION = "whatsapp_campaign_recipients";
@@ -184,22 +185,26 @@ export async function POST(request: Request) {
                       sanitizeFirestoreDoc(recUpdate)
                     );
 
-                    // 3. Update Campaign Counters
+                    // 3. Recalculate and Synchronize Campaign Counters from Recipient Records
                     if (campaignId) {
-                      const campaignCounterUpdate: Record<string, any> = {
-                        updatedAt: nowIso,
-                      };
-                      if (mappedStatus === "DELIVERED") {
-                        campaignCounterUpdate.deliveredCount = increment(1);
-                      } else if (mappedStatus === "READ") {
-                        campaignCounterUpdate.readCount = increment(1);
-                      } else if (mappedStatus === "FAILED") {
-                        campaignCounterUpdate.failedCount = increment(1);
-                      }
+                      const allRecSnap = await getDocs(
+                        query(collection(db, RECIPIENTS_COLLECTION), where("campaignId", "==", campaignId))
+                      );
+                      const allRecs = allRecSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+                      const stats = calculateCampaignStats(allRecs);
 
                       await updateDoc(
                         doc(db, CAMPAIGNS_COLLECTION, campaignId),
-                        sanitizeFirestoreDoc(campaignCounterUpdate)
+                        sanitizeFirestoreDoc({
+                          totalRecipients: stats.totalRecipients,
+                          sentCount: stats.sentCount,
+                          deliveredCount: stats.deliveredCount,
+                          readCount: stats.readCount,
+                          failedCount: stats.failedCount,
+                          excludedCount: stats.excludedCount,
+                          ...(stats.status ? { status: stats.status } : {}),
+                          updatedAt: nowIso,
+                        })
                       );
                     }
                   }

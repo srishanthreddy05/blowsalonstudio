@@ -12,6 +12,9 @@ import {
 } from "firebase/firestore";
 import type { WhatsAppCampaign } from "@/types/whatsapp";
 
+import { calculateCampaignStats } from "@/lib/whatsapp/campaignStats";
+import { sanitizeFirestoreDoc } from "@/lib/utils/firestore";
+
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
@@ -61,16 +64,30 @@ export async function POST(
     }
     await batch.commit();
 
-    // Mark Campaign as QUEUED for retry
-    await updateDoc(campaignRef, {
+    // Recalculate stats from all recipients
+    const allRecSnap = await getDocs(
+      query(collection(db, RECIPIENTS_COLLECTION), where("campaignId", "==", id))
+    );
+    const allRecs = allRecSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    const stats = calculateCampaignStats(allRecs);
+
+    // Mark Campaign as QUEUED for retry with refreshed stats
+    await updateDoc(campaignRef, sanitizeFirestoreDoc({
       status: "QUEUED",
+      totalRecipients: stats.totalRecipients,
+      sentCount: stats.sentCount,
+      deliveredCount: stats.deliveredCount,
+      readCount: stats.readCount,
+      failedCount: stats.failedCount,
+      excludedCount: stats.excludedCount,
       updatedAt: nowIso,
-    });
+    }));
 
     return NextResponse.json({
       success: true,
       message: `Reset ${recSnap.docs.length} failed recipients to pending. You can now execute send.`,
       retriedCount: recSnap.docs.length,
+      stats,
     });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : "Failed to prepare retry";

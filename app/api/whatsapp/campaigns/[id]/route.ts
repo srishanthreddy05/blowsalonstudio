@@ -13,6 +13,8 @@ import {
 import type { WhatsAppCampaign, WhatsAppCampaignRecipient } from "@/types/whatsapp";
 import { normalizeCampaignData } from "@/lib/utils/firestore";
 
+import { calculateCampaignStats, applyStatsToCampaign } from "@/lib/whatsapp/campaignStats";
+
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
@@ -36,9 +38,9 @@ export async function GET(
       return NextResponse.json({ error: "Campaign not found." }, { status: 404 });
     }
 
-    const campaign = normalizeCampaignData(snap.data(), snap.id);
+    const initialCampaign = normalizeCampaignData(snap.data(), snap.id);
 
-    // Fetch recipients for this campaign
+    // Fetch recipients for this campaign as Single Source of Truth
     const q = query(
       collection(db, RECIPIENTS_COLLECTION),
       where("campaignId", "==", id)
@@ -48,6 +50,10 @@ export async function GET(
       id: d.id,
       ...d.data(),
     } as WhatsAppCampaignRecipient));
+
+    // Dynamically calculate accurate stats from the recipient delivery records
+    const stats = calculateCampaignStats(recipients);
+    const campaign = applyStatsToCampaign(initialCampaign, stats);
 
     return NextResponse.json({
       campaign,
