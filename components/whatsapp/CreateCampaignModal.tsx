@@ -91,7 +91,7 @@ export function CreateCampaignModal({
       templates.find((t) => t.name === "blow_salon_campaign") || {
         id: "blow_salon_campaign",
         name: "blow_salon_campaign",
-        language: "en_US",
+        language: "en",
         status: "APPROVED" as const,
         category: "MARKETING" as const,
         components: [],
@@ -219,7 +219,7 @@ export function CreateCampaignModal({
       const res = await whatsappService.createCampaign({
         name: name.trim(),
         templateName: "blow_salon_campaign",
-        templateLanguage: activeTemplate?.language || "en_US",
+        templateLanguage: activeTemplate?.language || "en",
         templateCategory: "MARKETING",
         audienceType,
         customCustomerIds: audienceType === "CUSTOM" ? selectedCustomerIds : undefined,

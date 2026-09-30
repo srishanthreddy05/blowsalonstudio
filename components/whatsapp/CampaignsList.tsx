@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import type { WhatsAppCampaign, WhatsAppCampaignStatus } from "@/types/whatsapp";
 import { formatDisplayDate } from "@/lib/utils/date";
+import { normalizeCount } from "@/lib/utils/firestore";
 
 interface CampaignsListProps {
   campaigns: WhatsAppCampaign[];
@@ -247,8 +248,9 @@ export default function CampaignsList({
                   const pill = statusConfig[camp.status] || statusConfig.DRAFT;
                   const canSend = camp.status === "DRAFT" || camp.status === "QUEUED";
                   const canCancel = camp.status === "QUEUED" || camp.status === "SENDING";
+                  const failedCountNum = normalizeCount(camp.failedCount);
                   const canRetry =
-                    camp.failedCount > 0 &&
+                    failedCountNum > 0 &&
                     (camp.status === "COMPLETED_WITH_ERRORS" || camp.status === "FAILED");
 
                   return (
@@ -282,23 +284,23 @@ export default function CampaignsList({
 
                       {/* Recipients */}
                       <td className="py-3.5 px-4 text-center font-semibold">
-                        {camp.totalRecipients || 0}
+                        {normalizeCount(camp.totalRecipients)}
                       </td>
 
                       {/* Sent */}
                       <td className="py-3.5 px-4 text-center text-[#5F7A62] font-semibold">
-                        {camp.sentCount || 0}
+                        {normalizeCount(camp.sentCount)}
                       </td>
 
                       {/* Delivered */}
                       <td className="py-3.5 px-4 text-center text-[#2B6CB0] font-semibold">
-                        {camp.deliveredCount || 0}
+                        {normalizeCount(camp.deliveredCount)}
                       </td>
 
                       {/* Failed */}
                       <td className="py-3.5 px-4 text-center">
-                        {camp.failedCount > 0 ? (
-                          <span className="text-[#B55B5B] font-bold">{camp.failedCount}</span>
+                        {failedCountNum > 0 ? (
+                          <span className="text-[#B55B5B] font-bold">{failedCountNum}</span>
                         ) : (
                           <span className="text-[#8C9389]">0</span>
                         )}

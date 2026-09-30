@@ -16,6 +16,7 @@ import type {
   WhatsAppMessageRecord,
 } from "@/types/whatsapp";
 import { getWhatsAppProvider } from "@/lib/whatsapp/providerFactory";
+import { getTemplateLanguage } from "@/lib/whatsapp/templateRegistry";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -24,23 +25,7 @@ const CAMPAIGNS_COLLECTION = "whatsapp_campaigns";
 const RECIPIENTS_COLLECTION = "whatsapp_campaign_recipients";
 const MESSAGES_COLLECTION = "whatsapp_messages";
 
-/**
- * Defensive utility to recursively strip any 'undefined' properties before passing to Firestore.
- */
-function sanitizeFirestoreDoc<T extends Record<string, any>>(obj: T): T {
-  const result: Record<string, any> = {};
-  for (const [key, value] of Object.entries(obj)) {
-    if (value === undefined) {
-      continue;
-    }
-    if (value !== null && typeof value === "object" && !Array.isArray(value) && !(value instanceof Date)) {
-      result[key] = sanitizeFirestoreDoc(value);
-    } else {
-      result[key] = value;
-    }
-  }
-  return result as T;
-}
+import { sanitizeFirestoreDoc } from "@/lib/utils/firestore";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -186,11 +171,12 @@ export async function POST(
           }
         }
 
-        // Dispatch via Provider
+        // Dispatch via Provider using exact registered language code
+        const templateLang = getTemplateLanguage(campaign.templateName, campaign.templateLanguage);
         const sendResult = await provider.sendTemplateMessage(
           rec.normalizedPhone || rec.phone,
           campaign.templateName,
-          campaign.templateLanguage || "en_US",
+          templateLang,
           components
         );
 

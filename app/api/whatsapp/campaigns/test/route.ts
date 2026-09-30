@@ -5,28 +5,14 @@ import { db } from "@/lib/firebase";
 import { collection, addDoc } from "firebase/firestore";
 import type { WhatsAppMessageRecord } from "@/types/whatsapp";
 
+import { getTemplateLanguage } from "@/lib/whatsapp/templateRegistry";
+
+import { sanitizeFirestoreDoc } from "@/lib/utils/firestore";
+
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 const MESSAGES_COLLECTION = "whatsapp_messages";
-
-/**
- * Defensive utility to recursively strip any 'undefined' properties before passing to Firestore.
- */
-function sanitizeFirestoreDoc<T extends Record<string, any>>(obj: T): T {
-  const result: Record<string, any> = {};
-  for (const [key, value] of Object.entries(obj)) {
-    if (value === undefined) {
-      continue;
-    }
-    if (value !== null && typeof value === "object" && !Array.isArray(value) && !(value instanceof Date)) {
-      result[key] = sanitizeFirestoreDoc(value);
-    } else {
-      result[key] = value;
-    }
-  }
-  return result as T;
-}
 
 export async function POST(request: Request) {
   try {
@@ -34,7 +20,7 @@ export async function POST(request: Request) {
     const {
       testPhone,
       templateName,
-      templateLanguage = "en_US",
+      templateLanguage,
       templateVariables = {},
       sampleCustomerName = "Valued Customer",
     } = body;
@@ -98,11 +84,13 @@ export async function POST(request: Request) {
       }
     }
 
+    const resolvedLanguage = getTemplateLanguage(templateName, templateLanguage);
+
     // Send Test Message
     const sendResult = await provider.sendTemplateMessage(
       normalized.digits,
       templateName,
-      templateLanguage,
+      resolvedLanguage,
       components
     );
 

@@ -16,6 +16,8 @@ import type {
 } from "@/types/whatsapp";
 import type { Customer } from "@/types/customer";
 import { normalizePhoneNumber } from "@/lib/utils/phone";
+import { getTemplateLanguage } from "@/lib/whatsapp/templateRegistry";
+import { sanitizeFirestoreDoc, normalizeCampaignData } from "@/lib/utils/firestore";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -24,33 +26,14 @@ const CAMPAIGNS_COLLECTION = "whatsapp_campaigns";
 const RECIPIENTS_COLLECTION = "whatsapp_campaign_recipients";
 const CUSTOMERS_COLLECTION = "customers";
 
-/**
- * Defensive utility to recursively strip any 'undefined' properties before passing to Firestore.
- */
-function sanitizeFirestoreDoc<T extends Record<string, any>>(obj: T): T {
-  const result: Record<string, any> = {};
-  for (const [key, value] of Object.entries(obj)) {
-    if (value === undefined) {
-      continue;
-    }
-    if (value !== null && typeof value === "object" && !Array.isArray(value) && !(value instanceof Date)) {
-      result[key] = sanitizeFirestoreDoc(value);
-    } else {
-      result[key] = value;
-    }
-  }
-  return result as T;
-}
-
 export async function GET() {
   try {
     const q = query(collection(db, CAMPAIGNS_COLLECTION), orderBy("createdAt", "desc"));
     const snap = await getDocs(q);
 
-    const campaigns: WhatsAppCampaign[] = snap.docs.map((d) => ({
-      id: d.id,
-      ...d.data(),
-    } as WhatsAppCampaign));
+    const campaigns: WhatsAppCampaign[] = snap.docs.map((d) =>
+      normalizeCampaignData(d.data(), d.id)
+    );
 
     return NextResponse.json({ campaigns });
   } catch (error: unknown) {
@@ -59,7 +42,7 @@ export async function GET() {
       // Fallback without orderBy index if index not ready
       const snap = await getDocs(collection(db, CAMPAIGNS_COLLECTION));
       const campaigns: WhatsAppCampaign[] = snap.docs
-        .map((d) => ({ id: d.id, ...d.data() } as WhatsAppCampaign))
+        .map((d) => normalizeCampaignData(d.data(), d.id))
         .sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
       return NextResponse.json({ campaigns });
     } catch {
@@ -157,11 +140,14 @@ export async function POST(request: Request) {
       }
     }
 
+    const campaignTemplateName = String(templateName).trim();
+    const resolvedLanguage = getTemplateLanguage(campaignTemplateName, templateLanguage);
+
     // 4. Create Campaign Document
     const campaignData: Omit<WhatsAppCampaign, "id"> = {
       name: String(name).trim(),
-      templateName: String(templateName).trim(),
-      templateLanguage: String(templateLanguage).trim(),
+      templateName: campaignTemplateName,
+      templateLanguage: resolvedLanguage,
       templateCategory: templateCategory || "MARKETING",
       audienceType: audienceType as WhatsAppAudienceType,
       customCustomerIds: audienceType === "CUSTOM" ? customCustomerIds : [],

@@ -17,6 +17,9 @@ export interface WhatsAppLogPayload {
   action: string;
   phone?: string | null;
   invoiceNumber?: string | null;
+  templateName?: string | null;
+  templateLanguage?: string | null;
+  paramCount?: number | null;
   result: "SUCCESS" | "FAILED" | "SKIPPED" | "RECEIVED" | "UNCONFIGURED";
   messageId?: string | null;
   errorCode?: string | null;
@@ -30,6 +33,15 @@ export function logWhatsAppAction(payload: WhatsAppLogPayload) {
     `Action: ${payload.action}`,
   ];
 
+  if (payload.templateName) {
+    parts.push(`Template: ${payload.templateName}`);
+  }
+  if (payload.templateLanguage) {
+    parts.push(`Lang: ${payload.templateLanguage}`);
+  }
+  if (payload.paramCount !== undefined && payload.paramCount !== null) {
+    parts.push(`ParamCount: ${payload.paramCount}`);
+  }
   if (payload.phone) {
     parts.push(`Phone: ${maskPhoneNumber(payload.phone)}`);
   }

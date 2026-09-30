@@ -21,6 +21,7 @@ import {
 import type { WhatsAppCampaign, WhatsAppCampaignRecipient } from "@/types/whatsapp";
 import { statusConfig } from "./CampaignsList";
 import { formatDisplayDate } from "@/lib/utils/date";
+import { normalizeCount } from "@/lib/utils/firestore";
 
 interface CampaignDetailModalProps {
   campaign: WhatsAppCampaign;
@@ -203,7 +204,7 @@ export default function CampaignDetailModal({
                 Total
               </div>
               <div className="text-xl font-bold text-[#2F352F] mt-1">
-                {campaign.totalRecipients || 0}
+                {normalizeCount(campaign.totalRecipients)}
               </div>
               <div className="text-[10px] text-[#8C9389]">Audience pool</div>
             </div>
@@ -214,7 +215,7 @@ export default function CampaignDetailModal({
                 Sent
               </div>
               <div className="text-xl font-bold text-[#2B6CB0] mt-1">
-                {campaign.sentCount || 0}
+                {normalizeCount(campaign.sentCount)}
               </div>
               <div className="text-[10px] text-[#2B6CB0]/80">Dispatched to Meta</div>
             </div>
@@ -225,7 +226,7 @@ export default function CampaignDetailModal({
                 Delivered
               </div>
               <div className="text-xl font-bold text-[#5F7A62] mt-1">
-                {campaign.deliveredCount || 0}
+                {normalizeCount(campaign.deliveredCount)}
               </div>
               <div className="text-[10px] text-[#5F7A62]/80">Device received</div>
             </div>
@@ -236,7 +237,7 @@ export default function CampaignDetailModal({
                 Read
               </div>
               <div className="text-xl font-bold text-[#38503B] mt-1">
-                {campaign.readCount || 0}
+                {normalizeCount(campaign.readCount)}
               </div>
               <div className="text-[10px] text-[#38503B]/80">Opened by user</div>
             </div>
@@ -247,7 +248,7 @@ export default function CampaignDetailModal({
                 Failed
               </div>
               <div className="text-xl font-bold text-[#B55B5B] mt-1">
-                {campaign.failedCount || 0}
+                {normalizeCount(campaign.failedCount)}
               </div>
               <div className="text-[10px] text-[#B55B5B]/80">Meta API error</div>
             </div>
@@ -258,7 +259,7 @@ export default function CampaignDetailModal({
                 Excluded
               </div>
               <div className="text-xl font-bold text-[#B18A45] mt-1">
-                {campaign.excludedCount || 0}
+                {normalizeCount(campaign.excludedCount)}
               </div>
               <div className="text-[10px] text-[#B18A45]/80">Opt-out/invalid</div>
             </div>

@@ -11,6 +11,7 @@ import {
   writeBatch,
 } from "firebase/firestore";
 import type { WhatsAppCampaign, WhatsAppCampaignRecipient } from "@/types/whatsapp";
+import { normalizeCampaignData } from "@/lib/utils/firestore";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -35,7 +36,7 @@ export async function GET(
       return NextResponse.json({ error: "Campaign not found." }, { status: 404 });
     }
 
-    const campaign = { id: snap.id, ...snap.data() } as WhatsAppCampaign;
+    const campaign = normalizeCampaignData(snap.data(), snap.id);
 
     // Fetch recipients for this campaign
     const q = query(

@@ -16,27 +16,11 @@ import { maskPhoneNumber } from "@/lib/whatsapp/logger";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+import { sanitizeFirestoreDoc } from "@/lib/utils/firestore";
+
 const MESSAGES_COLLECTION = "whatsapp_messages";
 const RECIPIENTS_COLLECTION = "whatsapp_campaign_recipients";
 const CAMPAIGNS_COLLECTION = "whatsapp_campaigns";
-
-/**
- * Defensive utility to recursively strip any 'undefined' properties before passing to Firestore.
- */
-function sanitizeFirestoreDoc<T extends Record<string, any>>(obj: T): T {
-  const result: Record<string, any> = {};
-  for (const [key, value] of Object.entries(obj)) {
-    if (value === undefined) {
-      continue;
-    }
-    if (value !== null && typeof value === "object" && !Array.isArray(value) && !(value instanceof Date)) {
-      result[key] = sanitizeFirestoreDoc(value);
-    } else {
-      result[key] = value;
-    }
-  }
-  return result as T;
-}
 
 /**
  * GET /api/whatsapp/webhook

@@ -8,12 +8,18 @@ import type {
 import type { WhatsAppErrorCode } from "@/types/whatsapp";
 import { normalizePhoneNumber } from "@/lib/utils/phone";
 import { formatDisplayDate, toLocalDateString } from "@/lib/utils/date";
-import { logWhatsAppAction } from "./logger";
+import { logWhatsAppAction, maskPhoneNumber } from "./logger";
+import {
+  getTemplateLanguage,
+  isTemplateExposedInUI,
+  sanitizeTemplateVariable,
+  META_WHATSAPP_TEMPLATES,
+} from "./templateRegistry";
 
 /**
  * Meta WhatsApp Cloud API Provider.
  * Server-side implementation communicating directly with Meta Graph API.
- * Compatible with Vercel Serverless / Edge-free standard Node.js runtime.
+ * Uses centralized template registry for exact language codes and safe parameter logging.
  */
 export class CloudWhatsAppProvider implements IWhatsAppProvider {
   public readonly providerType = "WHATSAPP_CLOUD_API" as const;
@@ -23,56 +29,62 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
   private phoneNumberId?: string;
   private businessAccountId?: string;
   private businessNumber?: string;
-  private invoiceTemplateName?: string;
-  private templateLanguage: string;
+  private invoiceTemplateName: string;
 
   constructor() {
     this.apiVersion = (process.env.WHATSAPP_CLOUD_API_VERSION || "v21.0").trim().replace(/^v?/, "v");
     this.accessToken = process.env.WHATSAPP_ACCESS_TOKEN?.trim();
-    this.phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID?.trim();
-    this.businessAccountId = process.env.WHATSAPP_BUSINESS_ACCOUNT_ID?.trim();
+    this.phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID?.trim() || "1329685360226264";
+    this.businessAccountId = process.env.WHATSAPP_BUSINESS_ACCOUNT_ID?.trim() || "1755242905734759";
     this.businessNumber = process.env.WHATSAPP_BUSINESS_NUMBER?.trim();
-    this.invoiceTemplateName = process.env.WHATSAPP_INVOICE_TEMPLATE_NAME?.trim() || "blow_salon_invoice";
-    this.templateLanguage = (process.env.WHATSAPP_TEMPLATE_LANGUAGE || "en_US").trim();
+    this.invoiceTemplateName = "blow_salon_invoice";
   }
 
   /**
    * Helper to classify Meta Graph API errors into standardized error categories.
+   * Extracts error_data.details and error_user_msg if present for deep debugging.
    */
-  private classifyMetaError(code?: number, message?: string): { errorCode: WhatsAppErrorCode; cleanMessage: string } {
+  private classifyMetaError(
+    code?: number,
+    message?: string,
+    rawError?: Record<string, any>
+  ): { errorCode: WhatsAppErrorCode; cleanMessage: string } {
     const msg = message || "WhatsApp Cloud API request failed.";
+    const errorData = rawError?.error_data || (rawError as any)?.error?.error_data;
+    const details = errorData?.details || rawError?.error_user_msg || (rawError as any)?.error_user_title;
+    const detailsSuffix = details ? ` (Meta Details: ${details})` : "";
 
     if (code === 190 || code === 102 || code === 10) {
       return {
         errorCode: "WHATSAPP_AUTH_ERROR",
-        cleanMessage: "WhatsApp authentication failed. The access token may be expired or invalid.",
+        cleanMessage: `WhatsApp authentication failed: ${msg}${detailsSuffix}`,
       };
     }
 
     if (code === 131030 || code === 131042 || code === 131000 || code === 131026 || code === 131005) {
       return {
         errorCode: "WHATSAPP_PHONE_NOT_REGISTERED",
-        cleanMessage: "The WhatsApp phone number is not registered or active with Meta.",
+        cleanMessage: `The WhatsApp phone number is not registered or active with Meta: ${msg}${detailsSuffix}`,
       };
     }
 
     if (code === 130429 || code === 80007 || code === 4) {
       return {
         errorCode: "WHATSAPP_RATE_LIMIT",
-        cleanMessage: "Meta WhatsApp API rate limit reached. Please try again shortly.",
+        cleanMessage: `Meta WhatsApp API rate limit reached: ${msg}${detailsSuffix}`,
       };
     }
 
-    if (code && code >= 132000 && code <= 132015) {
+    if (code && code >= 132000 && code <= 132099) {
       return {
         errorCode: "WHATSAPP_TEMPLATE_ERROR",
-        cleanMessage: `Meta template error: ${msg}`,
+        cleanMessage: `Meta template error (#${code}): ${msg}${detailsSuffix}`,
       };
     }
 
     return {
       errorCode: "WHATSAPP_API_ERROR",
-      cleanMessage: msg,
+      cleanMessage: `${msg}${detailsSuffix}`,
     };
   }
 
@@ -163,7 +175,7 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
 
       if (!response.ok) {
         const errorInfo = data.error || {};
-        const { errorCode, cleanMessage } = this.classifyMetaError(errorInfo.code, errorInfo.message);
+        const { errorCode, cleanMessage } = this.classifyMetaError(errorInfo.code, errorInfo.message, errorInfo);
 
         logWhatsAppAction({
           provider: this.providerType,
@@ -219,7 +231,45 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
   }
 
   /**
+   * Helper to inspect and debug template parameters safely without exposing secrets.
+   */
+  private logTemplateDebugInspection(
+    templateName: string,
+    lang: string,
+    parameters: Array<{ type?: string; text?: string }>
+  ) {
+    console.log("\n================ [Meta WhatsApp Template Inspection] ================");
+    console.log(`Template:\n${templateName}\n`);
+    console.log(`Language:\n${lang}\n`);
+    console.log(`Parameter count:\n${parameters.length}\n`);
+    console.log("Parameter values:");
+
+    let hasNewline = false;
+    let hasTab = false;
+    let hasEmpty = false;
+    let hasExcessiveSpaces = false;
+
+    parameters.forEach((p, idx) => {
+      const val = p.text ?? "";
+      if (/[\r\n]/.test(val)) hasNewline = true;
+      if (/\t/.test(val)) hasTab = true;
+      if (val.length === 0) hasEmpty = true;
+      if (/\s{2,}/.test(val)) hasExcessiveSpaces = true;
+
+      console.log(`${idx + 1}: ${val}`);
+    });
+
+    console.log("\nParameter Validation Details:");
+    console.log(`- Contains newline: ${hasNewline ? "⚠️ YES (INVALID for single-line variable)" : "None (Clean)"}`);
+    console.log(`- Contains tab: ${hasTab ? "⚠️ YES (INVALID)" : "None (Clean)"}`);
+    console.log(`- Contains empty string: ${hasEmpty ? "⚠️ YES (INVALID - Meta requires non-empty text)" : "None (Clean)"}`);
+    console.log(`- Excessive consecutive spaces: ${hasExcessiveSpaces ? "⚠️ YES" : "None (Clean)"}`);
+    console.log("======================================================================\n");
+  }
+
+  /**
    * Sends an approved Meta WhatsApp Template Message.
+   * Enforces exact template language codes from centralized registry and sanitizes all variables.
    */
   public async sendTemplateMessage(
     phoneNumber: string,
@@ -245,18 +295,24 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
       };
     }
 
-    const lang = languageCode || this.templateLanguage || "en_US";
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    // Resolve exact template language from centralized registry
+    const lang = getTemplateLanguage(templateName, languageCode);
 
     // Validate parameters before sending to Meta Graph API
-    let bodyParamCount = 0;
+    let bodyParameters: Array<{ type: string; text: string }> = [];
     if (components && Array.isArray(components)) {
       const bodyComp = components.find((c) => (c.type || "").toString().toLowerCase() === "body");
       if (bodyComp && Array.isArray(bodyComp.parameters)) {
-        bodyParamCount = bodyComp.parameters.length;
+        // Sanitize every body parameter to guarantee no newlines, tabs, or empty strings
+        bodyParameters = bodyComp.parameters.map((p: any) => ({
+          type: "text",
+          text: sanitizeTemplateVariable(p.text, "-"),
+        }));
+        bodyComp.parameters = bodyParameters;
       }
     }
+
+    const bodyParamCount = bodyParameters.length;
 
     if (templateName === "3p_direct_integration_test_template") {
       if (bodyParamCount !== 0) {
@@ -266,6 +322,7 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
           error: `Template parameter mismatch: 3p_direct_integration_test_template expects 0 parameters but received ${bodyParamCount}.`,
         };
       }
+      // Guarantee zero components sent for 3p_direct_integration_test_template
       components = undefined;
     } else if (templateName === "blow_salon_invoice") {
       if (bodyParamCount !== 8) {
@@ -284,6 +341,12 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
         };
       }
     }
+
+    // Safe debug inspection log (NEVER logs access tokens)
+    this.logTemplateDebugInspection(templateName, lang, bodyParameters);
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
 
     try {
       const url = `https://graph.facebook.com/${this.apiVersion}/${this.phoneNumberId}/messages`;
@@ -314,15 +377,18 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
 
       if (!response.ok) {
         const errorInfo = data.error || {};
-        const { errorCode, cleanMessage } = this.classifyMetaError(errorInfo.code, errorInfo.message);
+        const { errorCode, cleanMessage } = this.classifyMetaError(errorInfo.code, errorInfo.message, errorInfo);
 
         logWhatsAppAction({
           provider: this.providerType,
           action: "sendTemplateMessage",
           phone: normalized.digits,
+          templateName,
+          templateLanguage: lang,
+          paramCount: bodyParamCount,
           result: "FAILED",
           errorCode,
-          error: errorInfo.message || cleanMessage,
+          error: cleanMessage,
         });
 
         return {
@@ -338,6 +404,9 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
         provider: this.providerType,
         action: "sendTemplateMessage",
         phone: normalized.digits,
+        templateName,
+        templateLanguage: lang,
+        paramCount: bodyParamCount,
         result: "SUCCESS",
         messageId,
       });
@@ -348,6 +417,19 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
       };
     } catch (err: unknown) {
       const errorMsg = err instanceof Error ? err.message : "Failed to dispatch template message";
+
+      logWhatsAppAction({
+        provider: this.providerType,
+        action: "sendTemplateMessage",
+        phone: normalized.digits,
+        templateName,
+        templateLanguage: lang,
+        paramCount: bodyParamCount,
+        result: "FAILED",
+        errorCode: "WHATSAPP_TEMPLATE_ERROR",
+        error: errorMsg,
+      });
+
       return {
         success: false,
         errorCode: "WHATSAPP_TEMPLATE_ERROR",
@@ -361,6 +443,7 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
   /**
    * Retrieves message templates from Meta Cloud API (WABA).
    * Only returns the official BLOW SALON approved templates.
+   * Explicitly excludes 'hello_world' and any unapproved templates from the UI.
    */
   public async getTemplates(): Promise<any[]> {
     if (!this.accessToken) {
@@ -388,14 +471,8 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
         return [];
       }
 
-      const allowedTemplates = new Set([
-        "blow_salon_campaign",
-        "blow_salon_invoice",
-        "3p_direct_integration_test_template",
-      ]);
-
       const templatesList = (data.data || [])
-        .filter((t: any) => allowedTemplates.has(t.name))
+        .filter((t: any) => isTemplateExposedInUI(t.name))
         .map((t: any) => {
           let bodyText = "";
           let headerText = "";
@@ -427,10 +504,13 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
           variableCount = t.name === "3p_direct_integration_test_template" ? 0 : variableIndices.size;
           const variableKeys = Array.from(variableIndices).sort((a, b) => a - b).map(String);
 
+          // Use exact language code from centralized registry
+          const langCode = getTemplateLanguage(t.name, t.language);
+
           return {
             id: t.id || t.name,
             name: t.name,
-            language: t.language,
+            language: langCode,
             status: t.status,
             category: t.category,
             components: t.components || [],
@@ -451,6 +531,10 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
     }
   }
 
+  /**
+   * Formats and delivers the official BLOW SALON invoice receipt template.
+   * Guarantees 8 single-line sanitized parameters with no staff names and no independent total recalculations.
+   */
   public async sendInvoiceReceipt(
     invoice: Invoice,
     overridePhone?: string
@@ -491,34 +575,39 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
 
     // Automatic invoice receipt must ALWAYS use blow_salon_invoice
     const templateNameToUse = this.invoiceTemplateName || "blow_salon_invoice";
+    const templateLang = getTemplateLanguage(templateNameToUse); // Guaranteed "en"
 
-    // Format {{1}} Customer name
-    const customerName = (invoice.customerName || "Customer").trim();
+    // Format {{1}} Customer name (sanitized, non-empty)
+    const customerName = sanitizeTemplateVariable(invoice.customerName || "Customer", "Customer");
 
-    // Format {{2}} Invoice number
-    const invoiceNumber = invoice.invoiceNumber || (invoice as any).invoiceNo || "INV";
+    // Format {{2}} Invoice number (sanitized, non-empty)
+    const invoiceNumber = sanitizeTemplateVariable(
+      invoice.invoiceNumber || (invoice as any).invoiceNo || "INV",
+      "INV"
+    );
 
-    // Format {{3}} Invoice date
-    let invoiceDate = "";
+    // Format {{3}} Invoice date (sanitized, non-empty)
+    let rawDate = "";
     if (invoice.billDate) {
-      invoiceDate = formatDisplayDate(toLocalDateString(invoice.billDate));
+      rawDate = formatDisplayDate(toLocalDateString(invoice.billDate));
     } else if (invoice.date) {
-      invoiceDate = formatDisplayDate(toLocalDateString(invoice.date));
+      rawDate = formatDisplayDate(toLocalDateString(invoice.date));
     } else {
-      invoiceDate = formatDisplayDate(toLocalDateString(new Date()));
+      rawDate = formatDisplayDate(toLocalDateString(new Date()));
     }
+    const invoiceDate = sanitizeTemplateVariable(rawDate, formatDisplayDate(toLocalDateString(new Date())));
 
-    // Format {{4}} Services and retail products (NO staff names)
+    // Format {{4}} Services and retail products (NO staff names, single-line joined by " | ")
     const itemLines: string[] = [];
     (invoice.services || []).forEach((s: any) => {
       if (!s.isSystemService && s.serviceId !== "membership_fee") {
-        const name = s.serviceName || s.service || "Service";
+        const name = sanitizeTemplateVariable(s.serviceName || s.service || "Service", "Service");
         const amount = Math.round(s.amount ?? Math.max(0, (Number(s.price) || 0) - (Number(s.discount) || 0)));
         itemLines.push(`${name} - ₹${amount.toLocaleString("en-IN")}`);
       }
     });
     (invoice.products || []).forEach((p: any) => {
-      const name = p.productName || p.product || "Product";
+      const name = sanitizeTemplateVariable(p.productName || p.product || "Product", "Product");
       const qty = Number(p.quantity) || 1;
       const qtyStr = qty > 1 ? ` (x${qty})` : "";
       const amount = Math.round(p.amount ?? Math.max(0, (Number(p.price) || 0) * qty - (Number(p.discount) || 0)));
@@ -527,18 +616,22 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
     if (invoice.totalMemberships && invoice.totalMemberships > 0) {
       itemLines.push(`Membership Enrollment - ₹${Math.round(invoice.totalMemberships).toLocaleString("en-IN")}`);
     }
-    const itemsSummary = itemLines.length > 0 ? itemLines.join("\n") : "Salon Services";
+    const itemsRaw = itemLines.length > 0 ? itemLines.join(" | ") : "Salon Services";
+    const itemsSummary = sanitizeTemplateVariable(itemsRaw, "Salon Services");
 
-    // Format {{5}} Subtotal
-    const subtotal = `₹${Math.round(invoice.subtotal ?? invoice.grandTotal).toLocaleString("en-IN")}`;
+    // Format {{5}} Subtotal (from actual saved invoice, single-line)
+    const subtotalVal = invoice.subtotal !== undefined && invoice.subtotal !== null ? invoice.subtotal : invoice.grandTotal;
+    const subtotal = sanitizeTemplateVariable(`₹${Math.round(Number(subtotalVal) || 0).toLocaleString("en-IN")}`, "₹0");
 
-    // Format {{6}} Tax
-    const tax = `₹${Math.round(invoice.taxAmount ?? 0).toLocaleString("en-IN")}`;
+    // Format {{6}} Tax (from actual saved invoice, single-line)
+    const taxVal = invoice.taxAmount !== undefined && invoice.taxAmount !== null ? invoice.taxAmount : 0;
+    const tax = sanitizeTemplateVariable(`₹${Math.round(Number(taxVal) || 0).toLocaleString("en-IN")}`, "₹0");
 
-    // Format {{7}} Total
-    const total = `₹${Math.round(invoice.grandTotal).toLocaleString("en-IN")}`;
+    // Format {{7}} Total (from actual saved invoice, single-line)
+    const totalVal = invoice.grandTotal !== undefined && invoice.grandTotal !== null ? invoice.grandTotal : 0;
+    const total = sanitizeTemplateVariable(`₹${Math.round(Number(totalVal) || 0).toLocaleString("en-IN")}`, "₹0");
 
-    // Format {{8}} Payment / credit / advance / balance information
+    // Format {{8}} Payment / credit / advance / balance information (single-line joined by ", ")
     const paymentLines: string[] = [];
     const invAny = invoice as any;
     if (invAny.creditUsed && Math.round(Number(invAny.creditUsed)) > 0) {
@@ -555,9 +648,14 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
     if (invAny.creditRemaining && Math.round(Number(invAny.creditRemaining)) > 0) {
       paymentLines.push(`Credit Balance: ₹${Math.round(Number(invAny.creditRemaining)).toLocaleString("en-IN")}`);
     }
-    const paymentMethod = invoice.paymentMethod || "UPI";
+    const paymentMethod = sanitizeTemplateVariable(invoice.paymentMethod || "UPI", "UPI");
     paymentLines.push(`Payment Method: ${paymentMethod}`);
-    const paymentInfo = paymentLines.join("\n");
+
+    const paymentRaw = paymentLines.join(", ");
+    const paymentInfo = sanitizeTemplateVariable(
+      paymentRaw,
+      `Amount Paid: ₹${paid.toLocaleString("en-IN")}, Payment Method: ${paymentMethod}`
+    );
 
     // Exactly 8 parameters mapped for blow_salon_invoice
     const bodyParameters = [
@@ -574,7 +672,7 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
     const templateResult = await this.sendTemplateMessage(
       normalized.digits,
       templateNameToUse,
-      this.templateLanguage,
+      templateLang,
       [
         {
           type: "body",
@@ -589,6 +687,9 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
         action: "sendInvoiceReceipt[Template]",
         phone: normalized.digits,
         invoiceNumber: invoice.invoiceNumber,
+        templateName: templateNameToUse,
+        templateLanguage: templateLang,
+        paramCount: 8,
         messageId: templateResult.messageId,
         result: "SUCCESS",
       });
@@ -602,7 +703,7 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
       };
     }
 
-    // If template fails, log and return clean failure
+    // If template fails, log and return clean failure with exact Meta details
     return {
       success: false,
       status: "FAILED",

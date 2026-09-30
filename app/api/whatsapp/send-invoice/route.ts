@@ -13,29 +13,12 @@ import {
 import type { Invoice } from "@/types/invoice";
 import type { WhatsAppMessageRecord, WhatsAppSettings } from "@/types/whatsapp";
 import { normalizePhoneNumber } from "@/lib/utils/phone";
+import { sanitizeFirestoreDoc } from "@/lib/utils/firestore";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 const MESSAGES_COLLECTION = "whatsapp_messages";
-
-/**
- * Defensive utility to recursively strip any 'undefined' properties before passing to Firestore.
- */
-function sanitizeFirestoreDoc<T extends Record<string, any>>(obj: T): T {
-  const result: Record<string, any> = {};
-  for (const [key, value] of Object.entries(obj)) {
-    if (value === undefined) {
-      continue;
-    }
-    if (value !== null && typeof value === "object" && !Array.isArray(value) && !(value instanceof Date)) {
-      result[key] = sanitizeFirestoreDoc(value);
-    } else {
-      result[key] = value;
-    }
-  }
-  return result as T;
-}
 
 export async function POST(request: Request) {
   try {
