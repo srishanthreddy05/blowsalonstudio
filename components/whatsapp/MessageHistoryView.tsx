@@ -25,6 +25,7 @@ import { Info } from "lucide-react";
 interface MessageHistoryViewProps {
   messages: WhatsAppMessageRecord[];
   loading: boolean;
+  whatsappEnabled?: boolean;
   onRefresh: () => void;
   onRetryInvoiceMessage?: (invoiceId: string) => Promise<void>;
 }

@@ -165,6 +165,7 @@ export interface WhatsAppMessageRecord {
 }
 
 export interface WhatsAppSettings {
+  whatsappEnabled: boolean;
   autoSendInvoice: boolean;
   provider: WhatsAppProviderType;
   customTemplateHeader?: string;
@@ -181,6 +182,7 @@ export interface WhatsAppStatusResponse {
   provider: WhatsAppProviderType;
   errorMessage?: string;
   errorCode?: WhatsAppErrorCode | string;
+  whatsappEnabled: boolean;
   autoSendInvoice: boolean;
   updatedAt: string;
   metaCloudConfigured?: boolean;

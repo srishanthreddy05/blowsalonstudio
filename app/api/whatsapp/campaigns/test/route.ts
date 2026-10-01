@@ -4,10 +4,9 @@ import { normalizePhoneNumber } from "@/lib/utils/phone";
 import { db } from "@/lib/firebase";
 import { collection, addDoc } from "firebase/firestore";
 import type { WhatsAppMessageRecord } from "@/types/whatsapp";
-
 import { getTemplateLanguage } from "@/lib/whatsapp/templateRegistry";
-
 import { sanitizeFirestoreDoc } from "@/lib/utils/firestore";
+import { assertWhatsAppEnabled } from "@/lib/whatsapp/enabledGuard";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -31,6 +30,11 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
+
+    // ── Master kill-switch ──────────────────────────────────────────────────
+    const enabledCheck = await assertWhatsAppEnabled();
+    if (!enabledCheck.enabled) return enabledCheck.response;
+    // ───────────────────────────────────────────────────────────────────────
 
     const normalized = normalizePhoneNumber(testPhone);
     if (!normalized.isValid) {

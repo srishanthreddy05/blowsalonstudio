@@ -1,4 +1,4 @@
-import { Send, Save, X } from "lucide-react";
+import { Save, X } from "lucide-react";
 
 interface ActionButtonsProps {
   onSave?: () => void;
@@ -26,8 +26,6 @@ export function ActionButtons({
       onSave
     ) {
       onSave();
-    } else if (label === "Send on WhatsApp" && onWhatsApp) {
-      onWhatsApp();
     } else if (label === "Close" && onClose) {
       onClose();
     }
@@ -45,7 +43,6 @@ export function ActionButtons({
       icon: Save,
       tone: "primary",
     },
-    { label: "Send on WhatsApp", icon: Send, tone: "success" },
     { label: "Close", icon: X, tone: "neutral" },
   ] as const;
 
@@ -58,9 +55,7 @@ export function ActionButtons({
           const className =
             action.tone === "primary"
               ? "border-[#6F776D] bg-[#6F776D] text-[#FFFFFF] hover:bg-[#2F352F] shadow-xs"
-              : action.tone === "success"
-                ? "border-[#CCD2C8] bg-[#E8ECE5] text-[#2F352F] hover:bg-[#5F7A62] hover:text-[#FFFFFF] hover:border-[#5F7A62]"
-                : "border-[#E0E4DD] bg-[#F7F7F4] text-[#747A72] hover:border-[#6F776D] hover:text-[#2F352F] hover:bg-[#E8ECE5]";
+              : "border-[#E0E4DD] bg-[#F7F7F4] text-[#747A72] hover:border-[#6F776D] hover:text-[#2F352F] hover:bg-[#E8ECE5]";
 
           return (
             <button

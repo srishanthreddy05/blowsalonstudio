@@ -20,6 +20,7 @@ import { getWhatsAppProvider } from "@/lib/whatsapp/providerFactory";
 import { calculateCampaignStats } from "@/lib/whatsapp/campaignStats";
 import { sanitizeFirestoreDoc } from "@/lib/utils/firestore";
 import { getTemplateLanguage } from "@/lib/whatsapp/templateRegistry";
+import { assertWhatsAppEnabled } from "@/lib/whatsapp/enabledGuard";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -65,6 +66,11 @@ export async function POST(
         message: "No failed recipients found to retry for this campaign.",
       });
     }
+
+    // ── Master kill-switch ──────────────────────────────────────────────────
+    const enabledCheck = await assertWhatsAppEnabled();
+    if (!enabledCheck.enabled) return enabledCheck.response;
+    // ───────────────────────────────────────────────────────────────────────
 
     // 2. Initialize and verify provider
     const provider = getWhatsAppProvider();

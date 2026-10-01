@@ -509,40 +509,30 @@ export default function DashboardPage() {
     [todayExpenses]
   );
 
-  const fetchMonthlyStats = useCallback(async (force = false) => {
-    try {
-      const now = new Date();
-      const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-      const cacheKey = `monthlyStats_${monthKey}`;
+  // ── Real-time Monthly Stats Listener ─────────────────────────────────────
+  // Uses onSnapshot so any Firestore write (invoice create, update, DELETE)
+  // is instantly reflected in the dashboard with zero caching lag.
+  useEffect(() => {
+    const now = new Date();
+    const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    const statsRef = doc(db, "stats", `revenue_${monthKey}`);
 
-      if (!force) {
-        const cached = localStorage.getItem(cacheKey);
-        if (cached) {
-          const { data, expiry } = JSON.parse(cached);
-          if (Date.now() < expiry) {
-            setMonthlyStats(data);
-            return;
-          }
+    const unsub = onSnapshot(
+      statsRef,
+      (snap) => {
+        if (snap.exists()) {
+          setMonthlyStats({
+            totalRevenue: snap.data().totalRevenue ?? 0,
+            totalVisits: snap.data().totalVisits ?? 0,
+          });
+        } else {
+          setMonthlyStats({ totalRevenue: 0, totalVisits: 0 });
         }
-      }
+      },
+      (err) => console.error("Monthly stats listener error:", err)
+    );
 
-      const docRef = doc(db, "stats", `revenue_${monthKey}`);
-      const snap = await getDoc(docRef);
-      const data = snap.exists()
-        ? {
-          totalRevenue: snap.data().totalRevenue ?? 0,
-          totalVisits: snap.data().totalVisits ?? 0,
-        }
-        : { totalRevenue: 0, totalVisits: 0 };
-
-      setMonthlyStats(data);
-      localStorage.setItem(
-        cacheKey,
-        JSON.stringify({ data, expiry: Date.now() + 60000 })
-      );
-    } catch (err) {
-      console.error("Failed to fetch monthly stats:", err);
-    }
+    return () => unsub();
   }, []);
 
   const fetchStaffMonthlyStats = useCallback(
@@ -592,15 +582,14 @@ export default function DashboardPage() {
   // ── Real-time Listeners ────────────────────────────────────────────────
 
   useEffect(() => {
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
-    const endOfToday = new Date();
-    endOfToday.setHours(23, 59, 59, 999);
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+    const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
 
     const qInvoices = query(
       collection(db, "invoices"),
-      where("date", ">=", Timestamp.fromDate(startOfToday)),
-      where("date", "<=", Timestamp.fromDate(endOfToday))
+      where("date", ">=", Timestamp.fromDate(startOfMonth)),
+      where("date", "<=", Timestamp.fromDate(endOfMonth))
     );
 
     const unsub = onSnapshot(
@@ -629,12 +618,12 @@ export default function DashboardPage() {
     return () => unsub();
   }, []);
 
+  // fetchStaffMonthlyStats is still called once on load (not real-time — low churn)
   useEffect(() => {
     if (invoicesLoaded && staffLoaded) {
-      fetchMonthlyStats();
       fetchStaffMonthlyStats();
     }
-  }, [invoicesLoaded, staffLoaded, fetchMonthlyStats, fetchStaffMonthlyStats]);
+  }, [invoicesLoaded, staffLoaded, fetchStaffMonthlyStats]);
 
   useEffect(() => {
     const interval = setInterval(() => setTick((t) => t + 1), 60000);
@@ -822,10 +811,26 @@ export default function DashboardPage() {
       uniqueCustomerIds.add(identifier);
     });
 
+    // Monthly Revenue & Visits: Calculated directly from source-of-truth invoices for current calendar month
+    let monthlyRevenueCalc = 0;
+    let monthlyVisitsCalc = 0;
+    invoices.forEach((inv) => {
+      const invStatus = ((inv as any).status || "").toLowerCase();
+      if (invStatus === "void" || invStatus === "cancelled" || (inv as any).isDeleted) {
+        return;
+      }
+      monthlyVisitsCalc += 1;
+      const payments = getInvoicePayments(inv);
+      const advance = inv.advanceUsed || 0;
+      const collected = (payments.cash || 0) + (payments.upi || 0) + (payments.card || 0) + advance;
+      monthlyRevenueCalc += collected;
+    });
+
     return {
       todayRevenue: todayCollected,
-      monthlyRevenue: monthlyStats?.totalRevenue ?? 0,
+      monthlyRevenue: invoicesLoaded ? monthlyRevenueCalc : (monthlyStats?.totalRevenue ?? 0),
       todayVisits: uniqueCustomerIds.size,
+      monthlyVisits: invoicesLoaded ? monthlyVisitsCalc : (monthlyStats?.totalVisits ?? 0),
       cashToday,
       upiToday,
       cardToday,
@@ -833,7 +838,7 @@ export default function DashboardPage() {
       advanceToday,
       onDutyCount: staff.filter((s) => s.dutyStatus === "onDuty").length,
     };
-  }, [todayInvoices, staff, monthlyStats]);
+  }, [todayInvoices, invoices, invoicesLoaded, staff, monthlyStats]);
 
   const todayStylistPerformance = useMemo(() => {
     const stylistMap: Record<string, {
@@ -935,12 +940,13 @@ export default function DashboardPage() {
   }, []);
 
   const handleBillingSuccess = useCallback(async () => {
+    // Monthly stats update automatically via the onSnapshot listener.
+    // Only staff monthly stats need a manual refresh (they're still polled).
     const now = new Date();
     const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-    localStorage.removeItem(`monthlyStats_${monthKey}`);
     localStorage.removeItem(`staffMonthlyStats_${monthKey}`);
-    await Promise.all([fetchMonthlyStats(true), fetchStaffMonthlyStats(true)]);
-  }, [fetchMonthlyStats, fetchStaffMonthlyStats]);
+    await fetchStaffMonthlyStats(true);
+  }, [fetchStaffMonthlyStats]);
 
   // ── Render ───────────────────────────────────────────────────────────────
 
@@ -1020,7 +1026,12 @@ export default function DashboardPage() {
               subtitle="Unique customers served today"
               icon={CalendarDays}
               accent="amber"
-            />
+            >
+              <div className="flex items-center justify-between rounded-xl bg-[#FAF4E8] px-3.5 py-2.5 border border-[#B18A45]/20 text-xs">
+                <span className="font-semibold text-[#747A72]">Monthly Visits</span>
+                <span className="font-bold text-[#2F352F] text-sm">{stats.monthlyVisits}</span>
+              </div>
+            </StatCard>
           </div>
 
           {/* Quick Actions */}

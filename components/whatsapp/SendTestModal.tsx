@@ -7,10 +7,11 @@ import * as whatsappService from "@/services/whatsapp";
 
 interface SendTestModalProps {
   isOpen: boolean;
+  whatsappEnabled?: boolean;
   onClose: () => void;
 }
 
-export function SendTestModal({ isOpen, onClose }: SendTestModalProps) {
+export function SendTestModal({ isOpen, whatsappEnabled = true, onClose }: SendTestModalProps) {
   const [testPhone, setTestPhone] = useState("");
   const [loading, setLoading] = useState(false);
   const [lastResult, setLastResult] = useState<{ success: boolean; message?: string } | null>(null);
@@ -159,8 +160,9 @@ export function SendTestModal({ isOpen, onClose }: SendTestModalProps) {
             </button>
             <button
               type="submit"
-              disabled={loading || !testPhone.trim()}
-              className="h-9 px-5 rounded-xl bg-[#5F7A62] hover:bg-[#4E6450] text-[#FAF4E8] text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer disabled:opacity-50"
+              disabled={loading || !testPhone.trim() || !whatsappEnabled}
+              title={!whatsappEnabled ? "WhatsApp messaging is currently disabled." : undefined}
+              className="h-9 px-5 rounded-xl bg-[#5F7A62] hover:bg-[#4E6450] text-[#FAF4E8] text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? (
                 <>

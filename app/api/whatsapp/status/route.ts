@@ -16,19 +16,19 @@ export async function GET() {
       process.env.WHATSAPP_ACCESS_TOKEN && process.env.WHATSAPP_PHONE_NUMBER_ID
     );
 
-    // Fetch autoSend setting from Firestore
+    // Fetch settings from Firestore
     let autoSendInvoice = true;
+    let whatsappEnabled = true;
     try {
       const settingsDoc = await getDoc(doc(db, "settings", "whatsapp"));
       if (settingsDoc.exists()) {
-        const data = settingsDoc.data() as WhatsAppSettings;
-        if (typeof data.autoSendInvoice === "boolean") {
-          autoSendInvoice = data.autoSendInvoice;
-        }
+        const data = settingsDoc.data() as Partial<WhatsAppSettings>;
+        if (typeof data.autoSendInvoice === "boolean") autoSendInvoice = data.autoSendInvoice;
+        if (typeof data.whatsappEnabled === "boolean") whatsappEnabled = data.whatsappEnabled;
       }
     } catch (settingsErr) {
       console.warn(
-        "[WhatsApp Status] Could not read whatsapp settings, using default true:",
+        "[WhatsApp Status] Could not read whatsapp settings, using defaults:",
         settingsErr instanceof Error ? settingsErr.message : settingsErr
       );
     }
@@ -41,6 +41,7 @@ export async function GET() {
       errorMessage: statusResult.errorMessage || null,
       errorCode: statusResult.errorCode || null,
       metaCloudConfigured: isMetaConfigured,
+      whatsappEnabled,
       autoSendInvoice,
       updatedAt: new Date().toISOString(),
     });
@@ -48,7 +49,6 @@ export async function GET() {
     const errorMsg = error instanceof Error ? error.message : "Failed to fetch WhatsApp status";
     console.error("[WhatsApp Status] Error:", errorMsg);
 
-    // Controlled graceful response - never return 500 on status checks
     return NextResponse.json(
       {
         status: "DISCONNECTED",
@@ -57,6 +57,7 @@ export async function GET() {
         provider: "WHATSAPP_CLOUD_API",
         errorMessage: "WhatsApp service is currently unavailable.",
         errorCode: "WHATSAPP_NOT_CONFIGURED",
+        whatsappEnabled: true,
         autoSendInvoice: true,
         updatedAt: new Date().toISOString(),
       },

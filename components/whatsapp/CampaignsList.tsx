@@ -25,6 +25,7 @@ import * as whatsappService from "@/services/whatsapp";
 interface CampaignsListProps {
   campaigns: WhatsAppCampaign[];
   loading: boolean;
+  whatsappEnabled: boolean;
   onCreateNew: () => void;
   onSendTest: () => void;
   onViewCampaign: (campaign: WhatsAppCampaign) => void;
@@ -100,6 +101,7 @@ const audienceLabels: Record<string, string> = {
 export default function CampaignsList({
   campaigns,
   loading,
+  whatsappEnabled,
   onCreateNew,
   onSendTest,
   onViewCampaign,
@@ -182,7 +184,9 @@ export default function CampaignsList({
           <button
             type="button"
             onClick={onSendTest}
-            className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-[#CCD2C8] bg-[#FFFFFF] hover:bg-[#F7F7F4] px-3.5 text-xs font-semibold text-[#2F352F] shadow-xs transition cursor-pointer"
+            disabled={!whatsappEnabled}
+            title={!whatsappEnabled ? "WhatsApp messaging is currently disabled." : undefined}
+            className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-[#CCD2C8] bg-[#FFFFFF] hover:bg-[#F7F7F4] px-3.5 text-xs font-semibold text-[#2F352F] shadow-xs transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <Send size={13} className="text-[#5F7A62]" />
             <span>Send Test</span>
@@ -374,10 +378,10 @@ export default function CampaignsList({
                           {failed > 0 && (
                             <button
                               type="button"
-                              title={`Retry ${failed} failed recipient${failed > 1 ? "s" : ""}`}
-                              disabled={checkingRetryId === camp.id}
-                              onClick={() => handleTriggerRetry(camp)}
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[#FBD38D] bg-[#FFF4E5] hover:bg-[#FEEBC8] text-xs font-bold text-[#C05621] shadow-2xs transition cursor-pointer active:scale-95 disabled:opacity-50"
+                              title={!whatsappEnabled ? "WhatsApp messaging is currently disabled." : `Retry ${failed} failed recipient${failed > 1 ? "s" : ""}`}
+                              disabled={checkingRetryId === camp.id || !whatsappEnabled}
+                              onClick={() => whatsappEnabled && handleTriggerRetry(camp)}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[#FBD38D] bg-[#FFF4E5] hover:bg-[#FEEBC8] text-xs font-bold text-[#C05621] shadow-2xs transition cursor-pointer active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
                             >
                               <RotateCcw size={12} className={checkingRetryId === camp.id ? "animate-spin" : ""} />
                               <span>Retry {failed}</span>
@@ -388,9 +392,10 @@ export default function CampaignsList({
                           {canSend && failed === 0 && (
                             <button
                               type="button"
-                              title="Send Campaign Now"
-                              onClick={() => onSendCampaign(camp)}
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#5F7A62] hover:bg-[#4E6651] text-[#FAF4E8] text-xs font-bold shadow-2xs transition cursor-pointer"
+                              title={!whatsappEnabled ? "WhatsApp messaging is currently disabled." : "Send Campaign Now"}
+                              disabled={!whatsappEnabled}
+                              onClick={() => whatsappEnabled && onSendCampaign(camp)}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#5F7A62] hover:bg-[#4E6651] text-[#FAF4E8] text-xs font-bold shadow-2xs transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                             >
                               <Play size={12} />
                               <span>Send</span>

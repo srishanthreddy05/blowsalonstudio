@@ -14,6 +14,7 @@ import type { Invoice } from "@/types/invoice";
 import type { WhatsAppMessageRecord, WhatsAppSettings } from "@/types/whatsapp";
 import { normalizePhoneNumber } from "@/lib/utils/phone";
 import { sanitizeFirestoreDoc } from "@/lib/utils/firestore";
+import { assertWhatsAppEnabled } from "@/lib/whatsapp/enabledGuard";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -24,6 +25,11 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     const { invoiceId, forceResend, overridePhone } = body;
+
+    // ── Master kill-switch ──────────────────────────────────────────────────
+    const enabledCheck = await assertWhatsAppEnabled();
+    if (!enabledCheck.enabled) return enabledCheck.response;
+    // ───────────────────────────────────────────────────────────────────────
 
     if (!invoiceId) {
       return NextResponse.json(
@@ -80,18 +86,21 @@ export async function POST(request: Request) {
       try {
         const q = query(
           collection(db, MESSAGES_COLLECTION),
-          where("invoiceId", "==", invoiceId),
-          where("status", "==", "SENT")
+          where("invoiceId", "==", invoiceId)
         );
-        const existingSentSnap = await getDocs(q);
-        if (!existingSentSnap.empty) {
-          const existing = existingSentSnap.docs[0].data() as WhatsAppMessageRecord;
+        const existingSnap = await getDocs(q);
+        const alreadySent = existingSnap.docs.find((d) => {
+          const s = d.data().status;
+          return s === "SENT" || s === "DELIVERED" || s === "READ" || s === "SENDING" || s === "PENDING";
+        });
+        if (alreadySent) {
+          const existing = alreadySent.data() as WhatsAppMessageRecord;
           return NextResponse.json({
             success: true,
-            status: "SENT",
+            status: existing.status,
             message: "WhatsApp receipt was already sent.",
             messageRecord: {
-              id: existingSentSnap.docs[0].id,
+              id: alreadySent.id,
               ...existing,
             },
           });

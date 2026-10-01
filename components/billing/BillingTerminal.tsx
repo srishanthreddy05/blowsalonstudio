@@ -1165,13 +1165,20 @@ export function BillingTerminal({
       setMessage({ type: "success", text: successMsg });
       setSaved(true);
 
-      // Trigger automated WhatsApp receipt dispatch (non-blocking)
-      const finalInvId = savedInvoiceId || editInvoiceId || "";
-      if (finalInvId && isOnline) {
+      // Trigger automated WhatsApp receipt dispatch (non-blocking) - ONLY for new invoices, NOT on edit/update
+      if (!editInvoiceId && savedInvoiceId && isOnline) {
         setWhatsappNotice({ status: "SENDING", text: "Sending WhatsApp receipt..." });
         whatsappService
-          .sendInvoiceWhatsApp(finalInvId)
+          .sendInvoiceWhatsApp(savedInvoiceId)
           .then((waRes) => {
+            // If WhatsApp is globally disabled, show a quiet informational notice (not an error)
+            if ((waRes as any).disabled) {
+              setWhatsappNotice({
+                status: "NOT_SENT",
+                text: "WhatsApp messaging is currently disabled.",
+              });
+              return;
+            }
             if (waRes.status === "SENT") {
               setWhatsappNotice({
                 status: "SENT",
@@ -1181,7 +1188,7 @@ export function BillingTerminal({
               setWhatsappNotice({
                 status: "FAILED",
                 text: waRes.error || "WhatsApp receipt failed. Is WhatsApp connected?",
-                invoiceId: finalInvId,
+                invoiceId: savedInvoiceId,
               });
             } else {
               setWhatsappNotice({
@@ -1195,7 +1202,7 @@ export function BillingTerminal({
             setWhatsappNotice({
               status: "FAILED",
               text: "WhatsApp dispatch error",
-              invoiceId: finalInvId,
+              invoiceId: savedInvoiceId,
             });
           });
       }
@@ -1797,7 +1804,6 @@ export function BillingTerminal({
             <ActionButtons
               onSave={handleSaveBill}
               onClose={handleClose}
-              onWhatsApp={handleWhatsApp}
               disabled={saved || saving || !isPaymentValid}
               saved={saved}
               isEdit={!!editInvoiceId}

@@ -4,7 +4,7 @@ import { useEffect, useState, use } from "react";
 import * as invoicesService from "@/services/invoices";
 import * as whatsappService from "@/services/whatsapp";
 import { formatCurrency } from "@/components/salon-dashboard/types";
-import { ChevronLeft, Receipt, Send, Tag, Edit2, CheckCircle2, RotateCcw, MessageSquare, AlertCircle, Calendar } from "lucide-react";
+import { ChevronLeft, Receipt, Send, Tag, Edit2, Trash2, CheckCircle2, RotateCcw, MessageSquare, AlertCircle, Calendar } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "react-hot-toast";
@@ -26,7 +26,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
   const [invoice, setInvoice] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [waMessages, setWaMessages] = useState<WhatsAppMessageRecord[]>([]);
-  const [waSending, setWaSending] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     async function loadInvoice() {
@@ -110,37 +110,26 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
   const totalMemberships = invoice.totalMemberships ?? (invoice.services || []).reduce((sum: number, s: any) => sum + (s.isSystemService || s.serviceId === "membership_fee" ? (s.price || 0) - (s.discount || 0) : 0), 0);
 
   const latestWaMessage = waMessages.length > 0 ? waMessages[0] : null;
-  const isSentWa = waMessages.some((m) => m.status === "SENT");
+  const isSentWa = waMessages.some((m) => m.status === "SENT" || m.status === "DELIVERED" || m.status === "READ");
 
-  // Automated WhatsApp Send via server
-  const handleServerWhatsAppSend = async (isResend = false) => {
-    if (!customerPhone) {
-      toast.error("This invoice has no customer mobile number on file.");
+
+  const handleDeleteInvoice = async () => {
+    if (!invoice?.id) return;
+    const invNo = invoice.invoiceNumber || invoice.invoiceNo || invoice.id;
+    if (!window.confirm(`Are you sure you want to permanently delete invoice ${invNo}? This will also reverse all revenue and statistics.`)) {
       return;
     }
 
-    if (isResend && !confirm(`Send WhatsApp receipt again to ${customerPhone}?`)) {
-      return;
-    }
-
-    setWaSending(true);
-    toast.loading("Sending WhatsApp receipt...", { id: "send-wa-invoice" });
+    setIsDeleting(true);
+    toast.loading("Deleting invoice...", { id: "delete-inv" });
     try {
-      const res = await whatsappService.sendInvoiceWhatsApp(invoice.id, isResend);
-      if (res.success && res.status === "SENT") {
-        toast.success("WhatsApp receipt sent successfully!", { id: "send-wa-invoice" });
-      } else if (res.status === "NOT_SENT") {
-        toast.error(res.error || "Receipt not sent: " + res.error, { id: "send-wa-invoice" });
-      } else {
-        toast.error(res.error || "Failed to deliver WhatsApp message. Is WhatsApp connected?", { id: "send-wa-invoice" });
-      }
-      const updatedMessages = await whatsappService.getInvoiceMessages(invoice.id);
-      setWaMessages(updatedMessages);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Error sending WhatsApp receipt";
-      toast.error(msg, { id: "send-wa-invoice" });
-    } finally {
-      setWaSending(false);
+      await invoicesService.delete(invoice.id);
+      toast.success(`Invoice ${invNo} deleted successfully`, { id: "delete-inv" });
+      router.push("/invoices");
+    } catch (error: any) {
+      console.error("Failed to delete invoice:", error);
+      toast.error(error.message || "Failed to delete invoice", { id: "delete-inv" });
+      setIsDeleting(false);
     }
   };
 
@@ -175,12 +164,12 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
             Edit Invoice
           </Link>
           <button
-            onClick={() => handleServerWhatsAppSend(isSentWa)}
-            disabled={waSending}
-            className="inline-flex h-10 items-center gap-2 rounded-xl bg-[#5F7A62] px-4 text-xs font-bold text-white shadow-xs transition hover:bg-[#2F352F] cursor-pointer disabled:opacity-50"
+            onClick={handleDeleteInvoice}
+            disabled={isDeleting}
+            className="inline-flex h-10 items-center gap-2 rounded-xl border border-[#F8D7D7] bg-[#FBEBEB] px-4 text-xs font-bold text-[#B55B5B] hover:bg-[#B55B5B] hover:text-[#FFFFFF] transition shadow-xs cursor-pointer disabled:opacity-50"
           >
-            <WhatsAppBrandIcon size={14} />
-            {isSentWa ? "Resend on WhatsApp" : "Send on WhatsApp"}
+            <Trash2 size={14} />
+            {isDeleting ? "Deleting..." : "Delete Invoice"}
           </button>
         </div>
       </div>
@@ -373,16 +362,6 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
                 No automated WhatsApp dispatch record for this invoice yet.
               </p>
             )}
-
-            <button
-              type="button"
-              disabled={waSending || !customerPhone}
-              onClick={() => handleServerWhatsAppSend(isSentWa)}
-              className="w-full inline-flex items-center justify-center gap-2 h-9 rounded-xl bg-[#5F7A62] hover:bg-[#4E6450] text-white text-xs font-bold shadow-2xs transition cursor-pointer disabled:opacity-50"
-            >
-              <Send size={13} />
-              <span>{isSentWa ? "Resend Receipt via WhatsApp" : "Send Receipt via WhatsApp"}</span>
-            </button>
           </section>
 
           {/* Totals Summary */}

@@ -18,6 +18,7 @@ import type {
 import { getWhatsAppProvider } from "@/lib/whatsapp/providerFactory";
 import { getTemplateLanguage } from "@/lib/whatsapp/templateRegistry";
 import { calculateCampaignStats } from "@/lib/whatsapp/campaignStats";
+import { assertWhatsAppEnabled } from "@/lib/whatsapp/enabledGuard";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -56,6 +57,11 @@ export async function POST(
         { status: 400 }
       );
     }
+
+    // ── Master kill-switch ──────────────────────────────────────────────────
+    const enabledCheck = await assertWhatsAppEnabled();
+    if (!enabledCheck.enabled) return enabledCheck.response;
+    // ───────────────────────────────────────────────────────────────────────
 
     // 2. Check Provider Connection / Configuration
     const provider = getWhatsAppProvider();

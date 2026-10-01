@@ -31,6 +31,7 @@ interface CampaignDetailModalProps {
   campaign: WhatsAppCampaign;
   recipients: WhatsAppCampaignRecipient[];
   loadingRecipients: boolean;
+  whatsappEnabled?: boolean;
   onClose: () => void;
   onSendCampaign: (campaign: WhatsAppCampaign) => void;
   onCancelCampaign: (campaignId: string) => void;
@@ -84,6 +85,7 @@ export default function CampaignDetailModal({
   campaign,
   recipients,
   loadingRecipients,
+  whatsappEnabled = true,
   onClose,
   onSendCampaign,
   onCancelCampaign,
@@ -177,8 +179,10 @@ export default function CampaignDetailModal({
             {canSend && (
               <button
                 type="button"
-                onClick={() => onSendCampaign(campaign)}
-                className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-[#5F7A62] hover:bg-[#4E6651] text-[#FAF4E8] px-3.5 text-xs font-semibold shadow-xs transition cursor-pointer"
+                disabled={!whatsappEnabled}
+                title={!whatsappEnabled ? "WhatsApp messaging is currently disabled." : undefined}
+                onClick={() => whatsappEnabled && onSendCampaign(campaign)}
+                className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-[#5F7A62] hover:bg-[#4E6651] text-[#FAF4E8] px-3.5 text-xs font-semibold shadow-xs transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <Play size={13} />
                 <span>Send Campaign</span>
@@ -188,8 +192,10 @@ export default function CampaignDetailModal({
             {canRetry && (
               <button
                 type="button"
-                onClick={() => onRetryCampaign(campaign.id)}
-                className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-[#FBD38D] bg-[#FFF4E5] hover:bg-[#FEEBC8] text-[#C05621] px-3.5 text-xs font-bold shadow-xs transition cursor-pointer"
+                disabled={!whatsappEnabled}
+                title={!whatsappEnabled ? "WhatsApp messaging is currently disabled." : undefined}
+                onClick={() => whatsappEnabled && onRetryCampaign(campaign.id)}
+                className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-[#FBD38D] bg-[#FFF4E5] hover:bg-[#FEEBC8] text-[#C05621] px-3.5 text-xs font-bold shadow-xs transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <RotateCcw size={13} />
                 <span>Retry {stats.failedCount}</span>

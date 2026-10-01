@@ -18,6 +18,7 @@ export async function getStatus(): Promise<WhatsAppStatusResponse> {
         status: "DISCONNECTED",
         provider: "WHATSAPP_CLOUD_API",
         errorMessage: errData.errorMessage || "WhatsApp service is unavailable.",
+        whatsappEnabled: true,
         autoSendInvoice: true,
         updatedAt: new Date().toISOString(),
       };
@@ -30,6 +31,7 @@ export async function getStatus(): Promise<WhatsAppStatusResponse> {
       status: "DISCONNECTED",
       provider: "WHATSAPP_CLOUD_API",
       errorMessage: msg,
+      whatsappEnabled: true,
       autoSendInvoice: true,
       updatedAt: new Date().toISOString(),
     };
@@ -157,6 +159,7 @@ export async function getSettings(): Promise<WhatsAppSettings> {
     const res = await fetch("/api/whatsapp/settings", { cache: "no-store" });
     if (!res.ok) {
       return {
+        whatsappEnabled: true,
         autoSendInvoice: true,
         provider: "WHATSAPP_CLOUD_API",
         updatedAt: new Date().toISOString(),
@@ -165,6 +168,7 @@ export async function getSettings(): Promise<WhatsAppSettings> {
     return await res.json();
   } catch {
     return {
+      whatsappEnabled: true,
       autoSendInvoice: true,
       provider: "WHATSAPP_CLOUD_API",
       updatedAt: new Date().toISOString(),

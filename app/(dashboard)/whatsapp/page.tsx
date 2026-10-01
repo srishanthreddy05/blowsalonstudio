@@ -21,6 +21,8 @@ import {
   LayoutDashboard,
   Megaphone,
   History,
+  Power,
+  WifiOff,
 } from "lucide-react";
 import * as whatsappService from "@/services/whatsapp";
 import type {
@@ -66,8 +68,10 @@ export default function WhatsAppPage() {
   const [messages, setMessages] = useState<WhatsAppMessageRecord[]>([]);
   const [loadingMessages, setLoadingMessages] = useState(true);
   const [autoSendInvoice, setAutoSendInvoice] = useState(true);
+  const [whatsappEnabled, setWhatsappEnabled] = useState(true);
   const [savingSettings, setSavingSettings] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [confirmToggle, setConfirmToggle] = useState<"off" | "on" | null>(null);
 
   // Campaigns state
   const [campaigns, setCampaigns] = useState<WhatsAppCampaign[]>([]);
@@ -84,6 +88,7 @@ export default function WhatsAppPage() {
       const data = await whatsappService.getStatus();
       setStatusData(data);
       setAutoSendInvoice(data.autoSendInvoice ?? true);
+      setWhatsappEnabled(data.whatsappEnabled ?? true);
     } catch (err) {
       console.error("Error fetching WhatsApp status:", err);
     } finally {
@@ -170,6 +175,25 @@ export default function WhatsAppPage() {
       const msg = err instanceof Error ? err.message : "Failed to update settings";
       toast.error(msg);
       setAutoSendInvoice(!checked);
+    } finally {
+      setSavingSettings(false);
+    }
+  };
+
+  const handleToggleMasterSwitch = async (newValue: boolean) => {
+    setSavingSettings(true);
+    setConfirmToggle(null);
+    try {
+      const res = await whatsappService.updateSettings({ whatsappEnabled: newValue });
+      setWhatsappEnabled(res.whatsappEnabled ?? newValue);
+      toast.success(
+        newValue
+          ? "WhatsApp messaging is now ON."
+          : "WhatsApp messaging has been turned OFF. No messages will be sent."
+      );
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to update WhatsApp switch";
+      toast.error(msg);
     } finally {
       setSavingSettings(false);
     }
@@ -345,6 +369,73 @@ export default function WhatsAppPage() {
 
   return (
     <div className="w-full text-[#292D29] space-y-6 max-w-6xl mx-auto">
+      {/* ── Master Kill-Switch Banner ─────────────────────────────────────── */}
+      <div
+        className={`rounded-2xl border px-5 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-all ${
+          whatsappEnabled
+            ? "border-[#5F7A62]/40 bg-[#E8ECE5]/50"
+            : "border-[#B55B5B]/40 bg-[#FBEBEB]/60"
+        }`}
+      >
+        <div className="flex items-center gap-3">
+          <div
+            className={`grid size-10 place-items-center rounded-xl border ${
+              whatsappEnabled
+                ? "bg-[#E8ECE5] border-[#5F7A62]/30 text-[#5F7A62]"
+                : "bg-[#FBEBEB] border-[#B55B5B]/30 text-[#B55B5B]"
+            }`}
+          >
+            {whatsappEnabled ? <Power size={18} /> : <WifiOff size={18} />}
+          </div>
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#6F776D] mb-0.5">
+              WhatsApp Messaging
+            </p>
+            <p
+              className={`text-sm font-bold ${
+                whatsappEnabled ? "text-[#2F352F]" : "text-[#B55B5B]"
+              }`}
+            >
+              {whatsappEnabled ? "WhatsApp is ON" : "WhatsApp is OFF"}
+            </p>
+            <p className="text-[11px] text-[#747A72] mt-0.5 max-w-md">
+              {whatsappEnabled
+                ? "WhatsApp messaging is active. Invoices, campaigns, and tests will send normally."
+                : "WhatsApp messaging is temporarily disabled. No outgoing messages will be sent. Your configuration and history are preserved."}
+            </p>
+          </div>
+        </div>
+
+        {/* Toggle switch */}
+        <button
+          id="whatsapp-master-toggle"
+          type="button"
+          disabled={savingSettings || loadingStatus}
+          onClick={() => setConfirmToggle(whatsappEnabled ? "off" : "on")}
+          className={`relative inline-flex h-8 w-[140px] shrink-0 items-center rounded-full border-2 transition-colors duration-300 focus:outline-none cursor-pointer disabled:opacity-50 ${
+            whatsappEnabled
+              ? "border-[#5F7A62] bg-[#5F7A62]"
+              : "border-[#CCD2C8] bg-[#CCD2C8]"
+          }`}
+          title={whatsappEnabled ? "Click to turn off WhatsApp messaging" : "Click to turn on WhatsApp messaging"}
+        >
+          <span
+            className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-sm transition-transform duration-300 ${
+              whatsappEnabled ? "translate-x-[104px]" : "translate-x-1"
+            }`}
+          />
+          <span
+            className={`absolute text-[10px] font-bold uppercase tracking-wider transition-opacity ${
+              whatsappEnabled
+                ? "left-3 text-white opacity-100"
+                : "right-3 text-[#747A72] opacity-100"
+            }`}
+          >
+            {whatsappEnabled ? "ON" : "OFF"}
+          </span>
+        </button>
+      </div>
+
       {/* Top Header */}
       <div className="flex flex-wrap items-end justify-between gap-4 border-b border-[#E0E4DD] pb-5">
         <div>
@@ -738,6 +829,7 @@ export default function WhatsAppPage() {
           <CampaignsList
             campaigns={campaigns}
             loading={loadingCampaigns}
+            whatsappEnabled={whatsappEnabled}
             onCreateNew={() => setCreateModalOpen(true)}
             onSendTest={() => setTestModalOpen(true)}
             onViewCampaign={handleViewCampaign}
@@ -758,6 +850,7 @@ export default function WhatsAppPage() {
           <MessageHistoryView
             messages={messages}
             loading={loadingMessages}
+            whatsappEnabled={whatsappEnabled}
             onRefresh={() => {
               fetchMessages();
               toast.success("Message audit history refreshed.");
@@ -781,6 +874,7 @@ export default function WhatsAppPage() {
 
       <SendTestModal
         isOpen={testModalOpen}
+        whatsappEnabled={whatsappEnabled}
         onClose={() => setTestModalOpen(false)}
       />
 
@@ -789,12 +883,72 @@ export default function WhatsAppPage() {
           campaign={selectedCampaignForDetail}
           recipients={detailRecipients}
           loadingRecipients={loadingDetailRecipients}
+          whatsappEnabled={whatsappEnabled}
           onClose={() => setSelectedCampaignForDetail(null)}
           onSendCampaign={handleSendCampaign}
           onCancelCampaign={handleCancelCampaign}
           onRetryCampaign={handleRetryCampaign}
           onToggleCustomerOptOut={handleToggleCustomerOptOut}
         />
+      )}
+
+      {/* ── Master Switch Confirmation Dialog ───────────────────────────────── */}
+      {confirmToggle && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="fixed inset-0 bg-[#292D29]/50 backdrop-blur-xs"
+            onClick={() => setConfirmToggle(null)}
+          />
+          <div className="relative w-full max-w-md rounded-3xl border border-[#E0E4DD] bg-[#FFFFFF] p-6 shadow-2xl z-10 animate-in zoom-in-95 duration-200 space-y-5">
+            <div className="flex items-center gap-3">
+              <div
+                className={`grid size-11 place-items-center rounded-2xl border ${
+                  confirmToggle === "off"
+                    ? "bg-[#FBEBEB] border-[#F8D7D7] text-[#B55B5B]"
+                    : "bg-[#E8ECE5] border-[#5F7A62]/30 text-[#5F7A62]"
+                }`}
+              >
+                <Power size={20} />
+              </div>
+              <div>
+                <h3 className="font-serif text-lg font-bold text-[#2F352F]">
+                  {confirmToggle === "off"
+                    ? "Turn off WhatsApp messaging?"
+                    : "Turn on WhatsApp messaging?"}
+                </h3>
+              </div>
+            </div>
+
+            <p className="text-xs text-[#2F352F] leading-relaxed bg-[#F7F7F4] p-3.5 rounded-2xl border border-[#E0E4DD]">
+              {confirmToggle === "off"
+                ? "New WhatsApp messages, invoice receipts, campaigns, tests, and retries will be temporarily disabled. Your existing WhatsApp configuration and message history will not be affected."
+                : "WhatsApp messages will be allowed to send again. No queued or historical messages will be sent automatically — only new explicit send actions will work."}
+            </p>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#E0E4DD]">
+              <button
+                type="button"
+                onClick={() => setConfirmToggle(null)}
+                className="rounded-xl border border-[#CCD2C8] px-4 py-2 text-xs font-bold text-[#747A72] hover:bg-[#F7F7F4] hover:text-[#2F352F] transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                id={`whatsapp-confirm-${confirmToggle}`}
+                type="button"
+                disabled={savingSettings}
+                onClick={() => handleToggleMasterSwitch(confirmToggle === "on")}
+                className={`rounded-xl px-5 py-2 text-xs font-bold text-white shadow-xs transition cursor-pointer disabled:opacity-50 ${
+                  confirmToggle === "off"
+                    ? "bg-[#B55B5B] hover:bg-[#9C4040]"
+                    : "bg-[#5F7A62] hover:bg-[#4E6450]"
+                }`}
+              >
+                {savingSettings ? "Saving..." : confirmToggle === "off" ? "Turn Off WhatsApp" : "Turn On WhatsApp"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
