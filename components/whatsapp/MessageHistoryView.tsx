@@ -15,6 +15,7 @@ import {
   CheckCheck,
   ExternalLink,
   Phone,
+  MessageSquare,
 } from "lucide-react";
 import type { WhatsAppMessageRecord, WhatsAppMessageType, WhatsAppMessageStatus } from "@/types/whatsapp";
 import { formatDisplayDate } from "@/lib/utils/date";
@@ -88,6 +89,18 @@ const typeBadges: Record<
   WhatsAppMessageType,
   { label: string; icon: React.ComponentType<{ size?: number; className?: string }>; bg: string; text: string }
 > = {
+  INBOX_TEXT: {
+    label: "Inbox Chat",
+    icon: MessageSquare,
+    bg: "bg-[#E8ECE5]",
+    text: "text-[#5F7A62]",
+  },
+  INBOX_TEMPLATE: {
+    label: "Inbox Template",
+    icon: Sparkles,
+    bg: "bg-[#FAF4E8]",
+    text: "text-[#B18A45]",
+  },
   INVOICE_RECEIPT: {
     label: "Invoice Receipt",
     icon: Receipt,

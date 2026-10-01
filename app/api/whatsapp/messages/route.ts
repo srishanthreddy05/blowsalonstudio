@@ -18,11 +18,36 @@ const MESSAGES_COLLECTION = "whatsapp_messages";
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
+    const conversationId = searchParams.get("conversationId");
     const invoiceId = searchParams.get("invoiceId");
     const campaignId = searchParams.get("campaignId");
     const messageType = searchParams.get("messageType");
     const status = searchParams.get("status");
     const maxLimit = Math.min(parseInt(searchParams.get("limit") || "50", 10), 200);
+
+    // 0. Single Conversation Query
+    if (conversationId) {
+      try {
+        const q = query(
+          collection(db, MESSAGES_COLLECTION),
+          where("conversationId", "==", conversationId),
+          orderBy("createdAt", "asc")
+        );
+        const snap = await getDocs(q);
+        const messages: WhatsAppMessageRecord[] = snap.docs.map((d) => ({
+          id: d.id,
+          ...d.data(),
+        } as WhatsAppMessageRecord));
+        return NextResponse.json({ messages });
+      } catch {
+        const snap = await getDocs(collection(db, MESSAGES_COLLECTION));
+        const messages: WhatsAppMessageRecord[] = snap.docs
+          .map((d) => ({ id: d.id, ...d.data() } as WhatsAppMessageRecord))
+          .filter((m) => m.conversationId === conversationId)
+          .sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || ""));
+        return NextResponse.json({ messages });
+      }
+    }
 
     // 1. Single Invoice Query
     if (invoiceId) {

@@ -43,11 +43,32 @@ export type WhatsAppAudienceType =
   | "MEMBERSHIP"
   | "CUSTOM";
 
+export type WhatsAppMessageDirection = "INBOUND" | "OUTBOUND";
+
 export type WhatsAppMessageType =
   | "INVOICE_RECEIPT"
   | "MARKETING_CAMPAIGN"
   | "TEST_MESSAGE"
-  | "APPOINTMENT_REMINDER";
+  | "APPOINTMENT_REMINDER"
+  | "INBOX_TEXT"
+  | "INBOX_TEMPLATE";
+
+export interface WhatsAppConversation {
+  id: string; // Document ID: normalized WhatsApp phone digits (e.g., "919876543210")
+  phoneNumber: string; // Formatted phone number (e.g., "+91 98765 43210")
+  normalizedPhone: string; // Digits only (e.g., "919876543210")
+  customerId?: string | null;
+  customerName: string;
+  lastMessage: string;
+  lastMessageAt: string; // ISO 8601
+  lastMessageDirection: WhatsAppMessageDirection;
+  lastMessageStatus?: WhatsAppMessageStatus;
+  lastInboundAt?: string | null; // ISO 8601 of last customer reply (for 24h window calculation)
+  unreadCount: number;
+  isArchived?: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
 
 
 export interface WhatsAppTemplateComponent {
@@ -137,6 +158,8 @@ export interface WhatsAppCampaignRecipient {
 
 export interface WhatsAppMessageRecord {
   id?: string;
+  conversationId?: string | null;
+  direction?: WhatsAppMessageDirection;
   messageType?: WhatsAppMessageType;
   campaignId?: string | null;
   campaignName?: string | null;
@@ -148,6 +171,7 @@ export interface WhatsAppMessageRecord {
   recipientPhone?: string;
   normalizedPhone?: string;
   templateName?: string | null;
+  templateLanguage?: string | null;
   message?: string;
   contentSummary?: string;
   status: WhatsAppMessageStatus;
