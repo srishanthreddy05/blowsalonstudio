@@ -18,7 +18,6 @@ import type { Customer } from "@/types/customer";
 import { normalizePhoneNumber } from "@/lib/utils/phone";
 import { getTemplateLanguage } from "@/lib/whatsapp/templateRegistry";
 import { sanitizeFirestoreDoc, normalizeCampaignData } from "@/lib/utils/firestore";
-import { calculateCampaignStats, applyStatsToCampaign } from "@/lib/whatsapp/campaignStats";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -40,30 +39,10 @@ export async function GET() {
       campDocs = snap.docs.sort((a, b) => (b.data().createdAt || "").localeCompare(a.data().createdAt || ""));
     }
 
-    // Fetch all recipient documents to aggregate real-time stats as Single Source of Truth
-    const recSnap = await getDocs(collection(db, RECIPIENTS_COLLECTION));
-    const recipientsByCampaign: Record<string, WhatsAppCampaignRecipient[]> = {};
-
-    recSnap.docs.forEach((d) => {
-      const r = { id: d.id, ...d.data() } as WhatsAppCampaignRecipient;
-      if (r.campaignId) {
-        if (!recipientsByCampaign[r.campaignId]) {
-          recipientsByCampaign[r.campaignId] = [];
-        }
-        recipientsByCampaign[r.campaignId].push(r);
-      }
-    });
-
-    const campaigns: WhatsAppCampaign[] = campDocs.map((d) => {
-      const initialCamp = normalizeCampaignData(d.data(), d.id);
-      const campRecs = recipientsByCampaign[d.id] || [];
-
-      if (campRecs.length > 0) {
-        const stats = calculateCampaignStats(campRecs);
-        return applyStatsToCampaign(initialCamp, stats);
-      }
-      return initialCamp;
-    });
+    // Return campaigns using their authoritative stored stats (eliminates full recipients collection scan)
+    const campaigns: WhatsAppCampaign[] = campDocs.map((d) =>
+      normalizeCampaignData(d.data(), d.id)
+    );
 
     return NextResponse.json({ campaigns });
   } catch (error: unknown) {

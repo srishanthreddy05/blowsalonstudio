@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   Search,
   MessageSquare,
@@ -18,12 +18,13 @@ import {
 } from "lucide-react";
 import type { WhatsAppConversation, WhatsAppMessageStatus } from "@/types/whatsapp";
 import type { Customer } from "@/types/customer";
+import { searchCustomers, getRecentCustomers } from "@/services/customers";
 import { formatDisplayDate } from "@/lib/utils/date";
 import { normalizePhoneNumber } from "@/lib/utils/phone";
 
 interface ConversationListProps {
   conversations: WhatsAppConversation[];
-  customers: Customer[];
+  customers?: Customer[];
   activeConversationId: string | null;
   onSelectConversation: (conversation: WhatsAppConversation) => void;
   onSelectCustomerContact: (customer: Customer) => void;
@@ -92,7 +93,7 @@ function formatConversationTime(isoString?: string): string {
 
 export function ConversationList({
   conversations,
-  customers,
+  customers = [],
   activeConversationId,
   onSelectConversation,
   onSelectCustomerContact,
@@ -106,6 +107,62 @@ export function ConversationList({
   const [showManualPhoneInput, setShowManualPhoneInput] = useState(false);
   const [newPhone, setNewPhone] = useState("");
   const [newName, setNewName] = useState("");
+
+  // On-demand customer search states
+  const [contactSearchResults, setContactSearchResults] = useState<Customer[]>([]);
+  const [isSearchingContacts, setIsSearchingContacts] = useState(false);
+  const [modalCustomers, setModalCustomers] = useState<Customer[]>([]);
+  const [modalLoading, setModalLoading] = useState(false);
+
+  // Debounced search for sidebar search input
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (!q) {
+      setContactSearchResults([]);
+      setIsSearchingContacts(false);
+      return;
+    }
+
+    setIsSearchingContacts(true);
+    const timer = setTimeout(async () => {
+      try {
+        const results = await searchCustomers(q, 20);
+        setContactSearchResults(results);
+      } catch (err) {
+        console.error("Error searching customers:", err);
+      } finally {
+        setIsSearchingContacts(false);
+      }
+    }, 250);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  // Load modal customers when modal opens or modal search query changes
+  useEffect(() => {
+    if (!newChatModalOpen) return;
+
+    const q = modalCustomerSearch.trim();
+    setModalLoading(true);
+
+    const timer = setTimeout(async () => {
+      try {
+        if (!q) {
+          const recent = await getRecentCustomers(20);
+          setModalCustomers(recent);
+        } else {
+          const results = await searchCustomers(q, 20);
+          setModalCustomers(results);
+        }
+      } catch (err) {
+        console.error("Error loading modal customers:", err);
+      } finally {
+        setModalLoading(false);
+      }
+    }, q ? 250 : 0);
+
+    return () => clearTimeout(timer);
+  }, [newChatModalOpen, modalCustomerSearch]);
 
   // Map conversations for easy lookup by phone digits
   const conversationPhoneMap = useMemo(() => {
@@ -148,7 +205,8 @@ export function ConversationList({
     );
 
     // 2. Search existing BLOW SALON customers who don't already appear in convMatches
-    const contactMatches = customers.filter((cust) => {
+    const sourceContacts = contactSearchResults.length > 0 ? contactSearchResults : customers;
+    const contactMatches = sourceContacts.filter((cust) => {
       if (!cust.name && !cust.phone) return false;
 
       const norm = normalizePhoneNumber(cust.phone);
@@ -170,23 +228,27 @@ export function ConversationList({
       matchedConversations: convMatches,
       matchedContacts: filterUnread ? [] : contactMatches,
     };
-  }, [conversations, customers, searchQuery, filterUnread]);
+  }, [conversations, contactSearchResults, customers, searchQuery, filterUnread]);
 
   // Modal customer list
-  const modalFilteredCustomers = useMemo(() => {
-    const q = modalCustomerSearch.toLowerCase().trim();
-    if (!q) return customers.slice(0, 20); // Show top 20 recent
-    return customers
-      .filter((cust) => {
-        const norm = normalizePhoneNumber(cust.phone);
-        return (
-          cust.name?.toLowerCase().includes(q) ||
-          cust.phone?.toLowerCase().includes(q) ||
-          (norm.isValid && norm.digits.includes(q))
-        );
-      })
-      .slice(0, 30);
-  }, [customers, modalCustomerSearch]);
+  const displayedModalCustomers = useMemo(() => {
+    if (modalCustomers.length > 0) return modalCustomers;
+    if (customers.length > 0) {
+      const q = modalCustomerSearch.toLowerCase().trim();
+      if (!q) return customers.slice(0, 20);
+      return customers
+        .filter((cust) => {
+          const norm = normalizePhoneNumber(cust.phone);
+          return (
+            cust.name?.toLowerCase().includes(q) ||
+            cust.phone?.toLowerCase().includes(q) ||
+            (norm.isValid && norm.digits.includes(q))
+          );
+        })
+        .slice(0, 20);
+    }
+    return [];
+  }, [modalCustomers, customers, modalCustomerSearch]);
 
   const totalUnreadCount = useMemo(() => {
     return conversations.reduce((acc, c) => acc + (c.unreadCount || 0), 0);
@@ -491,7 +553,12 @@ export function ConversationList({
                 </div>
 
                 <div className="flex-1 overflow-y-auto divide-y divide-[#E0E4DD]/60 border border-[#E0E4DD] rounded-2xl p-1 [scrollbar-width:thin]">
-                  {modalFilteredCustomers.length === 0 ? (
+                  {modalLoading && displayedModalCustomers.length === 0 ? (
+                    <div className="p-6 text-center text-xs text-[#747A72]">
+                      <Clock size={16} className="mx-auto mb-2 text-[#747A72] animate-spin" />
+                      Loading customers...
+                    </div>
+                  ) : displayedModalCustomers.length === 0 ? (
                     <div className="p-6 text-center text-xs text-[#747A72] space-y-1">
                       <p className="font-semibold text-[#2F352F]">No matching customer found</p>
                       <p className="text-[11px]">
@@ -499,7 +566,7 @@ export function ConversationList({
                       </p>
                     </div>
                   ) : (
-                    modalFilteredCustomers.map((cust) => {
+                    displayedModalCustomers.map((cust) => {
                       const norm = normalizePhoneNumber(cust.phone);
                       const isMembership = cust.customerType === "membership";
 

@@ -292,6 +292,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    // Staff is intentionally excluded here — the real-time onSnapshot listener
+    // below fires immediately on subscription and populates staff state, so a
+    // separate getDocs call would read the collection twice on every app mount.
     async function initLoad() {
       setLoadingAppData(true);
       try {
@@ -300,7 +303,6 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           loadProducts(false),
           loadPackages(false),
           loadOffers(false),
-          loadStaff(false),
           loadSettings(false),
           loadCategories(false),
         ]);
@@ -311,12 +313,11 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       }
     }
     initLoad();
-  }, [loadServices, loadProducts, loadPackages, loadOffers, loadStaff, loadSettings, loadCategories]);
+  }, [loadServices, loadProducts, loadPackages, loadOffers, loadSettings, loadCategories]);
 
-  // Real-time listener for staff duty status
+  // Real-time listener for staff — handles initial load AND live updates.
+  // This fires immediately on subscription, so no separate getDocs is needed.
   useEffect(() => {
-    if (loadingAppData) return;
-
     const unsubStaff = onSnapshot(
       collection(db, "staff"),
       (snapshot) => {

@@ -10,6 +10,7 @@ import {
   query,
   where,
   orderBy,
+  limit,
   setDoc,
   increment,
   runTransaction,
@@ -324,6 +325,80 @@ export async function checkAndExpireMemberships(): Promise<Customer[]> {
     return expiredCustomers;
   } catch (error) {
     console.error("Error checking and expiring memberships:", error);
+    return [];
+  }
+}
+
+export async function searchCustomers(queryStr: string, limitCount = 20): Promise<Customer[]> {
+  const trimmed = queryStr.trim();
+  if (!trimmed) return [];
+
+  try {
+    const isPhone = /^\+?\d+$/.test(trimmed.replace(/[\s-]/g, ""));
+    if (isPhone) {
+      const cleanDigits = trimmed.replace(/[\s-+]/g, "");
+      const q = query(
+        collection(db, COLLECTION_NAME),
+        where("phone", ">=", cleanDigits),
+        where("phone", "<=", cleanDigits + "\uf8ff"),
+        limit(limitCount)
+      );
+      const snap = await getDocs(q);
+      const results = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Customer));
+      if (results.length > 0) return results;
+
+      if (cleanDigits !== trimmed) {
+        const qRaw = query(
+          collection(db, COLLECTION_NAME),
+          where("phone", ">=", trimmed),
+          where("phone", "<=", trimmed + "\uf8ff"),
+          limit(limitCount)
+        );
+        const snapRaw = await getDocs(qRaw);
+        return snapRaw.docs.map((d) => ({ id: d.id, ...d.data() } as Customer));
+      }
+      return [];
+    }
+
+    const formatted = toTitleCase(trimmed);
+    const q = query(
+      collection(db, COLLECTION_NAME),
+      where("name", ">=", formatted),
+      where("name", "<=", formatted + "\uf8ff"),
+      limit(limitCount)
+    );
+    const snap = await getDocs(q);
+    const results = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Customer));
+
+    if (results.length === 0 && formatted !== trimmed) {
+      const qRaw = query(
+        collection(db, COLLECTION_NAME),
+        where("name", ">=", trimmed),
+        where("name", "<=", trimmed + "\uf8ff"),
+        limit(limitCount)
+      );
+      const snapRaw = await getDocs(qRaw);
+      return snapRaw.docs.map((d) => ({ id: d.id, ...d.data() } as Customer));
+    }
+
+    return results;
+  } catch (error) {
+    console.error("Error searching customers:", error);
+    return [];
+  }
+}
+
+export async function getRecentCustomers(limitCount = 20): Promise<Customer[]> {
+  try {
+    const q = query(
+      collection(db, COLLECTION_NAME),
+      orderBy("name", "asc"),
+      limit(limitCount)
+    );
+    const snap = await getDocs(q);
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Customer));
+  } catch (error) {
+    console.error("Error getting recent customers:", error);
     return [];
   }
 }

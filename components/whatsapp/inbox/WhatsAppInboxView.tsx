@@ -7,6 +7,7 @@ import {
   query,
   where,
   orderBy,
+  limit,
   onSnapshot,
 } from "firebase/firestore";
 import type {
@@ -15,7 +16,6 @@ import type {
 } from "@/types/whatsapp";
 import type { Customer } from "@/types/customer";
 import * as whatsappService from "@/services/whatsapp";
-import * as customerService from "@/services/customers";
 import { normalizePhoneNumber } from "@/lib/utils/phone";
 import { ConversationList } from "./ConversationList";
 import { ChatThread } from "./ChatThread";
@@ -29,7 +29,6 @@ interface WhatsAppInboxViewProps {
 
 export function WhatsAppInboxView({ whatsappEnabled }: WhatsAppInboxViewProps) {
   const [conversations, setConversations] = useState<WhatsAppConversation[]>([]);
-  const [customers, setCustomers] = useState<Customer[]>([]);
   const [loadingConversations, setLoadingConversations] = useState(true);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [temporaryConversation, setTemporaryConversation] = useState<WhatsAppConversation | null>(null);
@@ -37,12 +36,13 @@ export function WhatsAppInboxView({ whatsappEnabled }: WhatsAppInboxViewProps) {
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [showCustomerPanel, setShowCustomerPanel] = useState(true);
 
-  // 1. Real-time listener for Conversations collection
+  // 1. Real-time listener for Conversations collection (limited to 50 most recent)
   useEffect(() => {
     setLoadingConversations(true);
     const q = query(
       collection(db, "whatsapp_conversations"),
-      orderBy("lastMessageAt", "desc")
+      orderBy("lastMessageAt", "desc"),
+      limit(50)
     );
 
     const unsubscribe = onSnapshot(
@@ -79,33 +79,12 @@ export function WhatsAppInboxView({ whatsappEnabled }: WhatsAppInboxViewProps) {
     return () => unsubscribe();
   }, []);
 
-  // 2. Real-time listener for existing Customers (Source of Truth)
-  useEffect(() => {
-    const q = query(collection(db, "customers"), orderBy("name", "asc"));
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        const custList: Customer[] = snapshot.docs.map((d) => ({
-          id: d.id,
-          ...d.data(),
-        } as Customer));
-        setCustomers(custList);
-      },
-      (err) => {
-        console.error("Error listening to customers:", err);
-        customerService.getAll().then(setCustomers).catch(() => {});
-      }
-    );
-
-    return () => unsubscribe();
-  }, []);
-
   // Compute active conversation (either from saved conversations or temporary placeholder)
   const activeConversation =
     conversations.find((c) => c.id === activeConversationId) ||
     (temporaryConversation?.id === activeConversationId ? temporaryConversation : null);
 
-  // 3. Real-time listener for Messages in the Active Conversation
+  // 2. Real-time listener for Messages in the Active Conversation (limited to 30)
   useEffect(() => {
     if (!activeConversationId) {
       setMessages([]);
@@ -122,7 +101,8 @@ export function WhatsAppInboxView({ whatsappEnabled }: WhatsAppInboxViewProps) {
     const q = query(
       collection(db, "whatsapp_messages"),
       where("conversationId", "==", activeConversationId),
-      orderBy("createdAt", "asc")
+      orderBy("createdAt", "asc"),
+      limit(30)
     );
 
     const unsubscribe = onSnapshot(
@@ -270,7 +250,6 @@ export function WhatsAppInboxView({ whatsappEnabled }: WhatsAppInboxViewProps) {
       <div className="w-80 md:w-88 shrink-0 h-full">
         <ConversationList
           conversations={conversations}
-          customers={customers}
           activeConversationId={activeConversationId}
           onSelectConversation={handleSelectConversation}
           onSelectCustomerContact={handleSelectCustomerContact}

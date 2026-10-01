@@ -31,7 +31,8 @@ export async function GET(request: Request) {
         const q = query(
           collection(db, MESSAGES_COLLECTION),
           where("conversationId", "==", conversationId),
-          orderBy("createdAt", "asc")
+          orderBy("createdAt", "asc"),
+          firestoreLimit(30)
         );
         const snap = await getDocs(q);
         const messages: WhatsAppMessageRecord[] = snap.docs.map((d) => ({
@@ -40,10 +41,14 @@ export async function GET(request: Request) {
         } as WhatsAppMessageRecord));
         return NextResponse.json({ messages });
       } catch {
-        const snap = await getDocs(collection(db, MESSAGES_COLLECTION));
+        const qFallback = query(
+          collection(db, MESSAGES_COLLECTION),
+          where("conversationId", "==", conversationId),
+          firestoreLimit(30)
+        );
+        const snap = await getDocs(qFallback);
         const messages: WhatsAppMessageRecord[] = snap.docs
           .map((d) => ({ id: d.id, ...d.data() } as WhatsAppMessageRecord))
-          .filter((m) => m.conversationId === conversationId)
           .sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || ""));
         return NextResponse.json({ messages });
       }
