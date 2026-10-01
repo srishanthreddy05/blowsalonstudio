@@ -4,6 +4,7 @@ import { useEffect, useState, useMemo, useCallback } from "react";
 import * as staffService from "@/services/staff";
 import * as attendanceService from "@/services/attendance";
 import type { Staff } from "@/types/staff";
+import { formatStaffRole, normalizeStaffRole } from "@/types/staff";
 import type { AttendanceRecord } from "@/types/attendance";
 import { normalizeAttendanceStatus } from "@/types/attendance";
 import {
@@ -50,12 +51,21 @@ export default function StaffPage() {
   const [formData, setFormData] = useState({
     name: "",
     phone: "",
-    role: "Stylist",
+    role: "STYLIST",
     salary: 0,
     status: "Active",
     revenueMonthly: 0,
     servicesMonthly: 0,
   });
+
+  // Manager Reassignment Confirmation Modal State
+  const [managerConfirmModal, setManagerConfirmModal] = useState<{
+    open: boolean;
+    currentManager: Staff;
+    targetStaffName: string;
+    pendingPayload: Partial<Staff>;
+    targetId?: string;
+  } | null>(null);
 
   // Delete Confirm Modal State
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -159,7 +169,7 @@ export default function StaffPage() {
     setFormData({
       name: "",
       phone: "",
-      role: "Stylist",
+      role: "STYLIST",
       salary: 0,
       status: "Active",
       revenueMonthly: 0,
@@ -174,7 +184,7 @@ export default function StaffPage() {
     setFormData({
       name: stf.name,
       phone: stf.phone || "",
-      role: stf.role,
+      role: normalizeStaffRole(stf.role),
       salary: stf.salary || 0,
       status: stf.status,
       revenueMonthly: stf.targets?.revenueMonthly || 0,
@@ -202,22 +212,22 @@ export default function StaffPage() {
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const payload: Partial<Staff> = {
-      name: formData.name.trim(),
-      phone: formData.phone.trim(),
-      role: formData.role,
-      salary: Number(formData.salary) || 0,
-      status: formData.status,
-    };
+  const executeSave = async (
+    payload: Partial<Staff>,
+    targetId?: string,
+    previousManagerId?: string
+  ) => {
     try {
-      if (editingStaff?.id) {
-        await staffService.update(editingStaff.id, payload);
+      if (previousManagerId) {
+        await staffService.update(previousManagerId, { role: "STYLIST" });
+      }
+      if (targetId) {
+        await staffService.update(targetId, payload);
       } else {
         await staffService.create(payload as any);
       }
       setModalOpen(false);
+      setManagerConfirmModal(null);
       await refreshStaff();
       loadStaffPerformance();
     } catch (error) {
@@ -225,16 +235,56 @@ export default function StaffPage() {
     }
   };
 
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const normalizedRole = normalizeStaffRole(formData.role);
+    const payload: Partial<Staff> = {
+      name: formData.name.trim(),
+      phone: formData.phone.trim(),
+      role: normalizedRole,
+      salary: Number(formData.salary) || 0,
+      status: formData.status,
+    };
+
+    // If assigned as MANAGER, verify if another manager already exists
+    if (normalizedRole === "MANAGER") {
+      const existingManager = staff.find(
+        (s) => normalizeStaffRole(s.role) === "MANAGER" && s.id && s.id !== editingStaff?.id
+      );
+
+      if (existingManager) {
+        setManagerConfirmModal({
+          open: true,
+          currentManager: existingManager,
+          targetStaffName: formData.name.trim() || "this staff member",
+          pendingPayload: payload,
+          targetId: editingStaff?.id,
+        });
+        return;
+      }
+    }
+
+    await executeSave(payload, editingStaff?.id);
+  };
+
   const filteredStaff = useMemo(() => {
-    return staff.filter(
-      (s) =>
-        s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        s.role.toLowerCase().includes(searchQuery.toLowerCase())
-    );
+    const q = searchQuery.toLowerCase();
+    return staff.filter((s) => {
+      const nameMatch = s.name.toLowerCase().includes(q);
+      const roleMatch =
+        formatStaffRole(s.role).toLowerCase().includes(q) ||
+        (s.role || "").toLowerCase().includes(q);
+      return nameMatch || roleMatch;
+    });
   }, [staff, searchQuery]);
 
   const sortedStaff = useMemo(() => {
     return [...filteredStaff].sort((a, b) => {
+      const aIsManager = normalizeStaffRole(a.role) === "MANAGER";
+      const bIsManager = normalizeStaffRole(b.role) === "MANAGER";
+      if (aIsManager && !bIsManager) return -1;
+      if (!aIsManager && bIsManager) return 1;
+
       const aIsActive = a.status === "Active";
       const bIsActive = b.status === "Active";
       if (aIsActive && !bIsActive) return -1;
@@ -266,7 +316,7 @@ export default function StaffPage() {
             className="inline-flex h-10 items-center gap-2 rounded-xl bg-[#6F776D] hover:bg-[#2F352F] px-4 text-xs font-bold text-white shadow-xs transition duration-150 cursor-pointer"
           >
             <Plus size={15} />
-            Register Specialist
+            Register Staff
           </button>
         </div>
       </div>
@@ -314,7 +364,7 @@ export default function StaffPage() {
           {/* Search bar & Section Title */}
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
-              <h2 className="font-serif text-lg font-bold text-[#2F352F]">Specialist Directory</h2>
+              <h2 className="font-serif text-lg font-bold text-[#2F352F]">Staff Directory</h2>
               <p className="text-xs text-[#747A72]">
                 Profiles, salary details, and live service performance
               </p>
@@ -338,7 +388,7 @@ export default function StaffPage() {
                 <Users size={36} className="mx-auto mb-2 opacity-30 text-[#6F776D]" />
                 <p className="font-semibold text-sm text-[#2F352F]">No staff added yet.</p>
                 <p className="text-xs text-[#747A72] mt-1">
-                  Click &quot;Register Specialist&quot; above to add your salon team members.
+                  Click &quot;Register Staff&quot; above to add your salon team members.
                 </p>
               </div>
             ) : (
@@ -352,34 +402,47 @@ export default function StaffPage() {
                 const att = stf.id ? todayAttendanceMap[stf.id] : undefined;
                 const normStatus = normalizeAttendanceStatus(att?.status);
 
+                const isManager = normalizeStaffRole(stf.role) === "MANAGER";
+
                 return (
                   <div
                     key={stf.id}
                     onClick={() => setSelectedStaffForProfile(stf)}
-                    className="rounded-3xl border border-[#E0E4DD] bg-[#FFFFFF] p-5 shadow-xs flex flex-col justify-between gap-4 transition hover:border-[#CCD2C8] hover:shadow-md cursor-pointer group"
+                    className={`rounded-3xl border border-[#E0E4DD] bg-[#FFFFFF] p-5 shadow-xs flex flex-col justify-between transition hover:border-[#CCD2C8] hover:shadow-md cursor-pointer group ${
+                      isManager ? "gap-3" : "gap-4"
+                    }`}
                   >
                     {/* Top: Staff Info & Status Badge */}
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex items-center gap-3 min-w-0">
-                        <div className="grid size-11 place-items-center rounded-2xl bg-[#E8ECE5] text-[#2F352F] font-serif font-bold text-base border border-[#CCD2C8] shrink-0 group-hover:bg-[#6F776D] group-hover:text-white transition">
+                        <div
+                          className={`grid size-11 place-items-center rounded-2xl ${
+                            isManager ? "bg-[#2F352F] text-white" : "bg-[#E8ECE5] text-[#2F352F]"
+                          } font-serif font-bold text-base border border-[#CCD2C8] shrink-0 group-hover:bg-[#6F776D] group-hover:text-white transition`}
+                        >
                           {stf.name.charAt(0).toUpperCase()}
                         </div>
                         <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            <h3 className="font-serif font-bold text-base text-[#2F352F] group-hover:text-[#6F776D] transition truncate">
-                              {stf.name}
-                            </h3>
+                          <h3 className="font-serif font-bold text-base text-[#2F352F] group-hover:text-[#6F776D] transition truncate">
+                            {stf.name}
+                          </h3>
+                          <div className="flex items-center gap-1.5 text-xs text-[#747A72] mt-0.5">
                             <span
-                              className={`inline-block rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider border ${
-                                stf.status === "Active"
-                                  ? "bg-[#E8ECE5] text-[#2F352F] border-[#CCD2C8]"
-                                  : "bg-[#FBEBEB] text-[#B55B5B] border-[#FBEBEB]"
+                              className={`font-semibold ${
+                                stf.status === "Active" ? "text-[#5F7A62]" : "text-[#B55B5B]"
                               }`}
                             >
                               {stf.status}
                             </span>
-                            <span className="inline-block rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider border bg-[#F7F7F4] text-[#747A72] border-[#E0E4DD]">
-                              {stf.role}
+                            <span>·</span>
+                            <span
+                              className={`font-semibold ${
+                                isManager
+                                  ? "text-[#2F352F] font-bold"
+                                  : "text-[#747A72]"
+                              }`}
+                            >
+                              {formatStaffRole(stf.role)}
                             </span>
                           </div>
                         </div>
@@ -406,65 +469,71 @@ export default function StaffPage() {
                       </div>
                     </div>
 
-                    {/* Middle: Service Performance Breakdown */}
-                    <div className="pt-3 border-t border-[#E0E4DD] space-y-3">
-                      <span className="font-bold block text-[10px] text-[#747A72] uppercase tracking-wider">
-                        Service Performance (Salary-Based)
-                      </span>
-
-                      {/* Today's Performance */}
-                      <div>
-                        <span className="block text-[10px] font-bold text-[#2F352F] uppercase tracking-wider mb-1.5">
-                          Today
+                    {/* Middle: Service Performance Breakdown (Stylists only) */}
+                    {!isManager && (
+                      <div className="pt-3 border-t border-[#E0E4DD] space-y-3">
+                        <span className="font-bold block text-[10px] text-[#747A72] uppercase tracking-wider">
+                          Service Performance (Salary-Based)
                         </span>
-                        <div className="grid grid-cols-2 gap-2">
-                          <div className="bg-[#F7F7F4] rounded-xl p-2.5 border border-[#E0E4DD]/80">
-                            <span className="block text-[9px] uppercase font-bold text-[#747A72]">
-                              Services Today
-                            </span>
-                            <span className="text-sm font-bold text-[#2F352F] mt-0.5 block">
-                              {todaySrv}
-                            </span>
+
+                        {/* Today's Performance */}
+                        <div>
+                          <span className="block text-[10px] font-bold text-[#2F352F] uppercase tracking-wider mb-1.5">
+                            Today
+                          </span>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className="bg-[#F7F7F4] rounded-xl p-2.5 border border-[#E0E4DD]/80">
+                              <span className="block text-[9px] uppercase font-bold text-[#747A72]">
+                                Services Today
+                              </span>
+                              <span className="text-sm font-bold text-[#2F352F] mt-0.5 block">
+                                {todaySrv}
+                              </span>
+                            </div>
+                            <div className="bg-[#F7F7F4] rounded-xl p-2.5 border border-[#E0E4DD]/80">
+                              <span className="block text-[9px] uppercase font-bold text-[#747A72]">
+                                Revenue Today
+                              </span>
+                              <span className="text-sm font-bold text-[#5F7A62] mt-0.5 block">
+                                {formatCurrency(todayRev)}
+                              </span>
+                            </div>
                           </div>
-                          <div className="bg-[#F7F7F4] rounded-xl p-2.5 border border-[#E0E4DD]/80">
-                            <span className="block text-[9px] uppercase font-bold text-[#747A72]">
-                              Revenue Today
-                            </span>
-                            <span className="text-sm font-bold text-[#5F7A62] mt-0.5 block">
-                              {formatCurrency(todayRev)}
-                            </span>
+                        </div>
+
+                        {/* Monthly Performance */}
+                        <div>
+                          <span className="block text-[10px] font-bold text-[#2F352F] uppercase tracking-wider mb-1.5">
+                            Monthly
+                          </span>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className="bg-[#F7F7F4] rounded-xl p-2.5 border border-[#E0E4DD]/80">
+                              <span className="block text-[9px] uppercase font-bold text-[#747A72]">
+                                Services (Month)
+                              </span>
+                              <span className="text-sm font-bold text-[#2F352F] mt-0.5 block">
+                                {monthSrv}
+                              </span>
+                            </div>
+                            <div className="bg-[#F7F7F4] rounded-xl p-2.5 border border-[#E0E4DD]/80">
+                              <span className="block text-[9px] uppercase font-bold text-[#747A72]">
+                                Revenue (Month)
+                              </span>
+                              <span className="text-sm font-bold text-[#5F7A62] mt-0.5 block">
+                                {formatCurrency(monthRev)}
+                              </span>
+                            </div>
                           </div>
                         </div>
                       </div>
-
-                      {/* Monthly Performance */}
-                      <div>
-                        <span className="block text-[10px] font-bold text-[#2F352F] uppercase tracking-wider mb-1.5">
-                          Monthly
-                        </span>
-                        <div className="grid grid-cols-2 gap-2">
-                          <div className="bg-[#F7F7F4] rounded-xl p-2.5 border border-[#E0E4DD]/80">
-                            <span className="block text-[9px] uppercase font-bold text-[#747A72]">
-                              Services (Month)
-                            </span>
-                            <span className="text-sm font-bold text-[#2F352F] mt-0.5 block">
-                              {monthSrv}
-                            </span>
-                          </div>
-                          <div className="bg-[#F7F7F4] rounded-xl p-2.5 border border-[#E0E4DD]/80">
-                            <span className="block text-[9px] uppercase font-bold text-[#747A72]">
-                              Revenue (Month)
-                            </span>
-                            <span className="text-sm font-bold text-[#5F7A62] mt-0.5 block">
-                              {formatCurrency(monthRev)}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
+                    )}
 
                     {/* Bottom: Action Buttons */}
-                    <div className="flex items-center justify-end gap-2 pt-3 border-t border-[#E0E4DD]">
+                    <div
+                      className={`flex items-center justify-end gap-2 ${
+                        isManager ? "pt-2 border-t border-[#E0E4DD]" : "pt-3 border-t border-[#E0E4DD]"
+                      }`}
+                    >
                       <button
                         onClick={(e) => handleOpenEdit(stf, e)}
                         className="grid size-8 place-items-center rounded-xl bg-[#FFFFFF] border border-[#E0E4DD] text-[#747A72] hover:text-[#2F352F] hover:bg-[#E8ECE5] hover:border-[#6F776D] transition cursor-pointer shadow-2xs"
@@ -475,7 +544,7 @@ export default function StaffPage() {
                       <button
                         onClick={(e) => stf.id && handleDeleteTrigger(stf.id, e)}
                         className="grid size-8 place-items-center rounded-xl bg-[#FFFFFF] border border-[#E0E4DD] text-[#B55B5B] hover:bg-[#FBEBEB] hover:border-[#FBEBEB] transition cursor-pointer shadow-2xs"
-                        title="Remove Specialist"
+                        title="Remove Staff"
                       >
                         <Trash2 size={13} />
                       </button>
@@ -528,7 +597,7 @@ export default function StaffPage() {
               <X size={18} />
             </button>
             <h2 className="font-serif text-lg font-bold text-[#2F352F] mb-4">
-              {editingStaff ? "Edit Specialist Profile" : "Register Team Specialist"}
+              {editingStaff ? "Edit Staff" : "Register Staff"}
             </h2>
             <form onSubmit={handleSubmit} className="space-y-4">
               {/* Name */}
@@ -542,6 +611,19 @@ export default function StaffPage() {
                   className="mt-1.5 h-10 w-full rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] px-3 text-xs text-[#292D29] outline-none focus:border-[#6F776D] focus:ring-1 focus:ring-[#6F776D] placeholder-[#747A72]"
                   placeholder="e.g. Aarav Kapoor"
                 />
+              </label>
+
+              {/* Role */}
+              <label className="block">
+                <span className="text-xs font-semibold text-[#747A72]">Role *</span>
+                <select
+                  value={formData.role}
+                  onChange={(e) => setFormData({ ...formData, role: e.target.value })}
+                  className="mt-1.5 h-10 w-full rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] px-3 text-xs text-[#292D29] font-medium outline-none focus:border-[#6F776D] focus:ring-1 focus:ring-[#6F776D]"
+                >
+                  <option value="STYLIST">Stylist</option>
+                  <option value="MANAGER">Manager</option>
+                </select>
               </label>
 
               {/* Base Salary */}
@@ -587,7 +669,7 @@ export default function StaffPage() {
                   type="submit"
                   className="rounded-xl bg-[#6F776D] hover:bg-[#2F352F] px-4 py-2 text-xs font-bold text-white shadow-xs transition duration-150 cursor-pointer"
                 >
-                  {editingStaff ? "Save Profile" : "Register Specialist"}
+                  {editingStaff ? "Save Profile" : "Register Staff"}
                 </button>
               </div>
             </form>
@@ -603,7 +685,7 @@ export default function StaffPage() {
             onClick={() => setDeleteConfirmOpen(false)}
           />
           <div className="relative w-full max-w-sm rounded-3xl border border-[#E0E4DD] bg-[#FFFFFF] p-6 shadow-xl text-[#292D29] z-10 animate-in zoom-in-95 duration-200">
-            <h3 className="font-serif text-base font-bold text-[#2F352F] mb-2">Remove Specialist</h3>
+            <h3 className="font-serif text-base font-bold text-[#2F352F] mb-2">Remove Staff</h3>
             <p className="text-xs text-[#747A72] mb-5">
               Are you sure you want to remove this staff profile from the salon directory?
             </p>
@@ -619,6 +701,66 @@ export default function StaffPage() {
                 className="rounded-xl bg-[#B55B5B] hover:bg-[#9E4747] px-3.5 py-2 text-xs font-bold text-white transition duration-150 cursor-pointer shadow-xs"
               >
                 Remove
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Manager Transfer Confirmation Modal */}
+      {managerConfirmModal?.open && managerConfirmModal.currentManager && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="fixed inset-0 bg-[#292D29]/40 backdrop-blur-xs"
+            onClick={() => setManagerConfirmModal(null)}
+          />
+          <div className="relative w-full max-w-md rounded-3xl border border-[#E0E4DD] bg-[#FFFFFF] p-6 shadow-2xl text-[#292D29] z-10 animate-in zoom-in-95 duration-200">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="grid size-10 place-items-center rounded-2xl bg-[#FAF4E8] text-[#B18A45] border border-[#B18A45]/30 shrink-0">
+                <AlertCircle size={20} />
+              </div>
+              <div>
+                <h3 className="font-serif text-base font-bold text-[#2F352F]">
+                  Change Manager Assignment
+                </h3>
+                <p className="text-[11px] text-[#747A72]">
+                  Only one manager can be assigned at a time.
+                </p>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-[#E0E4DD] bg-[#F7F7F4] p-4 text-xs text-[#2F352F] space-y-2.5 my-4">
+              <p className="font-medium">
+                Another manager is currently assigned ({managerConfirmModal.currentManager.name}).
+              </p>
+              <p>
+                Do you want to make <strong>{managerConfirmModal.targetStaffName}</strong> the manager?
+              </p>
+              <p className="text-[11px] text-[#747A72]">
+                The current manager ({managerConfirmModal.currentManager.name}) will be changed to Stylist.
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setManagerConfirmModal(null)}
+                className="rounded-xl border border-[#E0E4DD] px-4 py-2 text-xs font-bold text-[#747A72] hover:bg-[#F7F7F4] transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  executeSave(
+                    managerConfirmModal.pendingPayload,
+                    managerConfirmModal.targetId,
+                    managerConfirmModal.currentManager?.id
+                  )
+                }
+                className="rounded-xl bg-[#6F776D] hover:bg-[#2F352F] px-4 py-2 text-xs font-bold text-white transition duration-150 cursor-pointer shadow-xs"
+              >
+                Confirm &amp; Reassign
               </button>
             </div>
           </div>

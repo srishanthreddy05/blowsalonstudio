@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import type { Staff } from "@/types/staff";
+import { formatStaffRole } from "@/types/staff";
 import type { AttendanceRecord } from "@/types/attendance";
 import { normalizeAttendanceStatus } from "@/types/attendance";
 import * as attendanceService from "@/services/attendance";
@@ -346,7 +347,7 @@ export function AttendanceCalendarView({
                   <option value="all">All Specialists ({staffList.length})</option>
                   {staffList.map((stf) => (
                     <option key={stf.id} value={stf.id}>
-                      {stf.name} ({stf.role})
+                      {stf.name} ({formatStaffRole(stf.role)})
                     </option>
                   ))}
                 </select>
@@ -489,7 +490,7 @@ export function AttendanceCalendarView({
                           </span>
                         </div>
                         <p className="text-[10px] font-bold uppercase tracking-wider text-[#747A72]">
-                          {stf.role}
+                          {formatStaffRole(stf.role)}
                         </p>
                       </div>
                     </div>

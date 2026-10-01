@@ -10,6 +10,8 @@ import {
   query,
   where,
   orderBy,
+  onSnapshot,
+  Unsubscribe,
 } from "firebase/firestore";
 import type { Appointment, AppointmentStatus } from "@/types/appointment";
 
@@ -113,6 +115,41 @@ export async function getByDate(date: string): Promise<Appointment[]> {
   } catch (error) {
     console.error(`Error getting appointments for date (${date}):`, error);
     return [];
+  }
+}
+
+export function subscribeByDate(
+  date: string,
+  onUpdate: (appointments: Appointment[]) => void,
+  onError?: (error: unknown) => void
+): Unsubscribe {
+  try {
+    const q = query(
+      collection(db, COLLECTION_NAME),
+      where("date", "==", date)
+    );
+    return onSnapshot(
+      q,
+      (querySnapshot) => {
+        const appointments: Appointment[] = [];
+        querySnapshot.forEach((docSnap) => {
+          appointments.push({
+            id: docSnap.id,
+            ...docSnap.data(),
+          } as Appointment);
+        });
+        appointments.sort((a, b) => (a.startTime || "").localeCompare(b.startTime || ""));
+        onUpdate(appointments);
+      },
+      (error) => {
+        console.error(`Error subscribing to appointments for date (${date}):`, error);
+        if (onError) onError(error);
+      }
+    );
+  } catch (error) {
+    console.error(`Error creating appointments listener for date (${date}):`, error);
+    if (onError) onError(error);
+    return () => {};
   }
 }
 

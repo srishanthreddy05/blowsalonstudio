@@ -18,6 +18,7 @@ import type { AttendanceRecord } from "@/types/attendance";
 import { normalizeAttendanceStatus } from "@/types/attendance";
 import { formatCurrency } from "@/components/salon-dashboard/types";
 import type { Staff } from "@/types/staff";
+import { normalizeStaffRole } from "@/types/staff";
 import { useAppData } from "@/context/AppDataContext";
 import { toast } from "react-hot-toast";
 import {
@@ -46,6 +47,9 @@ import * as expensesService from "@/services/expenses";
 import { toLocalDateString } from "@/lib/utils/date";
 import { getInvoicePayments, getInvoicePaymentRatio, getInvoiceSalesBreakdown } from "@/lib/utils/settlements";
 import { TodayAppointmentsSection } from "@/components/dashboard/TodayAppointmentsSection";
+import { TodayAppointmentsReminder } from "@/components/dashboard/TodayAppointmentsReminder";
+import type { Appointment } from "@/types/appointment";
+import * as appointmentService from "@/services/appointments";
 import { useRouter } from "next/navigation";
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -239,6 +243,7 @@ function StaffAttendanceRow({
   onToggleAttendance: (member: Staff) => void;
   loading?: boolean;
 }) {
+  const isManager = normalizeStaffRole(member.role) === "MANAGER";
   const norm = normalizeAttendanceStatus(attendance?.status);
   const isPresent = norm === "PRESENT";
   const isAbsent = norm === "ABSENT";
@@ -278,15 +283,26 @@ function StaffAttendanceRow({
         )}
       </div>
 
-      {/* 3. Today's Services count only */}
-      <div className="my-2.5 rounded-xl border border-[#E0E4DD]/70 bg-[#F7F7F4] px-3 py-2">
-        <span className="text-[10px] uppercase font-bold text-[#747A72] tracking-wider block">
-          Today&apos;s Services
-        </span>
-        <span className="text-lg font-extrabold tracking-tight text-[#2F352F] mt-0.5 block">
-          {todayServicesCount}
-        </span>
-      </div>
+      {/* 3. Middle Box: Stylist shows Today's Services; Manager shows Salon Role */}
+      {isManager ? (
+        <div className="my-2.5 rounded-xl border border-[#CCD2C8]/70 bg-[#E8ECE5]/40 px-3 py-2">
+          <span className="text-[10px] uppercase font-bold text-[#747A72] tracking-wider block">
+            Role
+          </span>
+          <span className="text-sm font-extrabold tracking-tight text-[#2F352F] mt-0.5 block">
+            Salon Manager
+          </span>
+        </div>
+      ) : (
+        <div className="my-2.5 rounded-xl border border-[#E0E4DD]/70 bg-[#F7F7F4] px-3 py-2">
+          <span className="text-[10px] uppercase font-bold text-[#747A72] tracking-wider block">
+            Today&apos;s Services
+          </span>
+          <span className="text-lg font-extrabold tracking-tight text-[#2F352F] mt-0.5 block">
+            {todayServicesCount}
+          </span>
+        </div>
+      )}
 
       {/* 4. Single Attendance Toggle Button */}
       <div className="mt-auto pt-1">
@@ -459,6 +475,7 @@ export default function DashboardPage() {
   });
 
   const [todayExpenses, setTodayExpenses] = useState<any[]>([]);
+  const [todayAppointments, setTodayAppointments] = useState<Appointment[]>([]);
   const [monthlyStats, setMonthlyStats] = useState<{
     totalRevenue: number;
     totalVisits: number;
@@ -600,6 +617,19 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => {
+    const todayStr = toLocalDateString(new Date());
+    const unsub = appointmentService.subscribeByDate(
+      todayStr,
+      (list) => {
+        setTodayAppointments(list);
+      },
+      (err) => console.error("Appointments listener error:", err)
+    );
+
+    return () => unsub();
+  }, []);
+
+  useEffect(() => {
     if (invoicesLoaded && staffLoaded) {
       fetchMonthlyStats();
       fetchStaffMonthlyStats();
@@ -641,6 +671,12 @@ export default function DashboardPage() {
   useEffect(() => {
     loadDashboardAttendance();
   }, [loadDashboardAttendance]);
+
+  const pendingAppointmentsCount = useMemo(() => {
+    return todayAppointments.filter(
+      (a) => a.status === "scheduled" || a.status === "confirmed"
+    ).length;
+  }, [todayAppointments]);
 
   const getInvoiceDateKey = (inv: any): string => {
     if (inv.billDate) {
@@ -692,6 +728,10 @@ export default function DashboardPage() {
     return [...staff].sort((a, b) => {
       if (a.role === "Owner" && b.role !== "Owner") return -1;
       if (a.role !== "Owner" && b.role === "Owner") return 1;
+      const aIsManager = normalizeStaffRole(a.role) === "MANAGER";
+      const bIsManager = normalizeStaffRole(b.role) === "MANAGER";
+      if (aIsManager && !bIsManager) return -1;
+      if (!aIsManager && bIsManager) return 1;
       return a.name.localeCompare(b.name);
     });
   }, [staff]);
@@ -920,7 +960,7 @@ export default function DashboardPage() {
   return (
     <div className="space-y-8 pb-8 text-[#292D29]">
       {/* Header */}
-      <header className="flex flex-wrap items-end justify-between gap-4 border-b border-[#E0E4DD] pb-6">
+      <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#E0E4DD] pb-6">
         <div>
           <div className="flex items-center gap-2 mb-1">
             <Sparkles size={14} className="text-[#6F776D]" />
@@ -935,11 +975,14 @@ export default function DashboardPage() {
             {format(new Date(), "EEEE, dd MMMM yyyy")}
           </p>
         </div>
-        <div className="flex items-center gap-2 rounded-xl border border-[#E0E4DD] bg-[#FFFFFF] px-3.5 py-2 shadow-2xs">
-          <Store size={14} className="text-[#6F776D]" />
-          <span className="text-xs font-bold text-[#292D29]">
-            {staff.filter((s) => s.id && normalizeAttendanceStatus(todayAttendanceMap[s.id]?.status) === "PRESENT").length} Staff Present
-          </span>
+        <div className="flex flex-wrap items-center gap-3">
+          <TodayAppointmentsReminder count={pendingAppointmentsCount} />
+          <div className="flex items-center gap-2 rounded-xl border border-[#E0E4DD] bg-[#FFFFFF] px-3.5 py-2 shadow-2xs">
+            <Store size={14} className="text-[#6F776D]" />
+            <span className="text-xs font-bold text-[#292D29]">
+              {staff.filter((s) => s.id && normalizeAttendanceStatus(todayAttendanceMap[s.id]?.status) === "PRESENT").length} Staff Present
+            </span>
+          </div>
         </div>
       </header>
 

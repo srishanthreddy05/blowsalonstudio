@@ -85,3 +85,19 @@ select {
   appearance: none;
   -webkit-appearance: none;
 }
+
+/* ── Soft Pulse Glow Animation ─────────────────────── */
+@keyframes softPulse {
+  0%, 100% {
+    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.04), 0 0 0 0 rgba(111, 119, 109, 0.22);
+    border-color: #CCD2C8;
+  }
+  50% {
+    box-shadow: 0 1px 4px 0 rgba(0, 0, 0, 0.06), 0 0 0 4px rgba(111, 119, 109, 0.12);
+    border-color: #8C968A;
+  }
+}
+
+.animate-soft-pulse {
+  animation: softPulse 2.8s ease-in-out infinite;
+}

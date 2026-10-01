@@ -13,6 +13,7 @@ import {
 import type { Service } from "@/types/service";
 import type { Product } from "@/types/product";
 import type { Staff } from "@/types/staff";
+import { normalizeStaffRole } from "@/types/staff";
 import type { Offer } from "@/types/offer";
 import type { Settings } from "@/types/settings";
 import type { ServiceCategory } from "@/types/serviceCategory";
@@ -191,7 +192,15 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       const snap = await getDocs(collection(db, "staff"));
       const result = snap.docs
         .map((d) => ({ id: d.id, ...d.data() } as Staff))
-        .sort((a, b) => a.name.localeCompare(b.name));
+        .sort((a, b) => {
+          if (a.role === "Owner" && b.role !== "Owner") return -1;
+          if (a.role !== "Owner" && b.role === "Owner") return 1;
+          const aIsManager = normalizeStaffRole(a.role) === "MANAGER";
+          const bIsManager = normalizeStaffRole(b.role) === "MANAGER";
+          if (aIsManager && !bIsManager) return -1;
+          if (!aIsManager && bIsManager) return 1;
+          return (a.name || "").localeCompare(b.name || "");
+        });
       setStaff(result);
       return result;
     } catch (err) {
@@ -318,18 +327,12 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
               (c) => c.doc.id === member.id && c.type === "modified"
             );
             if (change) {
-              const newData = change.doc.data();
-              const dutyChanged = member.dutyStatus !== newData.dutyStatus;
-              const logsChanged = JSON.stringify(member.clockLogs) !== JSON.stringify(newData.clockLogs);
-
-              if (dutyChanged || logsChanged) {
-                hasChanges = true;
-                return {
-                  ...member,
-                  dutyStatus: newData.dutyStatus,
-                  clockLogs: newData.clockLogs,
-                } as Staff;
-              }
+              hasChanges = true;
+              return {
+                ...member,
+                ...change.doc.data(),
+                id: change.doc.id,
+              } as Staff;
             }
             return member;
           });
@@ -369,7 +372,15 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
             finalStaff = [...finalStaff, ...addedStaff];
           }
 
-          return finalStaff.sort((a, b) => a.name.localeCompare(b.name));
+          return finalStaff.sort((a, b) => {
+            if (a.role === "Owner" && b.role !== "Owner") return -1;
+            if (a.role !== "Owner" && b.role === "Owner") return 1;
+            const aIsManager = normalizeStaffRole(a.role) === "MANAGER";
+            const bIsManager = normalizeStaffRole(b.role) === "MANAGER";
+            if (aIsManager && !bIsManager) return -1;
+            if (!aIsManager && bIsManager) return 1;
+            return (a.name || "").localeCompare(b.name || "");
+          });
         });
       },
       (err) => console.error("Staff real-time listener error:", err)

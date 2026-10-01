@@ -29,6 +29,7 @@ import type { Customer } from "@/types/customer";
 import type { Service } from "@/types/service";
 import type { Product } from "@/types/product";
 import type { Staff } from "@/types/staff";
+import { normalizeStaffRole } from "@/types/staff";
 import type { Offer } from "@/types/offer";
 
 interface BillingTerminalProps {
@@ -61,7 +62,16 @@ export function BillingTerminal({
   const servicesList = servicesContextData;
   const productsList = productsContextData;
   const packagesList = packagesContextData || [];
-  const staffList = useMemo(() => staffContextData.filter((s) => s.status === "Active" && s.dutyStatus === "onDuty"), [staffContextData]);
+  const staffList = useMemo(
+    () =>
+      staffContextData.filter(
+        (s) =>
+          s.status === "Active" &&
+          s.dutyStatus === "onDuty" &&
+          normalizeStaffRole(s.role) !== "MANAGER"
+      ),
+    [staffContextData]
+  );
   const offersList = offersContextData;
   const loading = loadingAppData;
 

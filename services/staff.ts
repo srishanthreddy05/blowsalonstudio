@@ -11,6 +11,7 @@ import {
   orderBy,
 } from "firebase/firestore";
 import type { Staff } from "@/types/staff";
+import { normalizeStaffRole } from "@/types/staff";
 import { toTitleCase } from "@/lib/utils/text";
 
 const COLLECTION_NAME = "staff";
@@ -20,6 +21,7 @@ export async function create(member: Omit<Staff, "id">): Promise<string> {
     const docRef = await addDoc(collection(db, COLLECTION_NAME), {
       ...member,
       name: toTitleCase(member.name),
+      role: normalizeStaffRole(member.role),
       dutyStatus: member.dutyStatus || "offDuty",
       createdAt: member.createdAt || new Date().toISOString(),
     });
@@ -74,6 +76,9 @@ export async function update(
     const normalizedData = { ...data };
     if (normalizedData.name) {
       normalizedData.name = toTitleCase(normalizedData.name);
+    }
+    if (normalizedData.role !== undefined) {
+      normalizedData.role = normalizeStaffRole(normalizedData.role);
     }
     await updateDoc(docRef, normalizedData);
   } catch (error) {

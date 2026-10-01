@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import type { Staff } from "@/types/staff";
+import { formatStaffRole, normalizeStaffRole } from "@/types/staff";
 import type { AttendanceRecord } from "@/types/attendance";
 import { normalizeAttendanceStatus } from "@/types/attendance";
 import * as attendanceService from "@/services/attendance";
@@ -75,6 +76,7 @@ export function StaffProfileModal({
   } | null>(null);
 
   const todayKey = toLocalDateString(new Date());
+  const isManager = normalizeStaffRole(staff.role) === "MANAGER";
 
   // Parse Month Details
   const { year, monthIndex, monthName, daysInMonth, startDayOffset } = useMemo(() => {
@@ -254,7 +256,7 @@ export function StaffProfileModal({
                 </span>
               </div>
               <p className="text-xs font-semibold text-[#747A72] tracking-wider uppercase mt-0.5">
-                {staff.role} • BLOW SALON Specialist
+                {formatStaffRole(staff.role)} • BLOW SALON Staff
               </p>
             </div>
           </div>
@@ -276,7 +278,7 @@ export function StaffProfileModal({
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] p-3">
                 <p className="text-[10px] uppercase font-bold text-[#747A72] tracking-wider">Role</p>
-                <p className="text-xs font-semibold text-[#2F352F] mt-1">{staff.role}</p>
+                <p className="text-xs font-semibold text-[#2F352F] mt-1">{formatStaffRole(staff.role)}</p>
               </div>
               <div className="rounded-xl border border-[#E0E4DD] bg-[#F7F7F4] p-3">
                 <p className="text-[10px] uppercase font-bold text-[#747A72] tracking-wider">Base Salary</p>
@@ -345,10 +347,14 @@ export function StaffProfileModal({
                 <span className="inline-flex items-center gap-1 text-[#747A72]">
                   <span className="size-2 rounded-full bg-[#CCD2C8]" /> Not Marked
                 </span>
-                <span>•</span>
-                <span className="inline-flex items-center gap-1 text-[#2F352F]">
-                  ₹ Revenue
-                </span>
+                {!isManager && (
+                  <>
+                    <span>•</span>
+                    <span className="inline-flex items-center gap-1 text-[#2F352F]">
+                      ₹ Revenue
+                    </span>
+                  </>
+                )}
               </div>
             </div>
 
@@ -444,17 +450,19 @@ export function StaffProfileModal({
                         </div>
 
                         {/* Bottom: Daily Revenue */}
-                        <div className="text-center w-full">
-                          <span
-                            className={`text-[10px] tracking-tight block truncate ${
-                              dailyRev > 0
-                                ? "text-[#2F352F] font-bold"
-                                : "text-[#747A72]/60 font-medium"
-                            }`}
-                          >
-                            {formatCurrency(dailyRev)}
-                          </span>
-                        </div>
+                        {!isManager && (
+                          <div className="text-center w-full">
+                            <span
+                              className={`text-[10px] tracking-tight block truncate ${
+                                dailyRev > 0
+                                  ? "text-[#2F352F] font-bold"
+                                  : "text-[#747A72]/60 font-medium"
+                              }`}
+                            >
+                              {formatCurrency(dailyRev)}
+                            </span>
+                          </div>
+                        )}
                       </button>
                     );
                   })}
@@ -512,78 +520,80 @@ export function StaffProfileModal({
                   </div>
                 </div>
 
-                {/* 2. Today's Revenue & Revenue Records */}
-                <div className="pt-2">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-[11px] uppercase font-bold tracking-wider text-[#747A72]">
-                      Today&apos;s Revenue
-                    </span>
-                    <span className="font-serif text-base font-bold text-[#5F7A62]">
-                      {formatCurrency(selectedDateRevenue)}
-                    </span>
-                  </div>
+                {/* 2. Today's Revenue & Revenue Records (Stylists Only) */}
+                {!isManager && (
+                  <div className="pt-2">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[11px] uppercase font-bold tracking-wider text-[#747A72]">
+                        Today&apos;s Revenue
+                      </span>
+                      <span className="font-serif text-base font-bold text-[#5F7A62]">
+                        {formatCurrency(selectedDateRevenue)}
+                      </span>
+                    </div>
 
-                  {/* Records List */}
-                  <div className="mt-2 space-y-1.5">
-                    <span className="text-[10px] uppercase font-bold tracking-wider text-[#747A72] block">
-                      Revenue Records
-                    </span>
+                    {/* Records List */}
+                    <div className="mt-2 space-y-1.5">
+                      <span className="text-[10px] uppercase font-bold tracking-wider text-[#747A72] block">
+                        Revenue Records
+                      </span>
 
-                    {selectedDateRecords.length === 0 ? (
-                      <div className="p-3 text-center rounded-xl bg-[#FFFFFF] border border-[#E0E4DD] text-xs text-[#747A72]">
-                        No completed services/revenue for this date.
-                      </div>
-                    ) : (
-                      <div className="rounded-xl border border-[#E0E4DD] bg-[#FFFFFF] overflow-hidden divide-y divide-[#E0E4DD]">
-                        {selectedDateRecords.map((item) => (
-                          <div
-                            key={item.invoiceId}
-                            className="p-3 flex items-center justify-between gap-3 hover:bg-[#F7F7F4] transition text-xs"
-                          >
-                            <div className="flex items-center gap-2.5 min-w-0">
-                              <div className="grid size-8 place-items-center rounded-xl bg-[#E8ECE5] text-[#2F352F] shrink-0 border border-[#CCD2C8]">
-                                <Receipt size={14} />
-                              </div>
-                              <div className="min-w-0">
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  <Link
-                                    href={`/invoices/${item.invoiceId}`}
-                                    className="font-bold text-[#2F352F] hover:text-[#6F776D] underline flex items-center gap-1"
-                                    title="View Invoice"
-                                  >
-                                    {item.invoiceNumber}
-                                    <ExternalLink size={11} className="shrink-0" />
-                                  </Link>
-                                  <span className="text-[#CCD2C8]">•</span>
-                                  <span className="text-[#747A72] font-semibold truncate">
-                                    {item.customerName}
-                                  </span>
-                                </div>
-                                <p className="text-[11px] text-[#747A72] mt-0.5 font-medium">
-                                  {item.servicesCount} {item.servicesCount === 1 ? "Service" : "Services"}
-                                </p>
-                              </div>
-                            </div>
-
-                            <div className="text-right shrink-0">
-                              <span className="font-bold text-sm text-[#2F352F]">
-                                {formatCurrency(item.amount)}
-                              </span>
-                            </div>
-                          </div>
-                        ))}
-
-                        {/* Total Summary Footer */}
-                        <div className="p-3 bg-[#F7F7F4] flex items-center justify-between text-xs font-bold text-[#2F352F]">
-                          <span>TOTAL REVENUE</span>
-                          <span className="font-serif text-base text-[#5F7A62]">
-                            {formatCurrency(selectedDateRevenue)}
-                          </span>
+                      {selectedDateRecords.length === 0 ? (
+                        <div className="p-3 text-center rounded-xl bg-[#FFFFFF] border border-[#E0E4DD] text-xs text-[#747A72]">
+                          No completed services/revenue for this date.
                         </div>
-                      </div>
-                    )}
+                      ) : (
+                        <div className="rounded-xl border border-[#E0E4DD] bg-[#FFFFFF] overflow-hidden divide-y divide-[#E0E4DD]">
+                          {selectedDateRecords.map((item) => (
+                            <div
+                              key={item.invoiceId}
+                              className="p-3 flex items-center justify-between gap-3 hover:bg-[#F7F7F4] transition text-xs"
+                            >
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                <div className="grid size-8 place-items-center rounded-xl bg-[#E8ECE5] text-[#2F352F] shrink-0 border border-[#CCD2C8]">
+                                  <Receipt size={14} />
+                                </div>
+                                <div className="min-w-0">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <Link
+                                      href={`/invoices/${item.invoiceId}`}
+                                      className="font-bold text-[#2F352F] hover:text-[#6F776D] underline flex items-center gap-1"
+                                      title="View Invoice"
+                                    >
+                                      {item.invoiceNumber}
+                                      <ExternalLink size={11} className="shrink-0" />
+                                    </Link>
+                                    <span className="text-[#CCD2C8]">•</span>
+                                    <span className="text-[#747A72] font-semibold truncate">
+                                      {item.customerName}
+                                    </span>
+                                  </div>
+                                  <p className="text-[11px] text-[#747A72] mt-0.5 font-medium">
+                                    {item.servicesCount} {item.servicesCount === 1 ? "Service" : "Services"}
+                                  </p>
+                                </div>
+                              </div>
+
+                              <div className="text-right shrink-0">
+                                <span className="font-bold text-sm text-[#2F352F]">
+                                  {formatCurrency(item.amount)}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+
+                          {/* Total Summary Footer */}
+                          <div className="p-3 bg-[#F7F7F4] flex items-center justify-between text-xs font-bold text-[#2F352F]">
+                            <span>TOTAL REVENUE</span>
+                            <span className="font-serif text-base text-[#5F7A62]">
+                              {formatCurrency(selectedDateRevenue)}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
+                )}
 
                 {/* Close Button */}
                 <div className="flex justify-end pt-2 border-t border-[#E0E4DD]">
@@ -623,60 +633,64 @@ export function StaffProfileModal({
                     {attendanceRate}% Rate
                   </span>
                 )}
-                <div className="font-semibold text-xs text-[#2F352F] bg-[#F7F7F4] border border-[#E0E4DD] px-2.5 py-1 rounded-xl">
-                  Revenue This Month:{" "}
-                  <strong className="font-bold text-[#5F7A62]">
-                    {formatCurrency(revenueData.totalMonthRevenue)}
-                  </strong>
+                {!isManager && (
+                  <div className="font-semibold text-xs text-[#2F352F] bg-[#F7F7F4] border border-[#E0E4DD] px-2.5 py-1 rounded-xl">
+                    Revenue This Month:{" "}
+                    <strong className="font-bold text-[#5F7A62]">
+                      {formatCurrency(revenueData.totalMonthRevenue)}
+                    </strong>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Section 3: Service Performance (Stylists Only) */}
+          {!isManager && (
+            <div>
+              <h3 className="text-xs font-bold uppercase tracking-wider text-[#747A72] mb-3 flex items-center gap-1.5">
+                <TrendingUp size={13} className="text-[#6F776D]" />
+                Service Performance (Invoices Completed)
+              </h3>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="rounded-2xl border border-[#E0E4DD] bg-[#F7F7F4] p-3.5">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-[#747A72]">
+                    Services Today
+                  </span>
+                  <p className="font-serif text-xl font-bold text-[#2F352F] mt-1">
+                    {todayServicesCount}
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-[#E0E4DD] bg-[#F7F7F4] p-3.5">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-[#747A72]">
+                    Revenue Today
+                  </span>
+                  <p className="font-serif text-xl font-bold text-[#5F7A62] mt-1">
+                    {formatCurrency(todayServiceRevenue)}
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-[#E0E4DD] bg-[#F7F7F4] p-3.5">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-[#747A72]">
+                    Services (Mo)
+                  </span>
+                  <p className="font-serif text-xl font-bold text-[#2F352F] mt-1">
+                    {monthServicesCount}
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-[#E0E4DD] bg-[#F7F7F4] p-3.5">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-[#747A72]">
+                    Revenue (Mo)
+                  </span>
+                  <p className="font-serif text-xl font-bold text-[#5F7A62] mt-1">
+                    {formatCurrency(monthServiceRevenue)}
+                  </p>
                 </div>
               </div>
             </div>
-          </div>
-
-          {/* Section 3: Service Performance */}
-          <div>
-            <h3 className="text-xs font-bold uppercase tracking-wider text-[#747A72] mb-3 flex items-center gap-1.5">
-              <TrendingUp size={13} className="text-[#6F776D]" />
-              Service Performance (Invoices Completed)
-            </h3>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <div className="rounded-2xl border border-[#E0E4DD] bg-[#F7F7F4] p-3.5">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-[#747A72]">
-                  Services Today
-                </span>
-                <p className="font-serif text-xl font-bold text-[#2F352F] mt-1">
-                  {todayServicesCount}
-                </p>
-              </div>
-
-              <div className="rounded-2xl border border-[#E0E4DD] bg-[#F7F7F4] p-3.5">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-[#747A72]">
-                  Revenue Today
-                </span>
-                <p className="font-serif text-xl font-bold text-[#5F7A62] mt-1">
-                  {formatCurrency(todayServiceRevenue)}
-                </p>
-              </div>
-
-              <div className="rounded-2xl border border-[#E0E4DD] bg-[#F7F7F4] p-3.5">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-[#747A72]">
-                  Services (Mo)
-                </span>
-                <p className="font-serif text-xl font-bold text-[#2F352F] mt-1">
-                  {monthServicesCount}
-                </p>
-              </div>
-
-              <div className="rounded-2xl border border-[#E0E4DD] bg-[#F7F7F4] p-3.5">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-[#747A72]">
-                  Revenue (Mo)
-                </span>
-                <p className="font-serif text-xl font-bold text-[#5F7A62] mt-1">
-                  {formatCurrency(monthServiceRevenue)}
-                </p>
-              </div>
-            </div>
-          </div>
+          )}
         </div>
 
         {/* Footer */}
@@ -697,7 +711,7 @@ export function StaffProfileModal({
               }}
               className="inline-flex items-center gap-1.5 rounded-xl bg-[#6F776D] hover:bg-[#2F352F] px-4 py-2 text-xs font-bold text-white shadow-xs transition cursor-pointer"
             >
-              View Full Attendance & Revenue History
+              {isManager ? "View Full Attendance History" : "View Full Attendance & Revenue History"}
               <ArrowRight size={14} />
             </button>
           )}

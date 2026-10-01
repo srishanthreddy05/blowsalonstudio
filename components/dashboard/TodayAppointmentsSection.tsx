@@ -32,22 +32,22 @@ export function TodayAppointmentsSection({
 
   const todayStr = toLocalDateString(new Date());
 
-  const loadTodayAppointments = useCallback(async () => {
-    setLoading(true);
-    try {
-      const list = await appointmentService.getByDate(todayStr);
-      setAppointments(list);
-    } catch (err) {
-      console.error("Failed to load today's appointments for dashboard:", err);
-      setAppointments([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [todayStr]);
-
   useEffect(() => {
-    loadTodayAppointments();
-  }, [loadTodayAppointments]);
+    setLoading(true);
+    const unsub = appointmentService.subscribeByDate(
+      todayStr,
+      (list) => {
+        setAppointments(list);
+        setLoading(false);
+      },
+      (err) => {
+        console.error("Failed to load today's appointments for dashboard:", err);
+        setAppointments([]);
+        setLoading(false);
+      }
+    );
+    return () => unsub();
+  }, [todayStr]);
 
   const summary = useMemo(() => {
     let scheduled = 0;
@@ -284,7 +284,7 @@ export function TodayAppointmentsSection({
           initialDate={todayStr}
           onClose={() => setAddModalOpen(false)}
           onSuccess={() => {
-            loadTodayAppointments();
+            setAddModalOpen(false);
           }}
         />
       )}
@@ -295,7 +295,7 @@ export function TodayAppointmentsSection({
           isOpen={!!selectedAppointment}
           onClose={() => setSelectedAppointment(null)}
           onUpdated={() => {
-            loadTodayAppointments();
+            setSelectedAppointment(null);
           }}
           onOpenBilling={onOpenBilling}
         />
