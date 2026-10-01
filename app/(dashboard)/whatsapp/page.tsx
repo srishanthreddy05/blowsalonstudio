@@ -259,15 +259,15 @@ export default function WhatsAppPage() {
   };
 
   const handleRetryCampaign = async (campaignId: string) => {
-    toast.loading("Resetting failed recipients for retry...", { id: "retry-camp" });
+    toast.loading("Retrying failed recipients...", { id: "retry-camp" });
     try {
-      await whatsappService.retryCampaign(campaignId);
-      toast.success("Failed recipients reset to PENDING. Ready to resend.", { id: "retry-camp" });
+      const res = await whatsappService.retryCampaign(campaignId);
+      toast.success(res.message || "Retry dispatched for failed recipients.", { id: "retry-camp" });
       fetchCampaigns();
       if (selectedCampaignForDetail?.id === campaignId) {
-        const res = await whatsappService.getCampaignById(campaignId);
-        setSelectedCampaignForDetail(res.campaign);
-        setDetailRecipients(res.recipients || []);
+        const detailRes = await whatsappService.getCampaignById(campaignId);
+        setSelectedCampaignForDetail(detailRes.campaign);
+        setDetailRecipients(detailRes.recipients || []);
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to retry campaign";

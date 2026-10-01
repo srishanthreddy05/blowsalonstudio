@@ -18,6 +18,9 @@ import {
 } from "lucide-react";
 import type { WhatsAppMessageRecord, WhatsAppMessageType, WhatsAppMessageStatus } from "@/types/whatsapp";
 import { formatDisplayDate } from "@/lib/utils/date";
+import { parseWhatsAppFailure } from "@/lib/whatsapp/errorClassifier";
+import { MessageDetailModal } from "@/components/whatsapp/MessageDetailModal";
+import { Info } from "lucide-react";
 
 interface MessageHistoryViewProps {
   messages: WhatsAppMessageRecord[];
@@ -120,6 +123,7 @@ export default function MessageHistoryView({
   const [typeFilter, setTypeFilter] = useState<string>("ALL");
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
   const [retryingId, setRetryingId] = useState<string | null>(null);
+  const [selectedMessageForDetail, setSelectedMessageForDetail] = useState<WhatsAppMessageRecord | null>(null);
 
   const filteredMessages = messages.filter((msg) => {
     const term = searchTerm.toLowerCase();
@@ -318,12 +322,13 @@ export default function MessageHistoryView({
                             {msg.status === "READ" && <CheckCheck size={10} />}
                             {statusPill.label}
                           </span>
-                          {msg.errorMessage && (
+                          {msg.status === "FAILED" && (
                             <p
-                              className="text-[10px] text-[#B55B5B] mt-0.5 max-w-xs truncate"
-                              title={msg.errorMessage}
+                              className="text-[10px] font-medium text-[#B55B5B] mt-0.5 max-w-xs truncate cursor-pointer hover:underline"
+                              onClick={() => setSelectedMessageForDetail(msg)}
+                              title="Click to view full failure details"
                             >
-                              {msg.errorMessage}
+                              {parseWhatsAppFailure(msg.errorMessage, msg.errorCode).shortReason}
                             </p>
                           )}
                         </div>
@@ -341,18 +346,30 @@ export default function MessageHistoryView({
 
                       {/* Actions */}
                       <td className="py-3.5 px-4 text-right whitespace-nowrap">
-                        {msg.status === "FAILED" && msg.invoiceId && onRetryInvoiceMessage && (
+                        <div className="flex items-center justify-end gap-1.5">
                           <button
                             type="button"
-                            title="Retry sending invoice receipt"
-                            disabled={retryingId === (msg.id || msg.invoiceId)}
-                            onClick={() => handleRetry(msg.invoiceId || undefined, msg.id || undefined)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-[#FBD38D] bg-[#FFF4E5] hover:bg-[#FEEBC8] text-[10px] font-semibold text-[#C05621] shadow-xs transition cursor-pointer disabled:opacity-50"
+                            title="View message details & technical log"
+                            onClick={() => setSelectedMessageForDetail(msg)}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-[#CCD2C8] bg-[#FFFFFF] hover:bg-[#F7F7F4] text-[10px] font-semibold text-[#747A72] hover:text-[#2F352F] shadow-2xs transition cursor-pointer"
                           >
-                            <RotateCcw size={11} className={retryingId === (msg.id || msg.invoiceId) ? "animate-spin" : ""} />
-                            <span>Retry</span>
+                            <Info size={11} />
+                            <span>Details</span>
                           </button>
-                        )}
+
+                          {msg.status === "FAILED" && msg.invoiceId && onRetryInvoiceMessage && (
+                            <button
+                              type="button"
+                              title="Retry sending invoice receipt"
+                              disabled={retryingId === (msg.id || msg.invoiceId)}
+                              onClick={() => handleRetry(msg.invoiceId || undefined, msg.id || undefined)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-[#FBD38D] bg-[#FFF4E5] hover:bg-[#FEEBC8] text-[10px] font-semibold text-[#C05621] shadow-xs transition cursor-pointer disabled:opacity-50"
+                            >
+                              <RotateCcw size={11} className={retryingId === (msg.id || msg.invoiceId) ? "animate-spin" : ""} />
+                              <span>Retry</span>
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -362,6 +379,16 @@ export default function MessageHistoryView({
           </div>
         )}
       </div>
+
+      {/* Message Details Modal */}
+      {selectedMessageForDetail && (
+        <MessageDetailModal
+          message={selectedMessageForDetail}
+          isOpen={!!selectedMessageForDetail}
+          onClose={() => setSelectedMessageForDetail(null)}
+          onRetryInvoiceMessage={onRetryInvoiceMessage}
+        />
+      )}
     </div>
   );
 }

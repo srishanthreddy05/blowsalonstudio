@@ -23,6 +23,9 @@ import { statusConfig } from "./CampaignsList";
 import { formatDisplayDate } from "@/lib/utils/date";
 import { normalizeCount } from "@/lib/utils/firestore";
 import { calculateCampaignStats } from "@/lib/whatsapp/campaignStats";
+import { parseWhatsAppFailure } from "@/lib/whatsapp/errorClassifier";
+import { MessageDetailModal } from "./MessageDetailModal";
+import { Info } from "lucide-react";
 
 interface CampaignDetailModalProps {
   campaign: WhatsAppCampaign;
@@ -90,6 +93,7 @@ export default function CampaignDetailModal({
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
+  const [selectedRecipientForDetail, setSelectedRecipientForDetail] = useState<WhatsAppCampaignRecipient | null>(null);
 
   // Calculate live stats directly from recipient delivery records (Single Source of Truth)
   const stats = useMemo(() => {
@@ -185,10 +189,10 @@ export default function CampaignDetailModal({
               <button
                 type="button"
                 onClick={() => onRetryCampaign(campaign.id)}
-                className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-[#FBD38D] bg-[#FFF4E5] hover:bg-[#FEEBC8] text-[#C05621] px-3 text-xs font-semibold shadow-xs transition cursor-pointer"
+                className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-[#FBD38D] bg-[#FFF4E5] hover:bg-[#FEEBC8] text-[#C05621] px-3.5 text-xs font-bold shadow-xs transition cursor-pointer"
               >
                 <RotateCcw size={13} />
-                <span>Retry Failed</span>
+                <span>Retry {stats.failedCount}</span>
               </button>
             )}
 
@@ -215,12 +219,12 @@ export default function CampaignDetailModal({
 
         {/* Modal Body */}
         <div className="p-6 overflow-y-auto space-y-6 flex-1">
-          {/* Metrics Overview Grid */}
+          {/* Metrics Overview Grid (Fractional Counts) */}
           <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
             {/* Total Recipients */}
             <div className="p-3.5 rounded-2xl border border-[#E0E4DD] bg-[#F7F7F4]">
               <div className="text-[10px] font-bold uppercase tracking-wider text-[#747A72]">
-                Total
+                Recipients
               </div>
               <div className="text-xl font-bold text-[#2F352F] mt-1">
                 {stats.totalRecipients}
@@ -234,7 +238,7 @@ export default function CampaignDetailModal({
                 Sent
               </div>
               <div className="text-xl font-bold text-[#2B6CB0] mt-1">
-                {stats.sentCount}
+                {stats.sentCount}/{stats.totalRecipients}
               </div>
               <div className="text-[10px] text-[#2B6CB0]/80">Dispatched to Meta</div>
             </div>
@@ -245,9 +249,9 @@ export default function CampaignDetailModal({
                 Delivered
               </div>
               <div className="text-xl font-bold text-[#5F7A62] mt-1">
-                {stats.deliveredCount}
+                {stats.deliveredCount}/{stats.totalRecipients}
               </div>
-              <div className="text-[10px] text-[#5F7A62]/80">Delivered to device (incl. read)</div>
+              <div className="text-[10px] text-[#5F7A62]/80">Delivered to device</div>
             </div>
 
             {/* Read */}
@@ -256,7 +260,7 @@ export default function CampaignDetailModal({
                 Read
               </div>
               <div className="text-xl font-bold text-[#38503B] mt-1">
-                {stats.readCount}
+                {stats.readCount}/{stats.totalRecipients}
               </div>
               <div className="text-[10px] text-[#38503B]/80">Opened by recipient</div>
             </div>
@@ -267,9 +271,9 @@ export default function CampaignDetailModal({
                 Failed
               </div>
               <div className="text-xl font-bold text-[#B55B5B] mt-1">
-                {stats.failedCount}
+                {stats.failedCount}/{stats.totalRecipients}
               </div>
-              <div className="text-[10px] text-[#B55B5B]/80">Delivery / API error</div>
+              <div className="text-[10px] text-[#B55B5B]/80">Delivery failures</div>
             </div>
 
             {/* Excluded */}
@@ -278,7 +282,7 @@ export default function CampaignDetailModal({
                 Excluded
               </div>
               <div className="text-xl font-bold text-[#B18A45] mt-1">
-                {stats.excludedCount}
+                {stats.excludedCount}/{stats.totalRecipients}
               </div>
               <div className="text-[10px] text-[#B18A45]/80">Opt-out / invalid</div>
             </div>
@@ -353,7 +357,14 @@ export default function CampaignDetailModal({
                       return (
                         <tr key={r.id} className="hover:bg-[#FAF4E8]/20 transition">
                           <td className="py-2.5 px-3.5 font-semibold">
-                            {r.customerName || "Customer"}
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span>{r.customerName || "Customer"}</span>
+                              {((r.attempts && r.attempts.length > 1) || (r.retryCount && r.retryCount > 0)) && (
+                                <span className="inline-block px-1.5 py-0.2 rounded-md bg-[#FFF4E5] border border-[#FBD38D] text-[9px] font-bold text-[#C05621]">
+                                  Attempt #{r.attempts?.length || ((r.retryCount || 0) + 1)}
+                                </span>
+                              )}
+                            </div>
                           </td>
                           <td className="py-2.5 px-3.5 font-mono text-[11px] text-[#747A72]">
                             {r.phone}
@@ -366,9 +377,13 @@ export default function CampaignDetailModal({
                                 {r.status === "READ" && <CheckCheck size={10} />}
                                 {badge.label}
                               </span>
-                              {r.errorMessage && (
-                                <p className="text-[10px] text-[#B55B5B] mt-0.5 max-w-xs truncate" title={r.errorMessage}>
-                                  {r.errorMessage}
+                              {r.status === "FAILED" && (
+                                <p
+                                  className="text-[10px] font-medium text-[#B55B5B] mt-0.5 max-w-xs truncate cursor-pointer hover:underline"
+                                  onClick={() => setSelectedRecipientForDetail(r)}
+                                  title="Click to view failure details"
+                                >
+                                  {parseWhatsAppFailure(r.errorMessage).shortReason}
                                 </p>
                               )}
                             </div>
@@ -386,26 +401,40 @@ export default function CampaignDetailModal({
                               : "—"}
                           </td>
                           <td className="py-2.5 px-3.5 text-right">
-                            {r.customerId && (
-                              <button
-                                type="button"
-                                disabled={actionInProgress === r.id}
-                                onClick={() => handleOptOutClick(r)}
-                                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-[#CCD2C8] bg-[#FFFFFF] hover:bg-[#F7F7F4] text-[10px] font-semibold text-[#747A72] hover:text-[#B55B5B] transition cursor-pointer disabled:opacity-50"
-                              >
-                                {r.status === "EXCLUDED" ? (
-                                  <>
-                                    <ShieldCheck size={11} className="text-[#5F7A62]" />
-                                    <span>Re-Opt In</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <ShieldAlert size={11} className="text-[#B55B5B]" />
-                                    <span>Opt Out</span>
-                                  </>
-                                )}
-                              </button>
-                            )}
+                            <div className="flex items-center justify-end gap-1.5">
+                              {r.status === "FAILED" && (
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedRecipientForDetail(r)}
+                                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-[#CCD2C8] bg-[#FFFFFF] hover:bg-[#F7F7F4] text-[10px] font-semibold text-[#747A72] hover:text-[#2F352F] shadow-2xs transition cursor-pointer"
+                                  title="View error details"
+                                >
+                                  <Info size={11} />
+                                  <span>Details</span>
+                                </button>
+                              )}
+
+                              {r.customerId && (
+                                <button
+                                  type="button"
+                                  disabled={actionInProgress === r.id}
+                                  onClick={() => handleOptOutClick(r)}
+                                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-[#CCD2C8] bg-[#FFFFFF] hover:bg-[#F7F7F4] text-[10px] font-semibold text-[#747A72] hover:text-[#B55B5B] transition cursor-pointer disabled:opacity-50"
+                                >
+                                  {r.status === "EXCLUDED" ? (
+                                    <>
+                                      <ShieldCheck size={11} className="text-[#5F7A62]" />
+                                      <span>Re-Opt In</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <ShieldAlert size={11} className="text-[#B55B5B]" />
+                                      <span>Opt Out</span>
+                                    </>
+                                  )}
+                                </button>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       );
@@ -431,6 +460,15 @@ export default function CampaignDetailModal({
           </button>
         </div>
       </div>
+
+      {/* Recipient Message Detail Modal */}
+      {selectedRecipientForDetail && (
+        <MessageDetailModal
+          recipient={selectedRecipientForDetail}
+          isOpen={!!selectedRecipientForDetail}
+          onClose={() => setSelectedRecipientForDetail(null)}
+        />
+      )}
     </div>
   );
 }

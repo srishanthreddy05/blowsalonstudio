@@ -104,6 +104,17 @@ export interface WhatsAppCampaign {
   errorMessage?: string | null;
 }
 
+export interface WhatsAppDeliveryAttempt {
+  attempt: number;
+  status: WhatsAppMessageStatus;
+  sentAt?: string | null;
+  deliveredAt?: string | null;
+  readAt?: string | null;
+  metaMessageId?: string | null;
+  errorMessage?: string | null;
+  errorCode?: string | null;
+}
+
 export interface WhatsAppCampaignRecipient {
   id: string;
   campaignId: string;
@@ -118,6 +129,8 @@ export interface WhatsAppCampaignRecipient {
   sentAt?: string | null;
   deliveredAt?: string | null;
   readAt?: string | null;
+  retryCount?: number;
+  attempts?: WhatsAppDeliveryAttempt[];
   createdAt: string;
   updatedAt?: string;
 }

@@ -10,6 +10,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "react-hot-toast";
 import type { WhatsAppMessageRecord } from "@/types/whatsapp";
 import { formatDisplayDate } from "@/lib/utils/date";
+import { parseWhatsAppFailure } from "@/lib/whatsapp/errorClassifier";
 
 function WhatsAppBrandIcon({ size = 16, className = "" }: { size?: number; className?: string }) {
   return (
@@ -358,8 +359,12 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
                   </div>
                 )}
                 {latestWaMessage.errorMessage && (
-                  <p className="text-[11px] text-[#B55B5B] mt-1 pt-1 border-t border-[#E0E4DD]">
-                    {latestWaMessage.errorMessage}
+                  <p
+                    className="text-[11px] text-[#B55B5B] mt-1 pt-1 border-t border-[#E0E4DD]"
+                    title={latestWaMessage.errorMessage}
+                  >
+                    <span className="font-bold">Failure Reason: </span>
+                    {parseWhatsAppFailure(latestWaMessage.errorMessage, latestWaMessage.errorCode).shortReason}
                   </p>
                 )}
               </div>
