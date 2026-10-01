@@ -262,7 +262,10 @@ export function WhatsAppInboxView({ whatsappEnabled }: WhatsAppInboxViewProps) {
   };
 
   return (
-    <div className="h-[750px] w-full rounded-3xl border border-[#E0E4DD] bg-[#FFFFFF] shadow-sm flex overflow-hidden">
+    <div
+      className="w-full rounded-3xl border border-[#E0E4DD] bg-[#FFFFFF] shadow-sm flex overflow-hidden"
+      style={{ height: "calc(100dvh - 310px)", minHeight: "480px" }}
+    >
       {/* Column 1: Conversations & Contacts List */}
       <div className="w-80 md:w-88 shrink-0 h-full">
         <ConversationList

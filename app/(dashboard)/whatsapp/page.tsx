@@ -451,7 +451,7 @@ export default function WhatsAppPage() {
 
       {/* TAB 1: INBOX */}
       {activeTab === "INBOX" && (
-        <div className="animate-in fade-in duration-150">
+        <div className="animate-in fade-in duration-150 -mb-10">
           <WhatsAppInboxView whatsappEnabled={whatsappEnabled} />
         </div>
       )}
