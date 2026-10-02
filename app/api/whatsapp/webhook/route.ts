@@ -408,6 +408,18 @@ export async function POST(request: Request) {
               }
             }
           }
+
+          // C. WhatsApp Business App Coexistence Events (Phase 2 Architectural Foundation)
+          const field = change.field;
+          if (field === "smb_message_echoes" || (value as any).message_echoes) {
+            console.log("[WhatsApp Webhook] Received smb_message_echoes event (Coexistence - Phase 2 Foundation)");
+          } else if (field === "history" || (value as any).history) {
+            console.log("[WhatsApp Webhook] Received history sync event (Coexistence - Phase 2 Foundation)");
+          } else if (field === "account_update" || (value as any).account_update) {
+            console.log("[WhatsApp Webhook] Received account_update event (Coexistence - Phase 2 Foundation)");
+          } else if (field === "smb_app_state_sync" || (value as any).smb_app_state_sync) {
+            console.log("[WhatsApp Webhook] Received smb_app_state_sync event (Coexistence - Phase 2 Foundation)");
+          }
         }
       }
     }

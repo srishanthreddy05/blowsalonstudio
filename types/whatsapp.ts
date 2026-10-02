@@ -188,6 +188,18 @@ export interface WhatsAppMessageRecord {
   retryCount?: number;
 }
 
+export interface WhatsAppCoexistenceAccount {
+  status: "CONNECTED" | "CONNECTING" | "DISCONNECTED";
+  wabaId?: string;
+  phoneNumberId?: string;
+  businessPhoneNumber?: string;
+  verifiedName?: string;
+  configurationId?: string;
+  featureType?: string;
+  onboardedAt?: string;
+  updatedAt?: string;
+}
+
 export interface WhatsAppSettings {
   whatsappEnabled: boolean;
   autoSendInvoice: boolean;
@@ -196,6 +208,7 @@ export interface WhatsAppSettings {
   customTemplateFooter?: string;
   templateName?: string;
   templateLanguage?: string;
+  coexistence?: WhatsAppCoexistenceAccount;
   updatedAt?: string;
 }
 
@@ -210,4 +223,6 @@ export interface WhatsAppStatusResponse {
   autoSendInvoice: boolean;
   updatedAt: string;
   metaCloudConfigured?: boolean;
+  coexistence?: WhatsAppCoexistenceAccount | null;
 }
+

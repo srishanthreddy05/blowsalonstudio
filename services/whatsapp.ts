@@ -8,6 +8,7 @@ import type {
   WhatsAppCampaignRecipient,
   WhatsAppTemplate,
   WhatsAppAudienceType,
+  WhatsAppCoexistenceAccount,
 } from "@/types/whatsapp";
 
 export async function getStatus(): Promise<WhatsAppStatusResponse> {
@@ -407,6 +408,70 @@ export async function markConversationAsRead(conversationId: string): Promise<vo
       body: JSON.stringify({ conversationId }),
     });
   } catch {}
+}
+
+// ==================== COEXISTENCE & EMBEDDED SIGNUP SERVICE METHODS ====================
+
+export async function getCoexistenceStatus(): Promise<{
+  connected: boolean;
+  coexistence: WhatsAppCoexistenceAccount;
+}> {
+  try {
+    const res = await fetch("/api/whatsapp/embedded-signup", { cache: "no-store" });
+    if (!res.ok) {
+      return {
+        connected: false,
+        coexistence: { status: "DISCONNECTED", configurationId: "1744937289890566" },
+      };
+    }
+    return await res.json();
+  } catch {
+    return {
+      connected: false,
+      coexistence: { status: "DISCONNECTED", configurationId: "1744937289890566" },
+    };
+  }
+}
+
+export async function completeEmbeddedSignup(payload: {
+  code?: string;
+  wabaId?: string;
+  phoneNumberId?: string;
+  sessionData?: Record<string, unknown>;
+}): Promise<{
+  success: boolean;
+  message?: string;
+  coexistence?: WhatsAppCoexistenceAccount;
+  error?: string;
+}> {
+  try {
+    const res = await fetch("/api/whatsapp/embedded-signup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.success === false) {
+      throw new Error(data.error || "Failed to complete WhatsApp onboarding");
+    }
+    return data;
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "Failed to complete WhatsApp onboarding";
+    return {
+      success: false,
+      error: msg,
+    };
+  }
+}
+
+export async function disconnectCoexistence(): Promise<void> {
+  const res = await fetch("/api/whatsapp/embedded-signup", {
+    method: "DELETE",
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || "Failed to disconnect WhatsApp coexistence");
+  }
 }
 
 

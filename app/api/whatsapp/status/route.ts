@@ -19,12 +19,21 @@ export async function GET() {
     // Fetch settings from Firestore
     let autoSendInvoice = true;
     let whatsappEnabled = true;
+    let coexistence = null;
     try {
       const settingsDoc = await getDoc(doc(db, "settings", "whatsapp"));
       if (settingsDoc.exists()) {
         const data = settingsDoc.data() as Partial<WhatsAppSettings>;
         if (typeof data.autoSendInvoice === "boolean") autoSendInvoice = data.autoSendInvoice;
         if (typeof data.whatsappEnabled === "boolean") whatsappEnabled = data.whatsappEnabled;
+        if (data.coexistence) coexistence = data.coexistence;
+      }
+
+      if (!coexistence) {
+        const coexDoc = await getDoc(doc(db, "settings", "whatsapp_coexistence"));
+        if (coexDoc.exists()) {
+          coexistence = coexDoc.data();
+        }
       }
     } catch (settingsErr) {
       console.warn(
@@ -43,6 +52,7 @@ export async function GET() {
       metaCloudConfigured: isMetaConfigured,
       whatsappEnabled,
       autoSendInvoice,
+      coexistence: coexistence || null,
       updatedAt: new Date().toISOString(),
     });
   } catch (error: unknown) {
