@@ -19,6 +19,8 @@ import { formatCurrency } from "@/components/salon-dashboard/types";
 import { AddAppointmentModal } from "./AddAppointmentModal";
 import { AppointmentDetailModal } from "./AppointmentDetailModal";
 import { toLocalDateString } from "@/lib/utils/date";
+import { useSearchParams } from "next/navigation";
+import { requestNotificationPermission } from "@/lib/reminders/appointmentReminderManager";
 import {
   format,
   addDays,
@@ -50,6 +52,56 @@ export function AppointmentsCalendar() {
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
   const [bookAgainCustomer, setBookAgainCustomer] = useState<{ id: string; name: string; phone?: string } | null>(null);
+
+  // URL Query Params & Notification Permission State
+  const searchParams = useSearchParams();
+  const urlAppointmentId = searchParams.get("id") || searchParams.get("appointmentId");
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | "unsupported">("granted");
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && "Notification" in window) {
+      setNotificationPermission(Notification.permission);
+    } else {
+      setNotificationPermission("unsupported");
+    }
+  }, []);
+
+  const handleEnableNotifications = async () => {
+    const perm = await requestNotificationPermission();
+    setNotificationPermission(perm);
+  };
+
+  // Automatically open appointment if ID is provided in URL (e.g. from notification click)
+  useEffect(() => {
+    if (!urlAppointmentId) return;
+
+    const openTargetAppointment = async () => {
+      // 1. Try finding in loaded appointments
+      const found = appointments.find((a) => a.id === urlAppointmentId);
+      if (found) {
+        setSelectedAppointment(found);
+        return;
+      }
+      // 2. Fetch directly from service
+      try {
+        const appt = await appointmentService.getById(urlAppointmentId);
+        if (appt) {
+          if (appt.date) {
+            const [y, m, d] = appt.date.split("-").map(Number);
+            if (!isNaN(y) && !isNaN(m) && !isNaN(d)) {
+              setCurrentDate(new Date(y, m - 1, d));
+              setViewMode("day");
+            }
+          }
+          setSelectedAppointment(appt);
+        }
+      } catch (err) {
+        console.warn("Could not load appointment from URL query parameter:", err);
+      }
+    };
+
+    openTargetAppointment();
+  }, [urlAppointmentId, appointments]);
 
   // Determine query date range based on view
   const { rangeStart, rangeEnd } = useMemo(() => {
@@ -202,16 +254,28 @@ export function AppointmentsCalendar() {
           </p>
         </div>
 
-        <button
-          onClick={() => {
-            setBookAgainCustomer(null);
-            setAddModalOpen(true);
-          }}
-          className="inline-flex h-10 items-center gap-2 rounded-xl bg-[#6F776D] hover:bg-[#2F352F] px-4 text-xs font-bold text-white shadow-xs transition duration-150 cursor-pointer"
-        >
-          <Plus size={16} />
-          <span>Add Appointment</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-2.5">
+          {notificationPermission !== "granted" && notificationPermission !== "unsupported" && (
+            <button
+              onClick={handleEnableNotifications}
+              className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-[#CCD2C8] bg-[#FAF4E8] hover:bg-[#F3EAD3] px-3.5 text-xs font-bold text-[#8C6B2D] transition shadow-xs cursor-pointer"
+              title="Enable browser notifications for appointments"
+            >
+              <span>🔔 Enable Appointment Notifications</span>
+            </button>
+          )}
+
+          <button
+            onClick={() => {
+              setBookAgainCustomer(null);
+              setAddModalOpen(true);
+            }}
+            className="inline-flex h-10 items-center gap-2 rounded-xl bg-[#6F776D] hover:bg-[#2F352F] px-4 text-xs font-bold text-white shadow-xs transition duration-150 cursor-pointer"
+          >
+            <Plus size={16} />
+            <span>Add Appointment</span>
+          </button>
+        </div>
       </div>
 
       {/* Navigation & Controls Bar */}

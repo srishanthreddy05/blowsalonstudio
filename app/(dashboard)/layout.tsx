@@ -6,6 +6,7 @@ import { Navbar } from "@/components/layout/Navbar";
 import { AppDataProvider } from "@/context/AppDataContext";
 import { AuthGuard } from "@/components/auth/AuthGuard";
 import { useRouter, usePathname } from "next/navigation";
+import { AppointmentReminderManager } from "@/components/appointments/AppointmentReminderManager";
 
 export default function DashboardLayout({
   children,
@@ -70,6 +71,7 @@ export default function DashboardLayout({
   return (
     <AuthGuard>
       <AppDataProvider>
+        <AppointmentReminderManager />
         <div className="relative min-h-screen bg-[#F7F7F4] text-[#292D29] antialiased">
           <Sidebar
             collapsed={collapsed}

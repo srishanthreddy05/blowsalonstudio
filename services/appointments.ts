@@ -254,6 +254,23 @@ export async function update(
   }
 }
 
+export async function markReminderSent(
+  id: string,
+  reminderKey: string
+): Promise<void> {
+  try {
+    const docRef = doc(db, COLLECTION_NAME, id);
+    await updateDoc(docRef, {
+      reminder30MinSent: true,
+      reminder30MinSentFor: reminderKey,
+      reminder30MinSentAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error(`Error marking reminder sent for appointment (${id}):`, error);
+  }
+}
+
 export async function updateStatus(
   id: string,
   status: AppointmentStatus,

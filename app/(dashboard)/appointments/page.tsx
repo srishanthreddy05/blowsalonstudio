@@ -1,5 +1,6 @@
 import { Metadata } from "next";
 import { AppointmentsCalendar } from "@/components/appointments/AppointmentsCalendar";
+import { Suspense } from "react";
 
 export const metadata: Metadata = {
   title: "Appointments | BLOW SALON",
@@ -7,5 +8,9 @@ export const metadata: Metadata = {
 };
 
 export default function AppointmentsPage() {
-  return <AppointmentsCalendar />;
+  return (
+    <Suspense fallback={null}>
+      <AppointmentsCalendar />
+    </Suspense>
+  );
 }

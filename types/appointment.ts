@@ -30,4 +30,7 @@ export interface Appointment {
   completedInvoiceId?: string;
   completedInvoiceNumber?: string;
   completedInvoiceAmount?: number;
+  reminder30MinSent?: boolean;
+  reminder30MinSentFor?: string; // Format: `${date}_${startTime}` to detect rescheduling
+  reminder30MinSentAt?: string;
 }

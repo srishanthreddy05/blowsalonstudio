@@ -12,6 +12,7 @@ import type { Customer } from "@/types/customer";
 import type { Notification } from "@/types/notification";
 import type { Appointment } from "@/types/appointment";
 import { toLocalDateString } from "@/lib/utils/date";
+import { requestNotificationPermission } from "@/lib/reminders/appointmentReminderManager";
 import Link from "next/link";
 
 export default function DashboardNotifications() {
@@ -22,7 +23,21 @@ export default function DashboardNotifications() {
   const [loading, setLoading] = useState(true);
   const [isOpen, setIsOpen] = useState(false);
   const [dropdownPos, setDropdownPos] = useState({ top: 0, right: 0 });
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | "unsupported">("granted");
   const buttonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && "Notification" in window) {
+      setNotificationPermission(Notification.permission);
+    } else {
+      setNotificationPermission("unsupported");
+    }
+  }, []);
+
+  const handleEnableNotifications = async () => {
+    const perm = await requestNotificationPermission();
+    setNotificationPermission(perm);
+  };
 
   const fetchData = async () => {
     try {
@@ -170,6 +185,21 @@ export default function DashboardNotifications() {
                 </span>
               )}
             </div>
+
+            {notificationPermission !== "granted" && notificationPermission !== "unsupported" && (
+              <div className="flex items-center justify-between gap-3 p-3 bg-[#FAF4E8] border border-[#B18A45]/30 rounded-xl text-xs">
+                <div className="min-w-0 text-left">
+                  <span className="font-bold text-[#292D29] block text-[11px]">System Reminders</span>
+                  <span className="text-[10px] text-[#747A72]">Get alerted 30 min before appointments</span>
+                </div>
+                <button
+                  onClick={handleEnableNotifications}
+                  className="shrink-0 bg-[#6F776D] hover:bg-[#2F352F] text-white font-bold px-3 py-1.5 rounded-lg text-[10px] transition cursor-pointer"
+                >
+                  🔔 Enable Appointment Notifications
+                </button>
+              </div>
+            )}
 
             <div className="space-y-2.5 max-h-[320px] overflow-y-auto pr-1">
               {totalAlertsCount === 0 ? (
