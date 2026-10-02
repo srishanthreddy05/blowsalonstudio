@@ -43,6 +43,7 @@ import { BillingTerminal } from "@/components/billing/BillingTerminal";
 import { AddCustomerModal } from "@/components/customers/AddCustomerModal";
 import { AddExpenseModal } from "@/components/expenses/AddExpenseModal";
 import * as customerService from "@/services/customers";
+import { getCurrentBusinessMonth } from "@/lib/utils/businessMonth";
 import * as expensesService from "@/services/expenses";
 import { toLocalDateString } from "@/lib/utils/date";
 import { getInvoicePayments, getInvoicePaymentRatio, getInvoiceSalesBreakdown } from "@/lib/utils/settlements";
@@ -467,6 +468,8 @@ export default function DashboardPage() {
   const staffLoaded = !loadingAppData;
   const [tick, setTick] = useState(0);
 
+  const currentBm = useMemo(() => getCurrentBusinessMonth(), []);
+
   const [modals, setModals] = useState({
     billing: false,
     customer: false,
@@ -513,8 +516,7 @@ export default function DashboardPage() {
   // Uses onSnapshot so any Firestore write (invoice create, update, DELETE)
   // is instantly reflected in the dashboard with zero caching lag.
   useEffect(() => {
-    const now = new Date();
-    const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    const monthKey = currentBm.monthKey;
     const statsRef = doc(db, "stats", `revenue_${monthKey}`);
 
     const unsub = onSnapshot(
@@ -533,13 +535,12 @@ export default function DashboardPage() {
     );
 
     return () => unsub();
-  }, []);
+  }, [currentBm.monthKey]);
 
   const fetchStaffMonthlyStats = useCallback(
     async (force = false) => {
       try {
-        const now = new Date();
-        const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+        const monthKey = currentBm.monthKey;
         const cacheKey = `staffMonthlyStats_${monthKey}`;
 
         if (!force) {
@@ -576,20 +577,16 @@ export default function DashboardPage() {
         console.error("Failed to fetch staff monthly stats:", err);
       }
     },
-    [staff]
+    [staff, currentBm.monthKey]
   );
 
   // ── Real-time Listeners ────────────────────────────────────────────────
 
   useEffect(() => {
-    const now = new Date();
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
-    const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
-
     const qInvoices = query(
       collection(db, "invoices"),
-      where("date", ">=", Timestamp.fromDate(startOfMonth)),
-      where("date", "<=", Timestamp.fromDate(endOfMonth))
+      where("date", ">=", Timestamp.fromDate(currentBm.startDate)),
+      where("date", "<=", Timestamp.fromDate(currentBm.endDate))
     );
 
     const unsub = onSnapshot(
@@ -603,7 +600,7 @@ export default function DashboardPage() {
     );
 
     return () => unsub();
-  }, []);
+  }, [currentBm]);
 
   useEffect(() => {
     const todayStr = toLocalDateString(new Date());
@@ -942,11 +939,10 @@ export default function DashboardPage() {
   const handleBillingSuccess = useCallback(async () => {
     // Monthly stats update automatically via the onSnapshot listener.
     // Only staff monthly stats need a manual refresh (they're still polled).
-    const now = new Date();
-    const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    const monthKey = currentBm.monthKey;
     localStorage.removeItem(`staffMonthlyStats_${monthKey}`);
     await fetchStaffMonthlyStats(true);
-  }, [fetchStaffMonthlyStats]);
+  }, [fetchStaffMonthlyStats, currentBm.monthKey]);
 
   // ── Render ───────────────────────────────────────────────────────────────
 
@@ -1015,7 +1011,7 @@ export default function DashboardPage() {
             <StatCard
               title="Monthly Revenue"
               value={formatCurrency(stats.monthlyRevenue)}
-              subtitle="Total sales in current month"
+              subtitle={`${currentBm.label} (${currentBm.rangeLabel})`}
               icon={CreditCard}
               accent="green"
             />
@@ -1028,7 +1024,7 @@ export default function DashboardPage() {
               accent="amber"
             >
               <div className="flex items-center justify-between rounded-xl bg-[#FAF4E8] px-3.5 py-2.5 border border-[#B18A45]/20 text-xs">
-                <span className="font-semibold text-[#747A72]">Monthly Visits</span>
+                <span className="font-semibold text-[#747A72]">Visits ({currentBm.label})</span>
                 <span className="font-bold text-[#2F352F] text-sm">{stats.monthlyVisits}</span>
               </div>
             </StatCard>

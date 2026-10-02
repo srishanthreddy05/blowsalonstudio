@@ -29,10 +29,13 @@ import { formatCurrency } from "@/components/salon-dashboard/types";
 import { toLocalDateString } from "@/lib/utils/date";
 import { AttendanceCalendarView } from "@/components/staff/AttendanceCalendarView";
 import { StaffProfileModal } from "@/components/staff/StaffProfileModal";
+import { getCurrentBusinessMonth } from "@/lib/utils/businessMonth";
 
 export default function StaffPage() {
   const { staff, refreshStaff, loadingAppData } = useAppData();
   const loading = loadingAppData;
+
+  const currentBm = useMemo(() => getCurrentBusinessMonth(), []);
 
   // Active Tab
   const [activeTab, setActiveTab] = useState<"directory" | "history">("directory");
@@ -89,15 +92,11 @@ export default function StaffPage() {
     }
   }, [todayKey]);
 
-  // Load service performance metrics from actual invoices (Today & This Month)
+  // Load service performance metrics from actual invoices (Today & This Business Month)
   const loadStaffPerformance = useCallback(async () => {
     try {
-      const now = new Date();
-      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-      const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
-
       const invRef = collection(db, "invoices");
-      const q = query(invRef, where("date", ">=", startOfMonth), where("date", "<=", endOfMonth));
+      const q = query(invRef, where("date", ">=", currentBm.startDate), where("date", "<=", currentBm.endDate));
       const snap = await getDocs(q);
 
       const todayRev: Record<string, number> = {};
@@ -151,7 +150,7 @@ export default function StaffPage() {
     } catch (error) {
       console.error("Failed to load staff performance from invoices:", error);
     }
-  }, [staff, todayKey]);
+  }, [staff, todayKey, currentBm]);
 
   useEffect(() => {
     loadTodayAttendance();
@@ -504,7 +503,7 @@ export default function StaffPage() {
                         {/* Monthly Performance */}
                         <div>
                           <span className="block text-[10px] font-bold text-[#2F352F] uppercase tracking-wider mb-1.5">
-                            Monthly
+                            Monthly ({currentBm.label})
                           </span>
                           <div className="grid grid-cols-2 gap-2">
                             <div className="bg-[#F7F7F4] rounded-xl p-2.5 border border-[#E0E4DD]/80">

@@ -13,6 +13,7 @@ import {
 import type { AttendanceRecord, AttendanceStatus, AttendanceSummary } from "@/types/attendance";
 import { normalizeAttendanceStatus } from "@/types/attendance";
 import { toLocalDateString } from "@/lib/utils/date";
+import { getBusinessMonth } from "@/lib/utils/businessMonth";
 
 const COLLECTION_NAME = "attendance";
 
@@ -152,12 +153,11 @@ export async function getAttendanceHistory(
     } else if (filters.employeeId && filters.employeeId !== "all") {
       q = query(collection(db, COLLECTION_NAME), where("employeeId", "==", filters.employeeId));
     } else if (filters.month) {
-      const startOfMonth = `${filters.month}-01`;
-      const endOfMonth = `${filters.month}-31`;
+      const bm = getBusinessMonth(filters.month);
       q = query(
         collection(db, COLLECTION_NAME),
-        where("date", ">=", startOfMonth),
-        where("date", "<=", endOfMonth)
+        where("date", ">=", bm.startDateStr),
+        where("date", "<=", bm.endDateStr)
       );
     } else {
       q = query(collection(db, COLLECTION_NAME), limit(filters.limitCount || 100));
@@ -171,9 +171,8 @@ export async function getAttendanceHistory(
 
     // In-memory filters to prevent needing complex composite indexes
     if (filters.month && !filters.date && filters.employeeId && filters.employeeId !== "all") {
-      const startOfMonth = `${filters.month}-01`;
-      const endOfMonth = `${filters.month}-31`;
-      records = records.filter((r) => r.date >= startOfMonth && r.date <= endOfMonth);
+      const bm = getBusinessMonth(filters.month);
+      records = records.filter((r) => r.date >= bm.startDateStr && r.date <= bm.endDateStr);
     }
 
     if (filters.employeeId && filters.employeeId !== "all") {
@@ -208,8 +207,9 @@ export async function getStaffAttendanceSummary(
   monthKey: string // YYYY-MM
 ): Promise<AttendanceSummary> {
   try {
-    const startOfMonth = `${monthKey}-01`;
-    const endOfMonth = `${monthKey}-31`;
+    const bm = getBusinessMonth(monthKey);
+    const startOfMonth = bm.startDateStr;
+    const endOfMonth = bm.endDateStr;
 
     const q = query(
       collection(db, COLLECTION_NAME),

@@ -9,6 +9,7 @@ import {
   writeBatch
 } from 'firebase/firestore';
 import { getInvoicePayments, getInvoicePaymentRatio, getInvoiceSalesBreakdown } from '../lib/utils/settlements';
+import { getBusinessMonthKey } from '../lib/utils/businessMonth';
 
 // Load environment variables from .env.local
 const dotenvPath = path.resolve(__dirname, '../.env.local');
@@ -54,7 +55,7 @@ function getInvoiceDateKeys(invoice: any) {
   }
   return {
     dateKey,
-    monthKey: dateKey.slice(0, 7),
+    monthKey: getBusinessMonthKey(dateKey),
   };
 }
 

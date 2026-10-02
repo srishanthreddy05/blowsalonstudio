@@ -24,6 +24,13 @@ import {
   ExternalLink,
 } from "lucide-react";
 import Link from "next/link";
+import {
+  getBusinessMonth,
+  getCurrentBusinessMonth,
+  getPreviousBusinessMonth,
+  getNextBusinessMonth,
+  getBusinessMonthOptions,
+} from "@/lib/utils/businessMonth";
 
 interface AttendanceCalendarViewProps {
   staffList: Staff[];
@@ -52,10 +59,9 @@ export function AttendanceCalendarView({
     Record<string, StaffMonthRevenueData>
   >({});
 
-  // Current month being viewed: format 'YYYY-MM'
+  // Current business month being viewed: format 'YYYY-MM'
   const [selectedMonth, setSelectedMonth] = useState<string>(() => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    return getCurrentBusinessMonth().monthKey;
   });
 
   // Filters
@@ -121,63 +127,35 @@ export function AttendanceCalendarView({
     return map;
   }, [records]);
 
-  // Parse Year and Month
-  const { year, monthIndex, monthName, daysInMonth, startDayOffset } = useMemo(() => {
-    const [yStr, mStr] = selectedMonth.split("-");
-    const y = parseInt(yStr, 10) || new Date().getFullYear();
-    const m = (parseInt(mStr, 10) || 1) - 1;
-    const dateObj = new Date(y, m, 1);
-
-    const mName = dateObj.toLocaleDateString(undefined, {
-      month: "long",
-      year: "numeric",
-    });
-
-    const totalDays = new Date(y, m + 1, 0).getDate();
-    const firstDay = new Date(y, m, 1).getDay();
-    const mondayOffset = (firstDay + 6) % 7;
-
-    return {
-      year: y,
-      monthIndex: m,
-      monthName: mName,
-      daysInMonth: totalDays,
-      startDayOffset: mondayOffset,
-    };
+  // Parse Business Month Details
+  const businessMonth = useMemo(() => {
+    return getBusinessMonth(selectedMonth);
   }, [selectedMonth]);
+
+  const { label: monthName, rangeLabel, daysInPeriod } = businessMonth;
+  const startDayOffset = (businessMonth.startDate.getDay() + 6) % 7;
 
   const todayDateKey = useMemo(() => toLocalDateString(new Date()), []);
 
   // Month navigation handlers
   const handlePrevMonth = () => {
-    const d = new Date(year, monthIndex - 1, 1);
-    setSelectedMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+    setSelectedMonth(getPreviousBusinessMonth(selectedMonth).monthKey);
     setActiveDateModal(null);
   };
 
   const handleNextMonth = () => {
-    const d = new Date(year, monthIndex + 1, 1);
-    setSelectedMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+    setSelectedMonth(getNextBusinessMonth(selectedMonth).monthKey);
     setActiveDateModal(null);
   };
 
   const handleCurrentMonth = () => {
-    const now = new Date();
-    setSelectedMonth(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`);
+    setSelectedMonth(getCurrentBusinessMonth().monthKey);
     setActiveDateModal(null);
   };
 
   // Month options for dropdown
   const monthOptions = useMemo(() => {
-    const options: { value: string; label: string }[] = [];
-    const now = new Date();
-    for (let i = -12; i <= 3; i++) {
-      const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
-      const val = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-      const label = d.toLocaleDateString(undefined, { month: "long", year: "numeric" });
-      options.push({ value: val, label });
-    }
-    return options;
+    return getBusinessMonthOptions(12, 3);
   }, []);
 
   // Filtered staff list
@@ -199,8 +177,7 @@ export function AttendanceCalendarView({
         const empMap = attendanceMap.get(s.id);
         let hasAbsent = false;
         let presentCount = 0;
-        for (let d = 1; d <= daysInMonth; d++) {
-          const dKey = `${year}-${String(monthIndex + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+        for (const dKey of daysInPeriod) {
           const rec = empMap?.get(dKey);
           const norm = rec ? normalizeAttendanceStatus(rec.status) : "NOT_MARKED";
           if (norm === "ABSENT") hasAbsent = true;
@@ -218,15 +195,12 @@ export function AttendanceCalendarView({
     searchQuery,
     statusFilter,
     attendanceMap,
-    daysInMonth,
-    year,
-    monthIndex,
+    daysInPeriod,
   ]);
 
   // Open Date Modal (View Only)
-  const handleOpenDateModal = (staff: Staff, dayNumber: number) => {
+  const handleOpenDateModal = (staff: Staff, dateKey: string) => {
     if (!staff.id) return;
-    const dateKey = `${year}-${String(monthIndex + 1).padStart(2, "0")}-${String(dayNumber).padStart(2, "0")}`;
     const currentRec = attendanceMap.get(staff.id)?.get(dateKey);
 
     setActiveDateModal({
@@ -283,8 +257,13 @@ export function AttendanceCalendarView({
                 >
                   <ChevronLeft size={16} />
                 </button>
-                <div className="px-3 py-1 font-serif text-base font-bold text-[#2F352F] min-w-[140px] text-center">
-                  {monthName}
+                <div className="px-3 py-1 text-center min-w-[160px]">
+                  <div className="font-serif text-base font-bold text-[#2F352F] leading-tight">
+                    {monthName}
+                  </div>
+                  <div className="text-[10px] font-sans font-medium text-[#747A72]">
+                    {rangeLabel}
+                  </div>
                 </div>
                 <button
                   onClick={handleNextMonth}
@@ -442,14 +421,12 @@ export function AttendanceCalendarView({
               dailyRecords: {},
             };
 
-            // Compute summary statistics for this employee in this month
+            // Compute summary statistics for this employee in this business month
             let presentCount = 0;
             let absentCount = 0;
             let notMarkedCount = 0;
 
-            for (let day = 1; day <= daysInMonth; day++) {
-              const dayStr = String(day).padStart(2, "0");
-              const dKey = `${year}-${String(monthIndex + 1).padStart(2, "0")}-${dayStr}`;
+            for (const dKey of daysInPeriod) {
               const rec = empRecords?.get(dKey);
               const norm = rec ? normalizeAttendanceStatus(rec.status) : "NOT_MARKED";
 
@@ -497,9 +474,14 @@ export function AttendanceCalendarView({
 
                     {/* Month / Year Badge */}
                     <div className="text-right shrink-0">
-                      <span className="inline-flex items-center gap-1 rounded-xl bg-[#F7F7F4] border border-[#E0E4DD] px-2.5 py-1 text-xs font-serif font-bold text-[#2F352F]">
-                        {monthName}
-                      </span>
+                      <div className="inline-flex flex-col items-end rounded-xl bg-[#F7F7F4] border border-[#E0E4DD] px-2.5 py-1 text-right">
+                        <span className="text-xs font-serif font-bold text-[#2F352F] leading-tight">
+                          {monthName}
+                        </span>
+                        <span className="text-[9px] font-sans text-[#747A72]">
+                          {rangeLabel}
+                        </span>
+                      </div>
                     </div>
                   </div>
 
@@ -528,11 +510,9 @@ export function AttendanceCalendarView({
                         />
                       ))}
 
-                      {/* Actual Month Days */}
-                      {Array.from({ length: daysInMonth }).map((_, idx) => {
-                        const dayNum = idx + 1;
-                        const dayStr = String(dayNum).padStart(2, "0");
-                        const dKey = `${year}-${String(monthIndex + 1).padStart(2, "0")}-${dayStr}`;
+                      {/* Actual Business Month Days */}
+                      {daysInPeriod.map((dKey) => {
+                        const dayNum = parseInt(dKey.slice(8, 10), 10);
                         const record = empRecords?.get(dKey);
                         const statusNorm = record
                           ? normalizeAttendanceStatus(record.status)
@@ -546,7 +526,7 @@ export function AttendanceCalendarView({
                         return (
                           <button
                             key={dKey}
-                            onClick={() => handleOpenDateModal(stf, dayNum)}
+                            onClick={() => handleOpenDateModal(stf, dKey)}
                             title={`${stf.name} - ${dKey}: ${
                               isPresent ? "Present" : isAbsent ? "Absent" : "Not Marked"
                             } • Revenue: ${formatCurrency(dailyRev)} (Click to view history)`}

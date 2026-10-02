@@ -8,6 +8,7 @@ import type { Appointment } from "@/types/appointment";
 import * as invoiceService from "@/services/invoices";
 import * as appointmentService from "@/services/appointments";
 import { formatCurrency } from "@/components/salon-dashboard/types";
+import { getBusinessMonth } from "@/lib/utils/businessMonth";
 
 interface CustomerDetailModalProps {
   customer: Customer;
@@ -89,14 +90,12 @@ export default function CustomerDetailModal({ customer, onClose }: CustomerDetai
 
   const lastVisitDate = visitCount > 0 ? formatDate(invoices[0].invoiceDate || invoices[0].date) : "No visits recorded yet";
 
-  // Group invoices by Month Year
+  // Group invoices by Business Month
   const getMonthYearKey = (timestamp: any) => {
     if (!timestamp) return "Unknown Date";
     const dateObj = typeof timestamp.toDate === "function" ? timestamp.toDate() : new Date(timestamp);
-    return dateObj.toLocaleDateString("en-IN", {
-      month: "long",
-      year: "numeric",
-    });
+    const bm = getBusinessMonth(dateObj);
+    return `${bm.label} (${bm.rangeLabel})`;
   };
 
   const groupedInvoices = invoices.reduce((acc, inv) => {

@@ -6,8 +6,14 @@ import * as expensesService from "@/services/expenses";
 import { getInvoicePayments, getInvoiceSalesBreakdown, getStylistAttendanceForDate } from "@/lib/utils/settlements";
 import { useAppData } from "@/context/AppDataContext";
 import { formatCurrency } from "@/components/salon-dashboard/types";
-import { format, startOfMonth, endOfMonth } from "date-fns";
+import { format } from "date-fns";
 import { toLocalDateString } from "@/lib/utils/date";
+import {
+  getBusinessMonth,
+  getCurrentBusinessMonth,
+  getBusinessMonthKey,
+  getBusinessMonthOptions,
+} from "@/lib/utils/businessMonth";
 import {
   Calendar,
   ChevronDown,
@@ -64,9 +70,10 @@ interface DateSettlementSummary {
 export default function SettlementsPage() {
   const { staff } = useAppData();
   const [selectedMonth, setSelectedMonth] = useState(() => {
-    const now = new Date();
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    return getCurrentBusinessMonth().monthKey;
   });
+
+  const businessMonthOptions = useMemo(() => getBusinessMonthOptions(12, 3), []);
 
   const [loading, setLoading] = useState(true);
   const [invoices, setInvoices] = useState<any[]>([]);
@@ -77,19 +84,15 @@ export default function SettlementsPage() {
 
   const todayStr = useMemo(() => toLocalDateString(new Date()), []);
 
-  // Fetch all invoices and expenses for the selected month
+  // Fetch all invoices and expenses for the selected business month
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [yyyyStr, mmStr] = selectedMonth.split("-");
-      const year = parseInt(yyyyStr, 10);
-      const monthIndex = parseInt(mmStr, 10) - 1;
+      const bm = getBusinessMonth(selectedMonth);
+      const startDate = bm.startDate;
+      const endDate = bm.endDate;
 
-      const startDate = startOfMonth(new Date(year, monthIndex, 1));
-      const endDate = endOfMonth(new Date(year, monthIndex, 1));
-      endDate.setHours(23, 59, 59, 999);
-
-      // 1. Fetch Invoices for Month
+      // 1. Fetch Invoices for Business Month
       const invRef = collection(db, "invoices");
       const invQuery = query(
         invRef,
@@ -103,18 +106,19 @@ export default function SettlementsPage() {
       });
       setInvoices(invList);
 
-      // 2. Fetch Expenses for Month
+      // 2. Fetch Expenses for Business Month
       const allExpenses = await expensesService.getByDateRange(
         startDate,
         endDate
       );
       setExpenses(allExpenses);
 
-      // 3. Fetch Settlements status documents for the month
+      // 3. Fetch Settlements status documents for the business month
       const settRef = collection(db, "settlements");
       const settQuery = query(
         settRef,
-        where("monthKey", "==", selectedMonth)
+        where("dateKey", ">=", bm.startDateStr),
+        where("dateKey", "<=", bm.endDateStr)
       );
       const settSnap = await getDocs(settQuery);
       const settMap: Record<string, any> = {};
@@ -362,7 +366,7 @@ export default function SettlementsPage() {
       
       await setDoc(settDocRef, {
         dateKey: day.dateKey,
-        monthKey: day.dateKey.slice(0, 7),
+        monthKey: getBusinessMonthKey(day.dateKey),
         status: newStatus,
         totalSales: day.totalSales,
         serviceSales: day.serviceSales,
@@ -410,12 +414,17 @@ export default function SettlementsPage() {
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2 rounded-2xl border border-[#E0E4DD] bg-[#FFFFFF] px-3.5 py-2 shadow-xs">
             <Calendar size={15} className="text-[#6F776D]" />
-            <input
-              type="month"
+            <select
               value={selectedMonth}
               onChange={(e) => setSelectedMonth(e.target.value)}
               className="bg-transparent text-xs font-bold text-[#2F352F] outline-none cursor-pointer"
-            />
+            >
+              {businessMonthOptions.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
       </div>

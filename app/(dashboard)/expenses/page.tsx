@@ -6,19 +6,18 @@ import type { Expense } from "@/types/expense";
 import { Plus, Search, Edit2, Trash2, X, Receipt, Calendar } from "lucide-react";
 import { formatCurrency } from "@/components/salon-dashboard/types";
 import { toLocalDateString } from "@/lib/utils/date";
+import { getCurrentBusinessMonth, isDateInBusinessMonth } from "@/lib/utils/businessMonth";
 
 export default function ExpensesPage() {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
 
-  // Date range filters
-  const now = new Date();
-  const firstDayStr = toLocalDateString(new Date(now.getFullYear(), now.getMonth(), 1));
-  const todayStr = toLocalDateString(now);
+  const currentBm = useMemo(() => getCurrentBusinessMonth(), []);
+  const todayStr = useMemo(() => toLocalDateString(new Date()), []);
 
   const [typeFilter, setTypeFilter] = useState<"all" | "daily" | "monthly">("all");
-  const [dateFrom, setDateFrom] = useState(firstDayStr);
+  const [dateFrom, setDateFrom] = useState(currentBm.startDateStr);
   const [dateTo, setDateTo] = useState(todayStr);
 
   // Modal states
@@ -125,10 +124,6 @@ export default function ExpensesPage() {
 
   // ── Summary card calculations ─────────────────────────────────────────────
   const summary = useMemo(() => {
-    const todayStr = toLocalDateString(new Date());
-    const currentMonth = new Date().getMonth();
-    const currentYear = new Date().getFullYear();
-
     let todayDaily = 0;
     let monthFixed = 0;
 
@@ -137,15 +132,14 @@ export default function ExpensesPage() {
         todayDaily += exp.amount;
       }
       if (exp.type === "monthly") {
-        const d = new Date(exp.date);
-        if (d.getMonth() === currentMonth && d.getFullYear() === currentYear) {
+        if (isDateInBusinessMonth(exp.date, currentBm)) {
           monthFixed += exp.amount;
         }
       }
     });
 
     return { todayDaily, monthFixed, total: todayDaily + monthFixed };
-  }, [expenses]);
+  }, [expenses, todayStr, currentBm]);
 
   // ── Filter logic ──────────────────────────────────────────────────────────
   const filteredExpenses = useMemo(() => {
@@ -223,7 +217,7 @@ export default function ExpensesPage() {
             </div>
             <div className="rounded-2xl border border-[#E0E4DD] bg-[#FFFFFF] p-5 shadow-xs">
               <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#747A72]">
-                This Month's Fixed Costs
+                Fixed Costs ({currentBm.label})
               </p>
               <p className="mt-1 text-2xl font-extrabold tracking-tight text-[#B55B5B]">
                 {formatCurrency(summary.monthFixed)}
@@ -289,9 +283,9 @@ export default function ExpensesPage() {
             </div>
 
             {/* Clear filters */}
-            {(typeFilter !== "all" || dateFrom !== firstDayStr || dateTo !== todayStr) && (
+            {(typeFilter !== "all" || dateFrom !== currentBm.startDateStr || dateTo !== todayStr) && (
               <button
-                onClick={() => { setTypeFilter("all"); setDateFrom(firstDayStr); setDateTo(todayStr); }}
+                onClick={() => { setTypeFilter("all"); setDateFrom(currentBm.startDateStr); setDateTo(todayStr); }}
                 className="h-11 rounded-xl border border-[#E0E4DD] bg-[#FFFFFF] px-4 text-xs font-semibold text-[#747A72] hover:text-[#2F352F] hover:bg-[#E8ECE5] shadow-xs transition cursor-pointer"
               >
                 Reset

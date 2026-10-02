@@ -22,6 +22,12 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { toLocalDateString } from "@/lib/utils/date";
+import {
+  getBusinessMonth,
+  getCurrentBusinessMonth,
+  getPreviousBusinessMonth,
+  getNextBusinessMonth,
+} from "@/lib/utils/businessMonth";
 
 interface StaffProfileModalProps {
   staff: Staff;
@@ -56,8 +62,7 @@ export function StaffProfileModal({
 }: StaffProfileModalProps) {
   const [loadingData, setLoadingData] = useState(true);
   const [selectedMonth, setSelectedMonth] = useState<string>(() => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    return getCurrentBusinessMonth().monthKey;
   });
 
   const [monthRecords, setMonthRecords] = useState<AttendanceRecord[]>([]);
@@ -78,30 +83,13 @@ export function StaffProfileModal({
   const todayKey = toLocalDateString(new Date());
   const isManager = normalizeStaffRole(staff.role) === "MANAGER";
 
-  // Parse Month Details
-  const { year, monthIndex, monthName, daysInMonth, startDayOffset } = useMemo(() => {
-    const [yStr, mStr] = selectedMonth.split("-");
-    const y = parseInt(yStr, 10) || new Date().getFullYear();
-    const m = (parseInt(mStr, 10) || 1) - 1;
-    const dateObj = new Date(y, m, 1);
-
-    const mName = dateObj.toLocaleDateString(undefined, {
-      month: "long",
-      year: "numeric",
-    });
-
-    const totalDays = new Date(y, m + 1, 0).getDate();
-    const firstDay = new Date(y, m, 1).getDay();
-    const mondayOffset = (firstDay + 6) % 7;
-
-    return {
-      year: y,
-      monthIndex: m,
-      monthName: mName,
-      daysInMonth: totalDays,
-      startDayOffset: mondayOffset,
-    };
+  // Parse Business Month Details
+  const businessMonth = useMemo(() => {
+    return getBusinessMonth(selectedMonth);
   }, [selectedMonth]);
+
+  const { label: monthName, rangeLabel, daysInPeriod } = businessMonth;
+  const startDayOffset = (businessMonth.startDate.getDay() + 6) % 7;
 
   // Load Month Attendance & Revenue Records
   const loadMonthData = useCallback(async () => {
@@ -150,8 +138,7 @@ export function StaffProfileModal({
     let a = 0;
     let nm = 0;
 
-    for (let d = 1; d <= daysInMonth; d++) {
-      const dKey = `${year}-${String(monthIndex + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    for (const dKey of daysInPeriod) {
       const rec = recordsMap.get(dKey);
       const norm = rec ? normalizeAttendanceStatus(rec.status) : "NOT_MARKED";
       if (norm === "PRESENT") p++;
@@ -166,37 +153,33 @@ export function StaffProfileModal({
       notMarkedCount: nm,
       attendanceRate: rate,
     };
-  }, [daysInMonth, year, monthIndex, recordsMap]);
+  }, [daysInPeriod, recordsMap]);
 
   if (!isOpen) return null;
 
   // Navigation handlers
   const handlePrevMonth = () => {
-    const d = new Date(year, monthIndex - 1, 1);
-    setSelectedMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+    setSelectedMonth(getPreviousBusinessMonth(selectedMonth).monthKey);
     setActiveDateDetail(null);
   };
 
   const handleNextMonth = () => {
-    const d = new Date(year, monthIndex + 1, 1);
-    setSelectedMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+    setSelectedMonth(getNextBusinessMonth(selectedMonth).monthKey);
     setActiveDateDetail(null);
   };
 
   const handleCurrentMonth = () => {
-    const now = new Date();
-    setSelectedMonth(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`);
+    setSelectedMonth(getCurrentBusinessMonth().monthKey);
     setActiveDateDetail(null);
   };
 
   // Open Date Click (View Only)
-  const handleDayClick = (dayNum: number) => {
-    const dateKey = `${year}-${String(monthIndex + 1).padStart(2, "0")}-${String(dayNum).padStart(2, "0")}`;
+  const handleDayClick = (dateKey: string) => {
     const rec = recordsMap.get(dateKey);
 
     setActiveDateDetail({
       dateKey,
-      dayNum,
+      dayNum: parseInt(dateKey.slice(8, 10), 10),
       currentRecord: rec,
     });
   };
@@ -313,9 +296,14 @@ export function StaffProfileModal({
                   >
                     <ChevronLeft size={15} />
                   </button>
-                  <span className="px-2.5 font-serif text-sm font-bold text-[#2F352F] min-w-[120px] text-center">
-                    {monthName}
-                  </span>
+                  <div className="px-2.5 text-center min-w-[150px]">
+                    <span className="font-serif text-sm font-bold text-[#2F352F] block leading-tight">
+                      {monthName}
+                    </span>
+                    <span className="text-[9px] font-sans text-[#747A72] block">
+                      {rangeLabel}
+                    </span>
+                  </div>
                   <button
                     onClick={handleNextMonth}
                     className="grid size-7 place-items-center rounded-lg text-[#747A72] hover:bg-[#E8ECE5] hover:text-[#2F352F] transition cursor-pointer"
@@ -387,11 +375,9 @@ export function StaffProfileModal({
                     />
                   ))}
 
-                  {/* Month days */}
-                  {Array.from({ length: daysInMonth }).map((_, idx) => {
-                    const dayNum = idx + 1;
-                    const dayStr = String(dayNum).padStart(2, "0");
-                    const dKey = `${year}-${String(monthIndex + 1).padStart(2, "0")}-${dayStr}`;
+                  {/* Actual Business Month days */}
+                  {daysInPeriod.map((dKey) => {
+                    const dayNum = parseInt(dKey.slice(8, 10), 10);
                     const rec = recordsMap.get(dKey);
                     const norm = rec ? normalizeAttendanceStatus(rec.status) : "NOT_MARKED";
                     const isToday = dKey === todayKey;
@@ -404,7 +390,7 @@ export function StaffProfileModal({
                     return (
                       <button
                         key={dKey}
-                        onClick={() => handleDayClick(dayNum)}
+                        onClick={() => handleDayClick(dKey)}
                         className={`h-14 sm:h-16 rounded-xl border p-1 sm:p-1.5 text-left flex flex-col justify-between transition cursor-pointer select-none ${
                           isPresent
                             ? "border-[#CCD2C8] bg-[#E8ECE5]/60 hover:bg-[#E8ECE5] text-[#2F352F]"

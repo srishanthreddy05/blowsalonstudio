@@ -6,6 +6,7 @@ import { formatCurrency } from "@/components/salon-dashboard/types";
 import { Search, Eye, Calendar, Edit2 } from "lucide-react";
 import Link from "next/link";
 import { toLocalDateString } from "@/lib/utils/date";
+import { getCurrentBusinessMonth } from "@/lib/utils/businessMonth";
 import { db } from "@/lib/firebase";
 import {
   collection,
@@ -27,11 +28,10 @@ export default function InvoicesPage() {
   const [hasMore, setHasMore] = useState(false);
 
   // Date range filters
-  const now = new Date();
-  const firstDayStr = toLocalDateString(new Date(now.getFullYear(), now.getMonth(), 1));
-  const todayStr = toLocalDateString(now);
+  const currentBm = useMemo(() => getCurrentBusinessMonth(), []);
+  const todayStr = useMemo(() => toLocalDateString(new Date()), []);
 
-  const [dateFrom, setDateFrom] = useState(firstDayStr);
+  const [dateFrom, setDateFrom] = useState(currentBm.startDateStr);
   const [dateTo, setDateTo] = useState(todayStr);
 
   const loadInvoices = async (isLoadMore = false) => {

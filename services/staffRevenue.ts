@@ -1,6 +1,7 @@
 import { db } from "@/lib/firebase";
 import { collection, query, where, getDocs, Timestamp } from "firebase/firestore";
 import { toLocalDateString } from "@/lib/utils/date";
+import { getBusinessMonth } from "@/lib/utils/businessMonth";
 
 export interface StaffRevenueRecordItem {
   invoiceId: string;
@@ -25,11 +26,9 @@ export async function getStaffMonthRevenue(
   staffId?: string,
   staffName?: string
 ): Promise<StaffMonthRevenueData> {
-  const [yStr, mStr] = monthStr.split("-");
-  const y = parseInt(yStr, 10) || new Date().getFullYear();
-  const m = (parseInt(mStr, 10) || 1) - 1;
-  const startOfMonth = new Date(y, m, 1, 0, 0, 0, 0);
-  const endOfMonth = new Date(y, m + 1, 0, 23, 59, 59, 999);
+  const bm = getBusinessMonth(monthStr);
+  const startOfMonth = bm.startDate;
+  const endOfMonth = bm.endDate;
 
   const invRef = collection(db, "invoices");
   const q = query(
@@ -106,11 +105,9 @@ export async function getAllStaffMonthRevenue(
   monthStr: string,
   staffList: { id?: string; name: string }[]
 ): Promise<Record<string, StaffMonthRevenueData>> {
-  const [yStr, mStr] = monthStr.split("-");
-  const y = parseInt(yStr, 10) || new Date().getFullYear();
-  const m = (parseInt(mStr, 10) || 1) - 1;
-  const startOfMonth = new Date(y, m, 1, 0, 0, 0, 0);
-  const endOfMonth = new Date(y, m + 1, 0, 23, 59, 59, 999);
+  const bm = getBusinessMonth(monthStr);
+  const startOfMonth = bm.startDate;
+  const endOfMonth = bm.endDate;
 
   const invRef = collection(db, "invoices");
   const q = query(

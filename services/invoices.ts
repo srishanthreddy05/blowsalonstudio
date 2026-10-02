@@ -19,6 +19,7 @@ import {
 import type { Invoice } from "@/types/invoice";
 import { toTitleCase } from "@/lib/utils/text";
 import { toLocalDateString } from "@/lib/utils/date";
+import { getBusinessMonthKey } from "@/lib/utils/businessMonth";
 import { getInvoicePayments, getInvoicePaymentRatio, getInvoiceSalesBreakdown } from "@/lib/utils/settlements";
 import { getSettings } from "./settings";
 
@@ -92,7 +93,7 @@ function getInvoiceDateKeys(invoice: any): { dateKey: string; monthKey: string }
   }
   return {
     dateKey,
-    monthKey: dateKey.slice(0, 7),
+    monthKey: getBusinessMonthKey(dateKey),
   };
 }
 

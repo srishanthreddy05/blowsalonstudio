@@ -21,9 +21,9 @@ export function generateWhatsAppReceiptText(invoice: Invoice): string {
 
   const lines: string[] = [];
 
-  lines.push(`Hello *${customerName}* 👋`);
+  lines.push(`Hello ${customerName} 👋`);
   lines.push(``);
-  lines.push(`Thank you for visiting *BLOW SALON*.`);
+  lines.push(`Thank you for visiting *BLOW SALON*. ✨`);
   lines.push(``);
   lines.push(`Invoice: *${invoiceNumber}*`);
   lines.push(`Date: ${dateFormatted}`);
@@ -82,12 +82,24 @@ export function generateWhatsAppReceiptText(invoice: Invoice): string {
   }
 
   lines.push(`────────────────────────────────`);
-  lines.push(`*TOTAL: ₹${Math.round(invoice.grandTotal).toLocaleString("en-IN")}*`);
+  lines.push(`*Total: ₹${Math.round(invoice.grandTotal).toLocaleString("en-IN")}*`);
 
-  // Payment method
+  // Payment Breakdown
   const paymentMethod = invoice.paymentMethod || "Paid";
+  const paid = Math.round(
+    Number(
+      invoice.receivedAmount ??
+      (invoice.balanceDue !== undefined && invoice.balanceDue !== null
+        ? invoice.grandTotal - invoice.balanceDue
+        : invoice.grandTotal)
+    )
+  );
+
   lines.push(``);
-  lines.push(`Payment: ${paymentMethod}`);
+  if (paid > 0 || !invoice.balanceDue) {
+    lines.push(`Amount Paid: ₹${paid.toLocaleString("en-IN")}`);
+  }
+  lines.push(`Payment Method: ${paymentMethod}`);
 
   // Balance Due if credit
   if (invoice.balanceDue && Math.round(invoice.balanceDue) > 0) {
@@ -95,7 +107,10 @@ export function generateWhatsAppReceiptText(invoice: Invoice): string {
   }
 
   lines.push(``);
-  lines.push(`Thank you for choosing *BLOW SALON*. ✨`);
+  lines.push(`Thank you for choosing BLOW SALON!`);
+  lines.push(`We look forward to seeing you again. ❤️`);
+  lines.push(``);
+  lines.push(`For any assistance, please contact us at 8125902036.`);
 
   return lines.join("\n");
 }

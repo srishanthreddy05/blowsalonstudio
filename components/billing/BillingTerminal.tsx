@@ -24,7 +24,10 @@ import { useAppData } from "@/context/AppDataContext";
 import { toLocalDateString, formatDisplayDate } from "@/lib/utils/date";
 import { calculateBillTotals, SERVICE_TAX_RATE } from "@/lib/utils/billing";
 import { generateWhatsAppReceiptText } from "@/lib/utils/whatsappReceipt";
+import { normalizePhoneNumber } from "@/lib/utils/phone";
+import { toast } from "react-hot-toast";
 
+import type { Invoice } from "@/types/invoice";
 import type { Customer } from "@/types/customer";
 import type { Service } from "@/types/service";
 import type { Product } from "@/types/product";
@@ -77,6 +80,7 @@ export function BillingTerminal({
 
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [lastSavedInvoice, setLastSavedInvoice] = useState<Invoice | null>(null);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const [whatsappNotice, setWhatsappNotice] = useState<{
@@ -201,6 +205,7 @@ export function BillingTerminal({
             setClientStatus(inv.customerType || null);
             setFoundCustomerId(inv.customerId || null);
             setInvoiceNumberDisplay(inv.invoiceNumber || "");
+            setLastSavedInvoice(inv);
             
             setDateString(toLocalDateString(inv.date));
 
@@ -904,6 +909,10 @@ export function BillingTerminal({
 
       // Step 4: Save or Update invoice
       let savedInvoiceId = "";
+      const invoicePaymentStatus = markAsCredit
+        ? ((totalPaid + advanceApplied) === 0 ? "unpaid" : "partial")
+        : "paid";
+
       if (editInvoiceId) {
         const now = new Date();
         const selectedDate = new Date(dateString);
@@ -915,10 +924,6 @@ export function BillingTerminal({
         const mmStr = String(selectedDate.getMonth() + 1).padStart(2, '0');
         const ddStr = String(selectedDate.getDate()).padStart(2, '0');
         const dateKey = `${yyyy}-${mmStr}-${ddStr}`;
-
-        const invoicePaymentStatus = markAsCredit
-          ? ((totalPaid + advanceApplied) === 0 ? "unpaid" : "partial")
-          : "paid";
 
         await invoicesService.update(editInvoiceId, {
           customerId,
@@ -966,10 +971,6 @@ export function BillingTerminal({
           paymentStatus: invoicePaymentStatus,
         });
       } else {
-        const invoicePaymentStatus = markAsCredit
-          ? ((totalPaid + advanceApplied) === 0 ? "unpaid" : "partial")
-          : "paid";
-
         savedInvoiceId = await invoicesService.create({
           invoiceNumber,
           dateString,
@@ -1150,6 +1151,44 @@ export function BillingTerminal({
         setMessage({ type: "success", text: `Invoice ${msgNum} saved locally — will sync when online!` });
       }
 
+      // Snapshot saved invoice for reliable manual WhatsApp invoice generation
+      const savedInvoicePayload: any = {
+        id: savedInvoiceId || editInvoiceId || "",
+        invoiceNumber: finalInvoiceNum,
+        date: new Date(dateString),
+        billDate: new Date(dateString),
+        dateString,
+        customerId,
+        customerName: customerName.trim(),
+        customerPhone: customerMobile.trim(),
+        customerType: resolvedCustomerType,
+        services: enrichedServices,
+        products: enrichedProducts,
+        totalServices: totals.serviceTotal,
+        totalProducts: totals.productTotal,
+        totalMemberships: totals.membershipTotal || 0,
+        subtotal: totals.subtotal,
+        totalDiscount: totals.totalDiscount ?? 0,
+        billDiscount,
+        billDiscountPercent,
+        taxableServiceAmount: totals.taxableServiceAmount ?? 0,
+        taxRate: totals.taxRate ?? SERVICE_TAX_RATE,
+        taxAmount: totals.taxAmount ?? 0,
+        grandTotal: totals.grandTotal,
+        paymentSplit: {
+          cash: savedCash,
+          upi: savedUpi,
+          card: savedCard,
+        },
+        paymentMethod: invoicePaymentMethod,
+        paymentStatus: invoicePaymentStatus,
+        balanceDue: markAsCredit ? Math.max(0, totals.grandTotal - totalPaid) : 0,
+        receivedAmount: totalPaid,
+        advanceAdded: advanceToAdd,
+        advanceUsed: advanceApplied,
+      };
+      setLastSavedInvoice(savedInvoicePayload);
+
       let successMsg = isOnline 
         ? `Invoice ${msgNum} saved successfully!`
         : `Invoice ${msgNum} saved locally — will sync when online!`;
@@ -1247,6 +1286,7 @@ export function BillingTerminal({
     setValidationErrors([]);
     setWhatsappNotice(null);
     setSaved(false);
+    setLastSavedInvoice(null);
     setCashAmount("");
     setUpiAmount("");
     setCardAmount("");
@@ -1270,44 +1310,68 @@ export function BillingTerminal({
     }
   };
 
+  /**
+   * Temporary manual WhatsApp invoice dispatch flow for Billing Terminal.
+   *
+   * Flow:
+   * 1. Validates that the bill is successfully saved first.
+   * 2. Extracts and validates the customer phone number (converts Indian 10-digits to 91XXXXXXXXXX).
+   * 3. Generates the exact formatted WhatsApp invoice receipt text.
+   * 4. URL-encodes the message safely.
+   * 5. Opens https://wa.me/<phone>?text=<encoded_msg> in a new window/tab for manual staff send.
+   *
+   * Future Compatibility:
+   * When Meta App Review / WhatsApp Coexistence completes, this handler can be switched
+   * to direct API dispatch (e.g., whatsappService.sendInvoiceWhatsApp) without changing UI structure.
+   */
   const handleWhatsApp = () => {
-    if (!customerMobile.trim()) {
-      alert("Please enter a customer mobile number first.");
+    // 1. Make sure the bill has been successfully saved first
+    if (!saved) {
+      toast.error("Please save the bill first before opening WhatsApp.");
+      setMessage({ type: "error", text: "Please save the bill first before opening WhatsApp." });
       return;
     }
 
-    const invoicePaymentMethod = cashVal === amountToCollect && amountToCollect > 0
-      ? "Cash" 
-      : upiVal === amountToCollect && amountToCollect > 0
-        ? "UPI" 
-        : cardVal === amountToCollect && amountToCollect > 0
-          ? "Card" 
-          : "Split";
+    // 2. Get customer's phone number from saved invoice or form state
+    const targetPhone = (lastSavedInvoice?.customerPhone || customerMobile || "").trim();
+    if (!targetPhone) {
+      toast.error("No phone number found for this customer. Please enter a valid 10-digit mobile number.");
+      setMessage({ type: "error", text: "Customer phone number is missing. Cannot open WhatsApp." });
+      return;
+    }
 
-    const previewServices = services.map((s) => ({
-      serviceName: s.service,
-      price: Math.round(Number(s.price) || 0),
-      discount: Math.round(Number(s.discount) || 0),
-      amount: Math.round(Math.max((Number(s.price) || 0) - (Number(s.discount) || 0), 0)),
-      isSystemService: s.isSystemService || s.serviceId === "membership_fee",
-      serviceId: s.serviceId,
-    }));
+    // Validate phone number and clean for Indian WhatsApp (8125902036 -> 918125902036, no '+', spaces, dashes)
+    const normalized = normalizePhoneNumber(targetPhone);
+    if (!normalized.isValid || !normalized.digits) {
+      toast.error(`Invalid customer mobile number "${targetPhone}". Please enter a valid 10-digit number.`);
+      setMessage({ type: "error", text: `Invalid phone number "${targetPhone}". WhatsApp cannot be opened.` });
+      return;
+    }
 
-    const previewProducts = products.map((p) => ({
-      productName: p.product,
-      quantity: Number(p.quantity) || 1,
-      price: Math.round(Number(p.price) || 0),
-      discount: Math.round(Number(p.discount) || 0),
-      amount: Math.round(Math.max((Number(p.price) || 0) * (Number(p.quantity) || 1) - (Number(p.discount) || 0), 0)),
-    }));
+    const cleanWhatsAppNumber = normalized.whatsappNumber;
 
-    const msg = generateWhatsAppReceiptText({
+    // 3. Generate the formatted invoice message (reusing centralized generateWhatsAppReceiptText)
+    const invoiceForReceipt: Invoice = lastSavedInvoice || ({
       customerName: customerName.trim() || "Valued Customer",
+      customerPhone: targetPhone,
       invoiceNumber: invoiceNumberDisplay === "Auto-assigned on save" ? "INV" : invoiceNumberDisplay,
       date: new Date(dateString) as any,
       billDate: new Date(dateString) as any,
-      services: previewServices as any,
-      products: previewProducts as any,
+      services: services.map((s) => ({
+        serviceName: s.service,
+        price: Math.round(Number(s.price) || 0),
+        discount: Math.round(Number(s.discount) || 0),
+        amount: Math.round(Math.max((Number(s.price) || 0) - (Number(s.discount) || 0), 0)),
+        isSystemService: s.isSystemService || s.serviceId === "membership_fee",
+        serviceId: s.serviceId,
+      })) as any,
+      products: products.map((p) => ({
+        productName: p.product,
+        quantity: Number(p.quantity) || 1,
+        price: Math.round(Number(p.price) || 0),
+        discount: Math.round(Number(p.discount) || 0),
+        amount: Math.round(Math.max((Number(p.price) || 0) * (Number(p.quantity) || 1) - (Number(p.discount) || 0), 0)),
+      })) as any,
       totalServices: totals.serviceTotal,
       totalProducts: totals.productTotal,
       totalMemberships: totals.membershipTotal || 0,
@@ -1316,15 +1380,30 @@ export function BillingTerminal({
       taxAmount: totals.taxAmount ?? 0,
       taxRate: totals.taxRate ?? SERVICE_TAX_RATE,
       grandTotal: totals.grandTotal,
-      paymentMethod: invoicePaymentMethod,
+      paymentMethod:
+        cashVal === amountToCollect && amountToCollect > 0
+          ? "Cash"
+          : upiVal === amountToCollect && amountToCollect > 0
+            ? "UPI"
+            : cardVal === amountToCollect && amountToCollect > 0
+              ? "Card"
+              : "Split",
       paymentStatus: markAsCredit ? "unpaid" : "paid",
       balanceDue: markAsCredit ? Math.max(0, totals.grandTotal - totalPaid) : 0,
+      receivedAmount: totalPaid,
       advanceUsed: advanceApplied,
     } as any);
 
-    const digits = customerMobile.trim().replace(/\D/g, "");
-    const e164 = digits.startsWith("91") && digits.length === 12 ? digits : `91${digits}`;
-    window.open(`https://wa.me/${e164}?text=${encodeURIComponent(msg)}`, "_blank");
+    const messageText = generateWhatsAppReceiptText(invoiceForReceipt);
+
+    // 4. URL-encode complete message
+    const encodedMessage = encodeURIComponent(messageText);
+
+    // 5. Open WhatsApp using wa.me URL
+    const waUrl = `https://wa.me/${cleanWhatsAppNumber}?text=${encodedMessage}`;
+    window.open(waUrl, "_blank", "noopener,noreferrer");
+
+    toast.success("WhatsApp opened with pre-filled invoice message!");
   };
 
   const mappedServicesList = [
@@ -1804,9 +1883,11 @@ export function BillingTerminal({
             <ActionButtons
               onSave={handleSaveBill}
               onClose={handleClose}
+              onWhatsApp={handleWhatsApp}
               disabled={saved || saving || !isPaymentValid}
               saved={saved}
               isEdit={!!editInvoiceId}
+              saving={saving}
             />
           </div>
         </section>
