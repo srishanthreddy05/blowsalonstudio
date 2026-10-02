@@ -1,7 +1,6 @@
 import type {
   WhatsAppStatusResponse,
   WhatsAppMessageRecord,
-  WhatsAppConversation,
   WhatsAppSettings,
   WhatsAppMessageStatus,
   WhatsAppCampaign,
@@ -340,75 +339,6 @@ export async function deleteCampaign(id: string): Promise<{ success: boolean; me
   return data;
 }
 
-// ==================== INBOX SERVICE METHODS ====================
-
-export async function getConversations(limit = 100): Promise<WhatsAppConversation[]> {
-  try {
-    const res = await fetch(`/api/whatsapp/inbox/conversations?limit=${limit}`, { cache: "no-store" });
-    if (!res.ok) return [];
-    const data = await res.json();
-    return data.conversations || [];
-  } catch {
-    return [];
-  }
-}
-
-export async function getConversationMessages(conversationId: string): Promise<WhatsAppMessageRecord[]> {
-  try {
-    const res = await fetch(`/api/whatsapp/messages?conversationId=${encodeURIComponent(conversationId)}`, {
-      cache: "no-store",
-    });
-    if (!res.ok) return [];
-    const data = await res.json();
-    return data.messages || [];
-  } catch {
-    return [];
-  }
-}
-
-export async function sendInboxMessage(payload: {
-  conversationId: string;
-  phoneNumber?: string;
-  message?: string;
-  type?: "text" | "template";
-  templateName?: string;
-  templateLanguage?: string;
-  templateVariables?: Record<string, string>;
-}): Promise<{
-  success: boolean;
-  status: WhatsAppMessageStatus;
-  messageRecord?: WhatsAppMessageRecord;
-  error?: string;
-  errorCode?: string;
-  windowClosed?: boolean;
-}> {
-  try {
-    const res = await fetch("/api/whatsapp/inbox/send", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const data = await res.json().catch(() => ({}));
-    return data;
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "Network error sending message";
-    return {
-      success: false,
-      status: "FAILED",
-      error: msg,
-    };
-  }
-}
-
-export async function markConversationAsRead(conversationId: string): Promise<void> {
-  try {
-    await fetch("/api/whatsapp/inbox/read", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ conversationId }),
-    });
-  } catch {}
-}
 
 // ==================== COEXISTENCE & EMBEDDED SIGNUP SERVICE METHODS ====================
 

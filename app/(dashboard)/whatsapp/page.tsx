@@ -2,7 +2,6 @@
 
 import { useEffect, useState, useCallback } from "react";
 import {
-  MessageSquare,
   Megaphone,
   Sparkles,
   History,
@@ -20,7 +19,6 @@ import type {
 } from "@/types/whatsapp";
 import { toast } from "react-hot-toast";
 
-import { WhatsAppInboxView } from "@/components/whatsapp/inbox/WhatsAppInboxView";
 import CampaignsList from "@/components/whatsapp/CampaignsList";
 import { CreateCampaignModal } from "@/components/whatsapp/CreateCampaignModal";
 import CampaignDetailModal from "@/components/whatsapp/CampaignDetailModal";
@@ -43,10 +41,10 @@ function WhatsAppBrandIcon({ size = 24, className = "" }: { size?: number; class
   );
 }
 
-export type WhatsAppNavTab = "INBOX" | "CAMPAIGNS" | "TEMPLATES" | "HISTORY" | "SETTINGS";
+export type WhatsAppNavTab = "CAMPAIGNS" | "TEMPLATES" | "HISTORY" | "SETTINGS";
 
 export default function WhatsAppPage() {
-  const [activeTab, setActiveTab] = useState<WhatsAppNavTab>("INBOX");
+  const [activeTab, setActiveTab] = useState<WhatsAppNavTab>("CAMPAIGNS");
 
   // Global WhatsApp state
   const [statusData, setStatusData] = useState<WhatsAppStatusResponse | null>(null);
@@ -308,8 +306,8 @@ export default function WhatsAppPage() {
             </p>
             <p className="text-[11px] text-[#747A72]">
               {whatsappEnabled
-                ? "Outbound messages, inbox replies, invoice receipts, and campaigns are sending normally."
-                : "Outgoing dispatches are temporarily halted. History and incoming messages remain accessible."}
+                ? "Outbound messages, invoice receipts, and campaigns are sending normally."
+                : "Outgoing dispatches are temporarily halted. History remains accessible."}
             </p>
           </div>
         </div>
@@ -371,23 +369,9 @@ export default function WhatsAppPage() {
         </button>
       </div>
 
-      {/* Navigation Tabs (5 Tabs) */}
+      {/* Navigation Tabs */}
       <div className="flex items-center gap-1 p-1 rounded-2xl bg-[#F7F7F4] border border-[#E0E4DD] w-full sm:w-fit overflow-x-auto">
-        {/* 1. Inbox Tab */}
-        <button
-          type="button"
-          onClick={() => setActiveTab("INBOX")}
-          className={`flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition cursor-pointer ${
-            activeTab === "INBOX"
-              ? "bg-[#FFFFFF] text-[#2F352F] shadow-xs border border-[#CCD2C8]"
-              : "text-[#747A72] hover:text-[#2F352F]"
-          }`}
-        >
-          <MessageSquare size={14} className={activeTab === "INBOX" ? "text-[#5F7A62]" : ""} />
-          <span>Inbox</span>
-        </button>
-
-        {/* 2. Campaigns Tab */}
+        {/* 1. Campaigns Tab */}
         <button
           type="button"
           onClick={() => setActiveTab("CAMPAIGNS")}
@@ -406,7 +390,7 @@ export default function WhatsAppPage() {
           )}
         </button>
 
-        {/* 3. Templates Tab */}
+        {/* 2. Templates Tab */}
         <button
           type="button"
           onClick={() => setActiveTab("TEMPLATES")}
@@ -420,7 +404,7 @@ export default function WhatsAppPage() {
           <span>Templates</span>
         </button>
 
-        {/* 4. History Tab */}
+        {/* 3. History Tab */}
         <button
           type="button"
           onClick={() => setActiveTab("HISTORY")}
@@ -434,7 +418,7 @@ export default function WhatsAppPage() {
           <span>Message History</span>
         </button>
 
-        {/* 5. Settings Tab */}
+        {/* 4. Settings Tab */}
         <button
           type="button"
           onClick={() => setActiveTab("SETTINGS")}
@@ -449,12 +433,6 @@ export default function WhatsAppPage() {
         </button>
       </div>
 
-      {/* TAB 1: INBOX */}
-      {activeTab === "INBOX" && (
-        <div className="animate-in fade-in duration-150 -mb-10">
-          <WhatsAppInboxView whatsappEnabled={whatsappEnabled} />
-        </div>
-      )}
 
       {/* TAB 2: CAMPAIGNS */}
       {activeTab === "CAMPAIGNS" && (
