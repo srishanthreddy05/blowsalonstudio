@@ -15,6 +15,7 @@ import { auth } from "@/lib/firebase";
 export const ALLOWED_EMAILS = [
   "theblowstudiosalon@gmail.com",
   "srishanthreddyy05@gmail.com",
+  "thrivexreview@gmail.com",
 ].map((e) => e.toLowerCase().trim());
 
 interface AuthContextType {
