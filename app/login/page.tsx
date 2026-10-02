@@ -128,8 +128,16 @@ export default function LoginPage() {
       </main>
 
       {/* Footer */}
-      <footer className="text-center text-xs text-[#747A72]">
+      <footer className="text-center text-xs text-[#747A72] space-y-1">
         <p>© {new Date().getFullYear()} BLOW SALON. All rights reserved.</p>
+        <p>
+          <a
+            href="/privacy-policy"
+            className="text-[#5F7A62] hover:underline font-medium"
+          >
+            Privacy Policy
+          </a>
+        </p>
       </footer>
     </div>
   );
