@@ -603,7 +603,7 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
       if (!s.isSystemService && s.serviceId !== "membership_fee") {
         const name = sanitizeTemplateVariable(s.serviceName || s.service || "Service", "Service");
         const amount = Math.round(s.amount ?? Math.max(0, (Number(s.price) || 0) - (Number(s.discount) || 0)));
-        itemLines.push(`${name} - ₹${amount.toLocaleString("en-IN")}`);
+        itemLines.push(`${name} - Rs. ${amount.toLocaleString("en-IN")}`);
       }
     });
     (invoice.products || []).forEach((p: any) => {
@@ -611,42 +611,42 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
       const qty = Number(p.quantity) || 1;
       const qtyStr = qty > 1 ? ` (x${qty})` : "";
       const amount = Math.round(p.amount ?? Math.max(0, (Number(p.price) || 0) * qty - (Number(p.discount) || 0)));
-      itemLines.push(`${name}${qtyStr} - ₹${amount.toLocaleString("en-IN")}`);
+      itemLines.push(`${name}${qtyStr} - Rs. ${amount.toLocaleString("en-IN")}`);
     });
     if (invoice.totalMemberships && invoice.totalMemberships > 0) {
-      itemLines.push(`Membership Enrollment - ₹${Math.round(invoice.totalMemberships).toLocaleString("en-IN")}`);
+      itemLines.push(`Membership Enrollment - Rs. ${Math.round(invoice.totalMemberships).toLocaleString("en-IN")}`);
     }
     const itemsRaw = itemLines.length > 0 ? itemLines.join(" | ") : "Salon Services";
     const itemsSummary = sanitizeTemplateVariable(itemsRaw, "Salon Services");
 
     // Format {{5}} Subtotal (from actual saved invoice, single-line)
     const subtotalVal = invoice.subtotal !== undefined && invoice.subtotal !== null ? invoice.subtotal : invoice.grandTotal;
-    const subtotal = sanitizeTemplateVariable(`₹${Math.round(Number(subtotalVal) || 0).toLocaleString("en-IN")}`, "₹0");
+    const subtotal = sanitizeTemplateVariable(`Rs. ${Math.round(Number(subtotalVal) || 0).toLocaleString("en-IN")}`, "Rs. 0");
 
     // Format {{6}} Tax (from actual saved invoice, single-line)
     const taxVal = invoice.taxAmount !== undefined && invoice.taxAmount !== null ? invoice.taxAmount : 0;
-    const tax = sanitizeTemplateVariable(`₹${Math.round(Number(taxVal) || 0).toLocaleString("en-IN")}`, "₹0");
+    const tax = sanitizeTemplateVariable(`Rs. ${Math.round(Number(taxVal) || 0).toLocaleString("en-IN")}`, "Rs. 0");
 
     // Format {{7}} Total (from actual saved invoice, single-line)
     const totalVal = invoice.grandTotal !== undefined && invoice.grandTotal !== null ? invoice.grandTotal : 0;
-    const total = sanitizeTemplateVariable(`₹${Math.round(Number(totalVal) || 0).toLocaleString("en-IN")}`, "₹0");
+    const total = sanitizeTemplateVariable(`Rs. ${Math.round(Number(totalVal) || 0).toLocaleString("en-IN")}`, "Rs. 0");
 
     // Format {{8}} Payment / credit / advance / balance information (single-line joined by ", ")
     const paymentLines: string[] = [];
     const invAny = invoice as any;
     if (invAny.creditUsed && Math.round(Number(invAny.creditUsed)) > 0) {
-      paymentLines.push(`Previous Credit Applied: ₹${Math.round(Number(invAny.creditUsed)).toLocaleString("en-IN")}`);
+      paymentLines.push(`Previous Credit Applied: Rs. ${Math.round(Number(invAny.creditUsed)).toLocaleString("en-IN")}`);
     }
     if (invoice.advanceUsed && Math.round(Number(invoice.advanceUsed)) > 0) {
-      paymentLines.push(`Advance Applied: ₹${Math.round(Number(invoice.advanceUsed)).toLocaleString("en-IN")}`);
+      paymentLines.push(`Advance Applied: Rs. ${Math.round(Number(invoice.advanceUsed)).toLocaleString("en-IN")}`);
     }
     const paid = Math.round(Number(invoice.receivedAmount ?? (invoice.balanceDue ? (invoice.grandTotal - invoice.balanceDue) : invoice.grandTotal)));
-    paymentLines.push(`Amount Paid: ₹${paid.toLocaleString("en-IN")}`);
+    paymentLines.push(`Amount Paid: Rs. ${paid.toLocaleString("en-IN")}`);
     if (invoice.balanceDue && Math.round(Number(invoice.balanceDue)) > 0) {
-      paymentLines.push(`Balance Due: ₹${Math.round(Number(invoice.balanceDue)).toLocaleString("en-IN")}`);
+      paymentLines.push(`Balance Due: Rs. ${Math.round(Number(invoice.balanceDue)).toLocaleString("en-IN")}`);
     }
     if (invAny.creditRemaining && Math.round(Number(invAny.creditRemaining)) > 0) {
-      paymentLines.push(`Credit Balance: ₹${Math.round(Number(invAny.creditRemaining)).toLocaleString("en-IN")}`);
+      paymentLines.push(`Credit Balance: Rs. ${Math.round(Number(invAny.creditRemaining)).toLocaleString("en-IN")}`);
     }
     const paymentMethod = sanitizeTemplateVariable(invoice.paymentMethod || "UPI", "UPI");
     paymentLines.push(`Payment Method: ${paymentMethod}`);
@@ -654,7 +654,7 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
     const paymentRaw = paymentLines.join(", ");
     const paymentInfo = sanitizeTemplateVariable(
       paymentRaw,
-      `Amount Paid: ₹${paid.toLocaleString("en-IN")}, Payment Method: ${paymentMethod}`
+      `Amount Paid: Rs. ${paid.toLocaleString("en-IN")}, Payment Method: ${paymentMethod}`
     );
 
     // Exactly 8 parameters mapped for blow_salon_invoice

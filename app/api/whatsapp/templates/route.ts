@@ -35,7 +35,7 @@ export async function GET(request: Request) {
             t.name === "blow_salon_campaign"
               ? "Hello {{1}} 👋\n\nWe have an update from BLOW SALON.\n\n{{2}}\n\nWe look forward to seeing you soon! ✨"
               : t.name === "blow_salon_invoice"
-              ? "Hello {{1}} 👋\nThank you for visiting BLOW SALON.\n\nInvoice: {{2}}\nDate: {{3}}\n\nServices & Products:\n{{4}}\n\nSubtotal: {{5}}\nTax: {{6}}\nTotal: {{7}}\n\nPayment Details:\n{{8}}"
+              ? "Hello {{1}}\nThank you for visiting BLOW SALON.\n\nInvoice: {{2}}\nDate: {{3}}\n\nServices:\n{{4}}\n\nSubtotal: {{5}}\nTax: {{6}}\nTotal: {{7}}\n\nPayment Details:\n{{8}}"
               : "Integration test template with zero parameters.",
           headerText: "",
           footerText: "",
