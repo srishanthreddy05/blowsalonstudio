@@ -18,6 +18,10 @@ export const runtime = "nodejs";
 
 import { sanitizeFirestoreDoc } from "@/lib/utils/firestore";
 import { calculateCampaignStats } from "@/lib/whatsapp/campaignStats";
+import {
+  handleIncomingCallWebhook,
+  handleCallPermissionWebhook,
+} from "@/lib/whatsapp/callingService";
 
 const MESSAGES_COLLECTION = "whatsapp_messages";
 const RECIPIENTS_COLLECTION = "whatsapp_campaign_recipients";
@@ -239,6 +243,71 @@ export async function POST(request: Request) {
             console.log("[WhatsApp Webhook] Received account_update event (Coexistence - Phase 2 Foundation)");
           } else if (field === "smb_app_state_sync" || (value as any).smb_app_state_sync) {
             console.log("[WhatsApp Webhook] Received smb_app_state_sync event (Coexistence - Phase 2 Foundation)");
+          }
+
+          // D. WhatsApp Calling Events (Isolated Testing POC)
+          if (field === "calls" || Array.isArray(value.calls)) {
+            const callList = Array.isArray(value.calls) ? value.calls : [];
+            console.log("\n================ [WhatsApp Calling Webhook Event] ================");
+            console.log("WEBHOOK OBJECT:", payload.object);
+            console.log("ENTRY ID:", entry.id);
+            console.log("PHONE NUMBER ID:", value.metadata?.phone_number_id);
+            console.log("CALLS COUNT:", callList.length);
+
+            for (const callEvent of callList) {
+              console.log("----------------------------------------------------------------");
+              console.log("CALL ID:", callEvent.id);
+              console.log("EVENT:", callEvent.event);
+              console.log("DIRECTION:", callEvent.direction || "N/A");
+              console.log("TIMESTAMP:", callEvent.timestamp || "N/A");
+              console.log("SESSION SDP TYPE:", callEvent.session?.sdp_type || "NONE");
+              console.log("SESSION SDP PRESENT:", Boolean(callEvent.session?.sdp) ? "YES" : "NO");
+
+              if (callEvent.event === "connect") {
+                console.log(">>> CONNECT WEBHOOK RECEIVED <<<");
+                console.log("CALL ID:", callEvent.id);
+                console.log("DIRECTION:", callEvent.direction || "N/A");
+                console.log("SDP TYPE:", callEvent.session?.sdp_type);
+                console.log("SDP PRESENT:", Boolean(callEvent.session?.sdp) ? "YES" : "NO");
+              }
+
+              try {
+                await handleIncomingCallWebhook(callEvent);
+              } catch (callErr) {
+                console.error("[WhatsApp Webhook] Calling event handling error:", callErr);
+              }
+            }
+            console.log("================================================================\n");
+          }
+
+          // E. WhatsApp Call Permission Events (Isolated Testing POC)
+          if (Array.isArray(value.messages)) {
+            for (const msg of value.messages) {
+              if (
+                msg.type === "interactive" &&
+                msg.interactive?.type === "call_permission_reply" &&
+                msg.interactive.call_permission_reply
+              ) {
+                const userResp = msg.interactive.call_permission_reply.response || "";
+                console.log(`[WhatsApp Webhook] Received call_permission_reply from ${msg.from}: ${userResp}`);
+                try {
+                  await handleCallPermissionWebhook(msg.from, userResp);
+                } catch (permErr) {
+                  console.error("[WhatsApp Webhook] Call permission handling error:", permErr);
+                }
+              }
+            }
+          } else if (field === "call_permission_reply" || (value as any).call_permission_reply) {
+            const replyObj = (value as any).call_permission_reply;
+            const fromPhone = (value as any).from || (value as any).user_wa_id || "";
+            if (fromPhone && replyObj?.response) {
+              console.log(`[WhatsApp Webhook] Received field call_permission_reply from ${fromPhone}: ${replyObj.response}`);
+              try {
+                await handleCallPermissionWebhook(fromPhone, replyObj.response);
+              } catch (permErr) {
+                console.error("[WhatsApp Webhook] Call permission handling error:", permErr);
+              }
+            }
           }
         }
       }
