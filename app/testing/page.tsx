@@ -257,19 +257,12 @@ export default function WhatsAppCallingTestPage() {
         }
       };
 
-      // Attach local audio source track
+      // Attach local audio source track (addTrack creates the single audio transceiver)
       const audioStream = await getAudioStream();
       localStreamRef.current = audioStream;
       audioStream.getAudioTracks().forEach((track) => {
         pc.addTrack(track, audioStream);
       });
-
-      // Add audio transceiver
-      try {
-        pc.addTransceiver("audio", { direction: "sendrecv" });
-      } catch (tErr) {
-        // Transceiver may already exist from addTrack
-      }
 
       // Generate WebRTC SDP Offer
       addLog("info", "Generating RFC 8866 WebRTC SDP Offer...");
@@ -280,12 +273,10 @@ export default function WhatsAppCallingTestPage() {
       await pc.setLocalDescription(offer);
       addLog("info", "Local description set with SDP offer.");
 
-      // Wait for ICE candidate gathering
-      addLog("info", "Gathering local ICE candidates for SDP offer...");
-      await new Promise<void>((resolve) => {
-        if (pc.iceGatheringState === "complete") {
-          resolve();
-        } else {
+      // Wait until ICE candidate gathering is strictly complete
+      addLog("info", "Gathering local ICE candidates (waiting for iceGatheringState === 'complete')...");
+      if (pc.iceGatheringState !== "complete") {
+        await new Promise<void>((resolve) => {
           const checkIceState = () => {
             if (pc.iceGatheringState === "complete") {
               pc.removeEventListener("icegatheringstatechange", checkIceState);
@@ -293,17 +284,19 @@ export default function WhatsAppCallingTestPage() {
             }
           };
           pc.addEventListener("icegatheringstatechange", checkIceState);
-          setTimeout(() => {
-            pc.removeEventListener("icegatheringstatechange", checkIceState);
-            resolve();
-          }, 1800);
-        }
-      });
+        });
+      }
+
+      addLog("success", `ICE gathering completed (State: ${pc.iceGatheringState})`);
 
       const sdpOffer = pc.localDescription?.sdp;
       if (!sdpOffer) {
         throw new Error("Failed to generate valid WebRTC SDP offer.");
       }
+
+      const mAudioCount = (sdpOffer.match(/^m=audio/gm) || []).length;
+      const candidateCount = (sdpOffer.match(/^a=candidate/gm) || []).length;
+      addLog("info", `SDP validation: ${mAudioCount} m=audio section(s), ${candidateCount} ICE candidate(s).`);
 
       setWebrtcStage("OFFER_SENT");
       addLog("info", "Calling Meta Calls API (POST /{PHONE_ID}/calls)...");
