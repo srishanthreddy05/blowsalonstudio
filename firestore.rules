@@ -70,6 +70,10 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    match /appointments/{document=**} {
+      allow read, write: if true;
+    }
+
     // Catch-all rule for other sub-collections or documents
     match /{document=**} {
       allow read, write: if true;
