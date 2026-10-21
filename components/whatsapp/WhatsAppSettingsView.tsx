@@ -88,6 +88,7 @@ export function WhatsAppSettingsView({
       if (!result.code && !result.wabaId) {
         const incompleteErr =
           "Meta onboarding was incomplete. Required WhatsApp Business account details were not received. Please retry.";
+        console.warn("[WhatsAppSettings:Client] Incomplete onboarding: missing code and wabaId");
         setErrorMessage(incompleteErr);
         toast.error(incompleteErr);
         setCoexistenceConnecting(false);
@@ -95,6 +96,11 @@ export function WhatsAppSettingsView({
       }
 
       // 2. Submit onboarding authorization to dedicated backend endpoint
+      console.log(
+        `[WhatsAppSettings:Client] Submitting onboarding to backend: hasAuthCode=${Boolean(
+          result.code
+        )}, hasWabaId=${Boolean(result.wabaId)}, hasPhoneNumberId=${Boolean(result.phoneNumberId)}`
+      );
       toast.loading("Completing WhatsApp Business App connection...", { id: "coex-onboard" });
 
       const backendResult = await whatsappService.completeEmbeddedSignup({
@@ -103,6 +109,12 @@ export function WhatsAppSettingsView({
         phoneNumberId: result.phoneNumberId,
         sessionData: result.sessionData,
       });
+
+      console.log(
+        `[WhatsAppSettings:Client] Backend response received: success=${Boolean(
+          backendResult.success
+        )}, hasError=${Boolean(backendResult.error)}`
+      );
 
       if (!backendResult.success) {
         const errorDetail = backendResult.error || "Meta could not verify the WhatsApp Business account.";

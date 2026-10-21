@@ -300,19 +300,26 @@ export async function launchWhatsAppBusinessOnboarding(): Promise<LaunchEmbedded
       const parsed = parseMetaMessageEvent(event.origin, event.data);
       if (!parsed) return;
 
-      const { eventType, fullPayload } = parsed;
+      const { eventType, wabaId, phoneNumberId, currentStep, fullPayload } = parsed;
+
+      // Safe structured diagnostic log (NEVER logs tokens, secrets, or PII)
+      console.log(
+        `[Embedded Signup:Client] Meta postMessage received: event=${eventType || "UNKNOWN"}, hasWabaId=${Boolean(
+          wabaId
+        )}, hasPhoneNumberId=${Boolean(phoneNumberId)}${currentStep ? `, step=${currentStep}` : ""}`
+      );
 
       // Handle coexistence completion, standard finish, cancel, and error
       if (
         eventType === "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING" ||
         eventType === "FINISH"
       ) {
-        console.log("[Embedded Signup] Embedded Signup completed (Event: " + eventType + ")");
+        console.log(`[Embedded Signup:Client] Session completed (Event: ${eventType}, hasWabaId: ${Boolean(wabaId)})`);
         capturedSessionData = fullPayload || null;
       } else if (eventType === "CANCEL") {
-        console.log("[Embedded Signup] Embedded Signup session was cancelled by user.");
+        console.log(`[Embedded Signup:Client] Session cancelled by user (Step: ${currentStep || "UNKNOWN"})`);
       } else if (eventType === "ERROR") {
-        console.warn("[Embedded Signup] Embedded Signup returned error state.");
+        console.warn("[Embedded Signup:Client] Session returned error state.");
       }
     };
 
@@ -330,7 +337,7 @@ export async function launchWhatsAppBusinessOnboarding(): Promise<LaunchEmbedded
         async (response) => {
           if (!response || response.status === "unknown" || !response.authResponse) {
             cleanup();
-            console.log("[Embedded Signup] Facebook login cancelled or window closed.");
+            console.log("[Embedded Signup:Client] Facebook login cancelled or window closed.");
             return resolve({
               success: false,
               cancelled: true,
@@ -343,6 +350,7 @@ export async function launchWhatsAppBusinessOnboarding(): Promise<LaunchEmbedded
           // If session event has not been processed yet, give a brief 600ms grace period
           // for the postMessage event loop before removing listener and resolving
           if (!capturedSessionData?.waba_id) {
+            console.log("[Embedded Signup:Client] Waiting brief grace window for postMessage event...");
             await new Promise((r) => setTimeout(r, 600));
           }
 
@@ -351,7 +359,11 @@ export async function launchWhatsAppBusinessOnboarding(): Promise<LaunchEmbedded
           const wabaId = capturedSessionData?.waba_id;
           const phoneNumberId = capturedSessionData?.phone_number_id;
 
-          console.log("[Embedded Signup] Authorization response received successfully.");
+          console.log(
+            `[Embedded Signup:Client] Authorization response processed: hasAuthCode=${Boolean(
+              authCode
+            )}, hasWabaId=${Boolean(wabaId)}, hasPhoneNumberId=${Boolean(phoneNumberId)}`
+          );
 
           return resolve({
             success: true,

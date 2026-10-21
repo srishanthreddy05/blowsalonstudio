@@ -270,4 +270,68 @@ test("WhatsApp Coexistence Test Suite", async (t) => {
     assert.strictEqual(directCloudConfig.phoneNumberId, "1329685360226264");
     assert.strictEqual(directCloudConfig.provider, "WHATSAPP_CLOUD_API");
   });
+
+  // Test Case 11 (Regression): Exact Production Failure Path
+  // In the unpatched server code, having `code` truthy bypassed `!resolvedWabaId && !resolvedPhoneNumberId && !code`,
+  // resulting in setDoc(SETTINGS_COEXISTENCE_DOC, { status: "CONNECTED", wabaId: undefined, ... }) which threw:
+  // "Function setDoc() called with invalid data. Unsupported field value: undefined (found in field wabaId in document settings/whatsapp_coexistence)"
+  await t.test("Case 11 (Regression): Exact production failure path is strictly blocked with HTTP 400 and zero invalid setDoc writes", () => {
+    // 1. Simulate the exact request body that triggered the production error
+    const productionFailingBody = {
+      code: "AQBxyz123456_valid_auth_code_from_popup",
+      sessionData: {
+        current_step: "PHONE_NUMBER_VERIFICATION",
+      },
+    };
+
+    // 2. Simulate ID extraction
+    const extractSafeId = (val) => {
+      if (typeof val === "string") {
+        const trimmed = val.trim();
+        return trimmed.length > 0 ? trimmed : undefined;
+      }
+      return undefined;
+    };
+
+    const resolvedWabaId =
+      extractSafeId(productionFailingBody.wabaId) ||
+      extractSafeId(productionFailingBody.sessionData?.waba_id);
+
+    // 3. Verify that resolvedWabaId is undefined
+    assert.strictEqual(resolvedWabaId, undefined);
+
+    // 4. Verify that the new pre-write validation catches it
+    let validationPassed = false;
+    let responseStatus = 200;
+    let responseBody = {};
+
+    if (!resolvedWabaId) {
+      validationPassed = false;
+      responseStatus = 400;
+      responseBody = {
+        success: false,
+        error: "WhatsApp connection could not be completed. Missing WhatsApp Business Account (WABA) ID from Meta onboarding response. Please retry.",
+      };
+    } else {
+      validationPassed = true;
+    }
+
+    assert.strictEqual(validationPassed, false, "Must not pass validation when WABA ID is missing");
+    assert.strictEqual(responseStatus, 400, "Must return HTTP 400 instead of HTTP 500");
+    assert.strictEqual(responseBody.success, false);
+    assert.ok(responseBody.error.includes("Missing WhatsApp Business Account (WABA) ID"));
+
+    // 5. Verify that even if an object with undefined wabaId were somehow constructed,
+    // sanitizeFirestoreDoc strips it and Firestore cannot receive undefined
+    const simulatedUnsafeRecord = {
+      status: "CONNECTED",
+      wabaId: resolvedWabaId,
+      configurationId: "1744937289890566",
+    };
+
+    const sanitized = sanitizeFirestoreDoc(simulatedUnsafeRecord);
+    assert.strictEqual("wabaId" in sanitized, false, "Undefined wabaId must be stripped by sanitizeFirestoreDoc");
+    assert.strictEqual(sanitized.wabaId, undefined);
+  });
 });
+

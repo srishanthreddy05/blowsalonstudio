@@ -100,7 +100,13 @@ export async function POST(request: Request) {
     const body: EmbeddedSignupRequestBody = await request.json().catch(() => ({}));
     const { code, wabaId: directWabaId, phoneNumberId: directPhoneId, sessionData } = body;
 
-    console.log("[Embedded Signup] Processing onboarding completion request");
+    console.log(
+      `[Embedded Signup:Server] Onboarding completion request: hasCode=${Boolean(
+        code
+      )}, hasDirectWabaId=${Boolean(directWabaId)}, hasSessionWabaId=${Boolean(
+        sessionData?.waba_id || sessionData?.wabaId
+      )}, hasPhoneId=${Boolean(directPhoneId || sessionData?.phone_number_id)}`
+    );
 
     // 1. Resolve WABA ID and Phone Number ID from input parameters or session listener data
     // Handles both snake_case, camelCase, and nested data formats
@@ -129,7 +135,7 @@ export async function POST(request: Request) {
 
     if (code && appSecret) {
       try {
-        console.log("[Embedded Signup] Exchanging authorization code with Meta Graph API");
+        console.log("[Embedded Signup:Server] Exchanging authorization code with Meta Graph API");
         const tokenExchangeUrl = `https://graph.facebook.com/${META_API_VERSION}/oauth/access_token?client_id=${encodeURIComponent(
           appId
         )}&client_secret=${encodeURIComponent(appSecret)}&code=${encodeURIComponent(code)}`;
@@ -139,14 +145,14 @@ export async function POST(request: Request) {
 
         if (tokenRes.ok && tokenData.access_token) {
           exchangedUserToken = tokenData.access_token;
-          console.log("[Embedded Signup] Authorization code successfully exchanged for access token");
+          console.log("[Embedded Signup:Server] Authorization code successfully exchanged for access token");
         } else {
           const errMsg = tokenData.error?.message || tokenRes.statusText;
-          console.warn("[Embedded Signup] Code exchange warning:", errMsg);
+          console.warn("[Embedded Signup:Server] Code exchange warning:", errMsg);
         }
       } catch (exchangeErr) {
         console.warn(
-          "[Embedded Signup] Code exchange network error:",
+          "[Embedded Signup:Server] Code exchange network error:",
           exchangeErr instanceof Error ? exchangeErr.message : exchangeErr
         );
       }
@@ -174,13 +180,13 @@ export async function POST(request: Request) {
           if (waScope && Array.isArray(waScope.target_ids) && waScope.target_ids.length > 0) {
             resolvedWabaId = extractSafeId(waScope.target_ids[0]);
             if (resolvedWabaId) {
-              console.log("[Embedded Signup] WABA ID resolved from debug_token granular scopes");
+              console.log("[Embedded Signup:Server] WABA ID resolved from debug_token granular scopes");
             }
           }
         }
       } catch (debugErr) {
         console.warn(
-          "[Embedded Signup] Asset inspection error:",
+          "[Embedded Signup:Server] Asset inspection error:",
           debugErr instanceof Error ? debugErr.message : debugErr
         );
       }
@@ -197,12 +203,12 @@ export async function POST(request: Request) {
         if (meRes.ok && Array.isArray(meData.data) && meData.data.length > 0) {
           resolvedWabaId = extractSafeId(meData.data[0].id);
           if (resolvedWabaId) {
-            console.log("[Embedded Signup] WABA ID resolved from user accounts endpoint");
+            console.log("[Embedded Signup:Server] WABA ID resolved from user accounts endpoint");
           }
         }
       } catch (meErr) {
         console.warn(
-          "[Embedded Signup] Accounts query error:",
+          "[Embedded Signup:Server] Accounts query error:",
           meErr instanceof Error ? meErr.message : meErr
         );
       }
@@ -230,11 +236,11 @@ export async function POST(request: Request) {
           resolvedPhoneNumberId = extractSafeId(phoneAsset.id);
           businessPhoneNumber = extractSafeId(phoneAsset.display_phone_number);
           verifiedName = extractSafeId(phoneAsset.verified_name);
-          console.log("[Embedded Signup] WhatsApp phone discovered from WABA assets");
+          console.log("[Embedded Signup:Server] WhatsApp phone discovered from WABA assets");
         }
       } catch (phoneErr) {
         console.warn(
-          "[Embedded Signup] Phone discovery error:",
+          "[Embedded Signup:Server] Phone discovery error:",
           phoneErr instanceof Error ? phoneErr.message : phoneErr
         );
       }
@@ -255,21 +261,33 @@ export async function POST(request: Request) {
         if (detailRes.ok) {
           businessPhoneNumber = businessPhoneNumber || extractSafeId(detailData.display_phone_number);
           verifiedName = verifiedName || extractSafeId(detailData.verified_name);
-          console.log("[Embedded Signup] WhatsApp phone details verified");
+          console.log("[Embedded Signup:Server] WhatsApp phone details verified");
         }
       } catch (detailErr) {
         console.warn(
-          "[Embedded Signup] Phone details query warning:",
+          "[Embedded Signup:Server] Phone details query warning:",
           detailErr instanceof Error ? detailErr.message : detailErr
         );
       }
     }
 
+    console.log(
+      `[Embedded Signup:Server] Asset status before validation: hasWabaId=${Boolean(
+        resolvedWabaId
+      )}, hasPhoneNumberId=${Boolean(resolvedPhoneNumberId)}, hasVerifiedName=${Boolean(
+        verifiedName
+      )}, hasDisplayNumber=${Boolean(businessPhoneNumber)}`
+    );
+
     // 6. STRICT FIRESTORE VALIDATION
     // Before writing to Firestore, validate that the WABA ID exists and is a non-empty string.
     // If missing, preserve existing configuration and return clear error. Never persist undefined.
     if (!resolvedWabaId) {
-      console.warn("[Embedded Signup] Onboarding failed: Missing WhatsApp Business Account (WABA) ID from Meta.");
+      console.warn(
+        `[Embedded Signup:Server] Onboarding rejected: Missing required WABA ID (hasWabaId=false, hasPhoneId=${Boolean(
+          resolvedPhoneNumberId
+        )})`
+      );
       return NextResponse.json(
         {
           success: false,
@@ -284,7 +302,9 @@ export async function POST(request: Request) {
     // Automatic call to POST /{phone_number_id}/register is intentionally skipped.
 
     // 8. Safe Structured Logging & Sanitized Firestore Record
-    console.log("[Embedded Signup] WABA onboarding completed successfully");
+    console.log(
+      `[Embedded Signup:Server] Validation passed, persisting coexistence record: status=CONNECTED, configurationId=${CONFIGURATION_ID}`
+    );
 
     const nowIso = new Date().toISOString();
     const coexistenceRecord: WhatsAppCoexistenceAccount = {
@@ -318,6 +338,8 @@ export async function POST(request: Request) {
       },
       { merge: true }
     );
+
+    console.log("[Embedded Signup:Server] Coexistence configuration saved successfully");
 
     // 9. Return ONLY non-secret safe info to the frontend
     return NextResponse.json({
