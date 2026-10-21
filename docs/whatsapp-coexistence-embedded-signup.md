@@ -11,7 +11,7 @@ This document outlines the foundation for **WhatsApp Business App ↔ Cloud API 
 |---|---|---|
 | **Meta App ID** | `2308689169962503` | `NEXT_PUBLIC_META_APP_ID` (used by Facebook JavaScript SDK) |
 | **Meta App Name** | `BLOW SALON` | Registered Meta Developer App |
-| **Login Configuration ID** | `1744937289890566` | Facebook Login for Business configuration for Coexistence |
+| **Login Configuration ID** | `1534814405338722` | Facebook Login for Business configuration for Coexistence |
 | **Feature Type** | `whatsapp_business_app_onboarding` | Embedded Signup extras parameter |
 | **Session Info Version** | `"3"` | Meta Embedded Signup session messaging format |
 | **Response Type** | `"code"` | `override_default_response_type: true` |
@@ -26,7 +26,7 @@ This document outlines the foundation for **WhatsApp Business App ↔ Cloud API 
         ▼ (User clicks "Connect WhatsApp Business App")
 [Meta Facebook JavaScript SDK]
         │
-        ▼ (FB.login with config_id: 1744937289890566)
+        ▼ (FB.login with config_id: 1534814405338722)
 [Meta Embedded Signup Popup]
         │ (Salon authorizes existing WhatsApp Business App number)
         ▼
@@ -80,7 +80,7 @@ This document outlines the foundation for **WhatsApp Business App ↔ Cloud API 
 2. Locate the **Connect WhatsApp Business** section.
    - Status should read `NOT CONNECTED`.
 3. Click **Connect WhatsApp Business App**.
-   - The Meta Embedded Signup popup will open with configuration `1744937289890566`.
+   - The Meta Embedded Signup popup will open with configuration `1534814405338722`.
 4. If the popup is closed or cancelled:
    - UI gracefully shows: `"WhatsApp connection was cancelled."`
 5. When the authorization flow finishes in Meta:
@@ -96,7 +96,7 @@ This document outlines the foundation for **WhatsApp Business App ↔ Cloud API 
 
 In the [Meta App Dashboard](https://developers.facebook.com/apps/2308689169962503/):
 1. **Facebook Login for Business**:
-   - Ensure Configuration `1744937289890566` has the feature `whatsapp_business_app_onboarding` enabled.
+   - Ensure Configuration `1534814405338722` (Login variation: `WhatsApp Embedded Signup`) has WhatsApp accounts and permissions `whatsapp_business_management`, `whatsapp_business_messaging` enabled.
    - Ensure valid OAuth Redirect URIs includes your domain: `https://<your-domain>/` and `http://localhost:3000/` for local testing.
 2. **WhatsApp Product**:
    - Webhook URL should point to: `https://<your-domain>/api/whatsapp/webhook`.

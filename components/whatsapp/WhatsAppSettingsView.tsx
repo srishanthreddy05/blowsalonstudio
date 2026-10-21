@@ -55,7 +55,7 @@ export function WhatsAppSettingsView({
 
   /**
    * Triggers Meta Facebook Login for Business with Embedded Signup
-   * Using Configuration ID: 1744937289890566
+   * Using Configuration ID: 1534814405338722
    * Feature: whatsapp_business_app_onboarding (Session v3)
    * REQUIRES HTTPS — use ngrok for local testing.
    */
@@ -85,12 +85,12 @@ export function WhatsAppSettingsView({
         return;
       }
 
-      // STRICT CHECK: wabaId must be present to submit to backend
-      if (!result.wabaId) {
+      // STRICT CHECK: WABA ID or OAuth authorization code must be present to proceed to backend
+      if (!result.wabaId && !result.code) {
         const incompleteErr =
           result.error ||
           "Meta onboarding was incomplete. WhatsApp Business Account details were not received. Please complete all popup steps and retry.";
-        console.warn("[WhatsAppSettings:Client] Incomplete onboarding: missing wabaId, aborting backend submission");
+        console.warn("[WhatsAppSettings:Client] Incomplete onboarding: missing both wabaId and code, aborting backend submission");
         setErrorMessage(incompleteErr);
         toast.error(incompleteErr);
         setCoexistenceConnecting(false);
@@ -405,7 +405,7 @@ export function WhatsAppSettingsView({
           )}
 
           <span className="text-[10px] text-[#A0A69D] font-mono ml-auto">
-            Config ID: 1744937289890566
+            Config ID: 1534814405338722
           </span>
         </div>
       </div>

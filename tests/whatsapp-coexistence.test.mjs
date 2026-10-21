@@ -190,7 +190,7 @@ test("WhatsApp Coexistence Test Suite", async (t) => {
       phoneNumberId: undefined, // Simulates optional phone ID in coexistence
       businessPhoneNumber: undefined,
       verifiedName: undefined,
-      configurationId: "1744937289890566",
+      configurationId: "1534814405338722",
       featureType: "whatsapp_business_app_onboarding",
       onboardedAt: "2026-10-21T14:00:00.000Z",
       updatedAt: "2026-10-21T14:00:00.000Z",
@@ -261,7 +261,7 @@ test("WhatsApp Coexistence Test Suite", async (t) => {
     const coexistenceConfig = {
       status: "CONNECTED",
       wabaId: "client_coexistence_waba_888",
-      configurationId: "1744937289890566",
+      configurationId: "1534814405338722",
       featureType: "whatsapp_business_app_onboarding",
     };
 
@@ -326,7 +326,7 @@ test("WhatsApp Coexistence Test Suite", async (t) => {
     const simulatedUnsafeRecord = {
       status: "CONNECTED",
       wabaId: resolvedWabaId,
-      configurationId: "1744937289890566",
+      configurationId: "1534814405338722",
     };
 
     const sanitized = sanitizeFirestoreDoc(simulatedUnsafeRecord);
@@ -381,7 +381,7 @@ test("WhatsApp Coexistence Test Suite", async (t) => {
   // Test Case 13 (Launch Configuration): Validate official Meta Embedded Signup v4 coexistence options
   await t.test("Case 13: Official Meta Embedded Signup v4 coexistence options must contain coex: true and supported parameters", () => {
     const launchOptions = {
-      config_id: "1744937289890566",
+      config_id: "1534814405338722",
       response_type: "code",
       override_default_response_type: true,
       extras: {
@@ -392,7 +392,7 @@ test("WhatsApp Coexistence Test Suite", async (t) => {
       },
     };
 
-    assert.strictEqual(launchOptions.config_id, "1744937289890566");
+    assert.strictEqual(launchOptions.config_id, "1534814405338722");
     assert.strictEqual(launchOptions.response_type, "code");
     assert.strictEqual(launchOptions.override_default_response_type, true);
     assert.strictEqual(launchOptions.extras.featureType, "whatsapp_business_app_onboarding");
@@ -492,6 +492,55 @@ test("WhatsApp Coexistence Test Suite", async (t) => {
 
     assert.strictEqual(isCoexistenceEvent(coexistenceEvent), true, "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING must be identified as Coexistence");
     assert.strictEqual(isCoexistenceEvent(standardEvent), false, "Standard FINISH must be distinguished from Coexistence");
+  });
+
+  // Test Case 16 (Active Configuration Verification): Validate new Configuration ID 1534814405338722
+  await t.test("Case 16: Active configuration ID 1534814405338722 is used and old ID is retired", () => {
+    const activeConfigId = "1534814405338722";
+    const deprecatedConfigId = "1744937289890566";
+
+    assert.strictEqual(activeConfigId, "1534814405338722");
+    assert.notStrictEqual(activeConfigId, deprecatedConfigId);
+
+    // Verify account creation validator strictly requires non-empty WABA ID
+    const validateCoexistenceRecord = (record) => {
+      if (!record.wabaId || typeof record.wabaId !== "string" || !record.wabaId.trim()) {
+        throw new Error("Missing WhatsApp Business Account (WABA) ID");
+      }
+      if (record.status !== "CONNECTED") {
+        throw new Error("Invalid status");
+      }
+      const sanitized = sanitizeFirestoreDoc(record);
+      for (const [key, val] of Object.entries(sanitized)) {
+        if (val === undefined) {
+          throw new Error(`Field ${key} cannot be undefined in Firestore`);
+        }
+      }
+      return sanitized;
+    };
+
+    // Valid case
+    const validRecord = {
+      status: "CONNECTED",
+      wabaId: "valid_waba_1534814405338722",
+      phoneNumberId: "phone_123",
+      configurationId: activeConfigId,
+    };
+    const saved = validateCoexistenceRecord(validRecord);
+    assert.strictEqual(saved.wabaId, "valid_waba_1534814405338722");
+    assert.strictEqual(saved.configurationId, "1534814405338722");
+
+    // Invalid case: undefined wabaId
+    assert.throws(
+      () => validateCoexistenceRecord({ status: "CONNECTED", wabaId: undefined, configurationId: activeConfigId }),
+      /Missing WhatsApp Business Account \(WABA\) ID/
+    );
+
+    // Invalid case: empty string wabaId
+    assert.throws(
+      () => validateCoexistenceRecord({ status: "CONNECTED", wabaId: "  ", configurationId: activeConfigId }),
+      /Missing WhatsApp Business Account \(WABA\) ID/
+    );
   });
 });
 

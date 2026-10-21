@@ -9,7 +9,7 @@ export const runtime = "nodejs";
 
 const SETTINGS_COEXISTENCE_DOC = doc(db, "settings", "whatsapp_coexistence");
 const SETTINGS_WHATSAPP_DOC = doc(db, "settings", "whatsapp");
-const CONFIGURATION_ID = "1744937289890566";
+const CONFIGURATION_ID = "1534814405338722";
 const META_API_VERSION = (process.env.WHATSAPP_CLOUD_API_VERSION || "v21.0").trim().replace(/^v?/, "v");
 
 interface EmbeddedSignupRequestBody {

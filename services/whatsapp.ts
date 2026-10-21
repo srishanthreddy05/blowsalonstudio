@@ -351,14 +351,14 @@ export async function getCoexistenceStatus(): Promise<{
     if (!res.ok) {
       return {
         connected: false,
-        coexistence: { status: "DISCONNECTED", configurationId: "1744937289890566" },
+        coexistence: { status: "DISCONNECTED", configurationId: "1534814405338722" },
       };
     }
     return await res.json();
   } catch {
     return {
       connected: false,
-      coexistence: { status: "DISCONNECTED", configurationId: "1744937289890566" },
+      coexistence: { status: "DISCONNECTED", configurationId: "1534814405338722" },
     };
   }
 }

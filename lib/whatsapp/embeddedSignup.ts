@@ -3,14 +3,14 @@
  * Dedicated for WhatsApp Business App <-> Cloud API Coexistence Onboarding.
  * 
  * IMPORTANT:
- * - Uses exact Meta Configuration ID: 1744937289890566
+ * - Uses exact Meta Configuration ID: 1534814405338722
  * - Feature: "whatsapp_business_app_onboarding"
  * - sessionInfoVersion: "3"
  * - Response type: "code" (override_default_response_type: true)
  * - Never logs or exposes access tokens or secrets.
  */
 
-export const META_COEXISTENCE_CONFIG_ID = "1744937289890566";
+export const META_COEXISTENCE_CONFIG_ID = "1534814405338722";
 export const META_APP_ID =
   process.env.NEXT_PUBLIC_META_APP_ID ||
   process.env.NEXT_PUBLIC_FACEBOOK_APP_ID ||
