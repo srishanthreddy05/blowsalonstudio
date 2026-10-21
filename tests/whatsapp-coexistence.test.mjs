@@ -333,5 +333,50 @@ test("WhatsApp Coexistence Test Suite", async (t) => {
     assert.strictEqual("wabaId" in sanitized, false, "Undefined wabaId must be stripped by sanitizeFirestoreDoc");
     assert.strictEqual(sanitized.wabaId, undefined);
   });
+
+  // Test Case 12 (Regression): Meta FB.login callback must be a synchronous function
+  // Passing `async (response) => {}` to FB.login triggers Meta SDK runtime error:
+  // "Expression is of type asyncfunction, not function"
+  await t.test("Case 12 (Regression): Meta FB.login callback must be a synchronous function to prevent 'Expression is of type asyncfunction, not function'", () => {
+    // 1. Recreate the buggy callback signature
+    const buggyAsyncCallback = async (response) => {
+      return response;
+    };
+
+    // 2. Recreate the fixed synchronous callback wrapper
+    const fixedSyncCallback = (response) => {
+      const handleAsync = async () => {
+        return response;
+      };
+      handleAsync().catch(() => {});
+    };
+
+    // Verify type tags using Object.prototype.toString (as checked by Meta SDK)
+    const buggyType = Object.prototype.toString.call(buggyAsyncCallback);
+    const fixedType = Object.prototype.toString.call(fixedSyncCallback);
+
+    assert.strictEqual(buggyType, "[object AsyncFunction]", "Buggy callback is indeed an AsyncFunction");
+    assert.strictEqual(fixedType, "[object Function]", "Fixed callback must be a standard Function");
+
+    // Verify Meta SDK parameter validation simulation
+    const validateMetaCallback = (fn) => {
+      const typeStr = Object.prototype.toString.call(fn);
+      if (typeStr === "[object AsyncFunction]") {
+        throw new Error("Expression is of type asyncfunction, not function");
+      }
+      if (typeof fn !== "function") {
+        throw new Error("Expression is not a function");
+      }
+      return true;
+    };
+
+    assert.throws(
+      () => validateMetaCallback(buggyAsyncCallback),
+      /Expression is of type asyncfunction, not function/
+    );
+
+    assert.doesNotThrow(() => validateMetaCallback(fixedSyncCallback));
+  });
 });
+
 

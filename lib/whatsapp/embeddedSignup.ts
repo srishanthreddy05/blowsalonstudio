@@ -333,44 +333,59 @@ export async function launchWhatsAppBusinessOnboarding(): Promise<LaunchEmbedded
     };
 
     try {
+      // Must pass a standard synchronous function to fb.login:
+      // Meta Facebook JS SDK strictly validates callback type (Object.prototype.toString)
+      // and throws "Expression is of type asyncfunction, not function" if passed an AsyncFunction.
       fb.login(
-        async (response) => {
-          if (!response || response.status === "unknown" || !response.authResponse) {
+        (response) => {
+          const handleLoginResponse = async () => {
+            if (!response || response.status === "unknown" || !response.authResponse) {
+              cleanup();
+              console.log("[Embedded Signup:Client] Facebook login cancelled or window closed.");
+              return resolve({
+                success: false,
+                cancelled: true,
+                error: "WhatsApp connection was cancelled.",
+              });
+            }
+
+            const authCode = response.authResponse.code;
+
+            // If session event has not been processed yet, give a brief 600ms grace period
+            // for the postMessage event loop before removing listener and resolving
+            if (!capturedSessionData?.waba_id) {
+              console.log("[Embedded Signup:Client] Waiting brief grace window for postMessage event...");
+              await new Promise((r) => setTimeout(r, 600));
+            }
+
             cleanup();
-            console.log("[Embedded Signup:Client] Facebook login cancelled or window closed.");
+
+            const wabaId = capturedSessionData?.waba_id;
+            const phoneNumberId = capturedSessionData?.phone_number_id;
+
+            console.log(
+              `[Embedded Signup:Client] Authorization response processed: hasAuthCode=${Boolean(
+                authCode
+              )}, hasWabaId=${Boolean(wabaId)}, hasPhoneNumberId=${Boolean(phoneNumberId)}`
+            );
+
             return resolve({
-              success: false,
-              cancelled: true,
-              error: "WhatsApp connection was cancelled.",
+              success: true,
+              code: authCode,
+              wabaId: typeof wabaId === "string" ? wabaId : undefined,
+              phoneNumberId: typeof phoneNumberId === "string" ? phoneNumberId : undefined,
+              sessionData: capturedSessionData || undefined,
             });
-          }
+          };
 
-          const authCode = response.authResponse.code;
-
-          // If session event has not been processed yet, give a brief 600ms grace period
-          // for the postMessage event loop before removing listener and resolving
-          if (!capturedSessionData?.waba_id) {
-            console.log("[Embedded Signup:Client] Waiting brief grace window for postMessage event...");
-            await new Promise((r) => setTimeout(r, 600));
-          }
-
-          cleanup();
-
-          const wabaId = capturedSessionData?.waba_id;
-          const phoneNumberId = capturedSessionData?.phone_number_id;
-
-          console.log(
-            `[Embedded Signup:Client] Authorization response processed: hasAuthCode=${Boolean(
-              authCode
-            )}, hasWabaId=${Boolean(wabaId)}, hasPhoneNumberId=${Boolean(phoneNumberId)}`
-          );
-
-          return resolve({
-            success: true,
-            code: authCode,
-            wabaId: typeof wabaId === "string" ? wabaId : undefined,
-            phoneNumberId: typeof phoneNumberId === "string" ? phoneNumberId : undefined,
-            sessionData: capturedSessionData || undefined,
+          handleLoginResponse().catch((err) => {
+            cleanup();
+            const msg = err instanceof Error ? err.message : "Error handling login response";
+            console.error("[Embedded Signup:Client] Handler error:", msg);
+            resolve({
+              success: false,
+              error: "WhatsApp connection could not be completed: " + msg,
+            });
           });
         },
         {
