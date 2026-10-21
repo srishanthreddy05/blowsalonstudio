@@ -179,6 +179,94 @@ export interface ParsedMetaMessageEvent {
   fullPayload?: EmbeddedSignupSessionData;
 }
 
+export interface SafeMetaDiagnosticInfo {
+  origin: string;
+  dataType: string;
+  topLevelKeys: string[];
+  type?: string;
+  event?: string;
+  nestedDataKeys?: string[];
+}
+
+/**
+ * Safely inspects and logs window message events from Facebook/Meta origins.
+ * NEVER logs tokens, authorization codes, phone numbers, or secrets.
+ * Only logs structural metadata: origin, typeof data, top-level keys, type, event, and nested data keys.
+ */
+export function logSafeMetaMessageDiagnostic(
+  origin: string,
+  rawDataInput: unknown
+): SafeMetaDiagnosticInfo | null {
+  if (!isAllowedMetaOrigin(origin)) {
+    return null;
+  }
+
+  let parsed: Record<string, unknown> | null = null;
+  const rawType = typeof rawDataInput;
+
+  if (rawType === "string") {
+    try {
+      const obj = JSON.parse(rawDataInput as string);
+      if (obj && typeof obj === "object") {
+        parsed = obj as Record<string, unknown>;
+      }
+    } catch {
+      // Non-JSON string message (e.g. SDK internal arbiter / XD string)
+    }
+  } else if (rawType === "object" && rawDataInput !== null) {
+    parsed = rawDataInput as Record<string, unknown>;
+  }
+
+  const topLevelKeys = parsed ? Object.keys(parsed) : [];
+  const dataTypeField =
+    parsed && typeof parsed.type === "string"
+      ? parsed.type
+      : parsed && typeof parsed.action === "string"
+      ? parsed.action
+      : undefined;
+  const dataEventField = parsed && typeof parsed.event === "string" ? parsed.event : undefined;
+
+  let nestedKeys: string[] | undefined;
+  if (parsed && parsed.data !== undefined) {
+    if (typeof parsed.data === "object" && parsed.data !== null) {
+      nestedKeys = Object.keys(parsed.data);
+    } else if (typeof parsed.data === "string") {
+      try {
+        const nestedObj = JSON.parse(parsed.data);
+        if (nestedObj && typeof nestedObj === "object") {
+          nestedKeys = Object.keys(nestedObj);
+        } else {
+          nestedKeys = ["(primitive string)"];
+        }
+      } catch {
+        nestedKeys = ["(non-json string)"];
+      }
+    } else {
+      nestedKeys = [`(${typeof parsed.data})`];
+    }
+  }
+
+  const info: SafeMetaDiagnosticInfo = {
+    origin,
+    dataType: rawType,
+    topLevelKeys,
+    type: dataTypeField,
+    event: dataEventField,
+    nestedDataKeys: nestedKeys,
+  };
+
+  console.log("[Embedded Signup:Diagnostic] Meta origin window message received:", info);
+  return info;
+}
+
+export const KNOWN_WA_SIGNUP_EVENTS = [
+  "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING",
+  "FINISH_ONLY_WABA",
+  "FINISH",
+  "CANCEL",
+  "ERROR",
+];
+
 export function parseMetaMessageEvent(origin: string, rawDataInput: unknown): ParsedMetaMessageEvent | null {
   if (!isAllowedMetaOrigin(origin)) {
     return null;
@@ -189,6 +277,14 @@ export function parseMetaMessageEvent(origin: string, rawDataInput: unknown): Pa
     if (typeof rawData === "string") {
       try {
         rawData = JSON.parse(rawData);
+        // Handle double-serialized JSON
+        if (typeof rawData === "string") {
+          try {
+            rawData = JSON.parse(rawData);
+          } catch {
+            // retain first parse
+          }
+        }
       } catch {
         return null;
       }
@@ -196,16 +292,46 @@ export function parseMetaMessageEvent(origin: string, rawDataInput: unknown): Pa
     if (!rawData || typeof rawData !== "object") return null;
 
     const dataObj = rawData as Record<string, unknown>;
-    if (dataObj.type !== "WA_EMBEDDED_SIGNUP") {
+
+    // Type field check - case-insensitive; also checks action/event_type
+    const rawType =
+      typeof dataObj.type === "string"
+        ? dataObj.type.trim()
+        : typeof dataObj.action === "string"
+        ? dataObj.action.trim()
+        : typeof dataObj.event_type === "string"
+        ? dataObj.event_type.trim()
+        : "";
+
+    const upperType = rawType.toUpperCase();
+
+    // Event field check - case-insensitive
+    const rawEvent = typeof dataObj.event === "string" ? dataObj.event.trim() : "";
+    const upperEvent = rawEvent.toUpperCase();
+
+    const isWaSignupType =
+      upperType === "WA_EMBEDDED_SIGNUP" ||
+      upperType === "WHATSAPP_EMBEDDED_SIGNUP" ||
+      upperType === "WA_SIGNUP";
+
+    const isKnownWaEvent = KNOWN_WA_SIGNUP_EVENTS.includes(upperEvent);
+
+    // Accept if type matches WA_EMBEDDED_SIGNUP OR if event is a known WhatsApp onboarding event
+    if (!isWaSignupType && !isKnownWaEvent) {
       return null;
     }
 
-    const eventType = typeof dataObj.event === "string" ? dataObj.event : undefined;
+    const eventType = upperEvent || upperType;
 
     let nestedData: Record<string, unknown> = {};
     if (typeof dataObj.data === "string") {
       try {
         nestedData = JSON.parse(dataObj.data);
+        if (typeof nestedData === "string") {
+          try {
+            nestedData = JSON.parse(nestedData);
+          } catch {}
+        }
       } catch {
         nestedData = {};
       }
@@ -214,9 +340,9 @@ export function parseMetaMessageEvent(origin: string, rawDataInput: unknown): Pa
     }
 
     const rawVersion =
-      dataObj.version ||
-      nestedData.version ||
-      dataObj.sessionInfoVersion ||
+      dataObj.version ??
+      nestedData.version ??
+      dataObj.sessionInfoVersion ??
       nestedData.sessionInfoVersion;
 
     const eventVersion =
@@ -225,22 +351,36 @@ export function parseMetaMessageEvent(origin: string, rawDataInput: unknown): Pa
         : undefined;
 
     const rawWaba =
-      nestedData.waba_id ||
-      nestedData.wabaId ||
-      dataObj.waba_id ||
-      dataObj.wabaId;
+      nestedData.waba_id ??
+      nestedData.wabaId ??
+      nestedData.account_id ??
+      nestedData.accountId ??
+      nestedData.business_account_id ??
+      dataObj.waba_id ??
+      dataObj.wabaId ??
+      dataObj.account_id ??
+      dataObj.accountId ??
+      dataObj.business_account_id;
 
     const rawPhone =
-      nestedData.phone_number_id ||
-      nestedData.phoneNumberId ||
-      dataObj.phone_number_id ||
-      dataObj.phoneNumberId;
+      nestedData.phone_number_id ??
+      nestedData.phoneNumberId ??
+      nestedData.phone_id ??
+      nestedData.phoneId ??
+      dataObj.phone_number_id ??
+      dataObj.phoneNumberId ??
+      dataObj.phone_id ??
+      dataObj.phoneId;
 
     const rawStep =
-      nestedData.current_step ||
-      nestedData.currentStep ||
-      dataObj.current_step ||
-      dataObj.currentStep;
+      nestedData.current_step ??
+      nestedData.currentStep ??
+      nestedData.step ??
+      nestedData.screen ??
+      dataObj.current_step ??
+      dataObj.currentStep ??
+      dataObj.step ??
+      dataObj.screen;
 
     const wabaId =
       typeof rawWaba === "string" && rawWaba.trim()
@@ -305,6 +445,8 @@ export interface SignupDiagnostics {
   cancelled: boolean;
   errored: boolean;
   errorMessage?: string;
+  /** Safe diagnostic summary of the last ignored Meta message (keys and type/event only) */
+  lastIgnoredMetaSummary?: string;
 }
 
 export const COEXISTENCE_FINISH_EVENT = "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING";
@@ -330,6 +472,33 @@ function mentionsEmbeddedSignup(data: unknown): boolean {
   }
 }
 
+function getSafeStructureSummary(data: unknown): string {
+  try {
+    let obj: Record<string, unknown> | null = null;
+    if (typeof data === "string") {
+      try {
+        const parsed = JSON.parse(data);
+        if (parsed && typeof parsed === "object") obj = parsed;
+        else return "non-object string";
+      } catch {
+        return "non-json string";
+      }
+    } else if (typeof data === "object" && data !== null) {
+      obj = data as Record<string, unknown>;
+    }
+    if (!obj) return typeof data;
+
+    const parts: string[] = [];
+    if (obj.type) parts.push(`type=${String(obj.type).slice(0, 30)}`);
+    if (obj.event) parts.push(`event=${String(obj.event).slice(0, 30)}`);
+    const keys = Object.keys(obj).slice(0, 5);
+    parts.push(`keys=[${keys.join(",")}]`);
+    return parts.join(" ");
+  } catch {
+    return "uninspectable";
+  }
+}
+
 /**
  * Records a single window `message` event into diagnostics.
  * Every WA_EMBEDDED_SIGNUP event is recorded — none are silently dropped.
@@ -350,6 +519,7 @@ export function recordMetaMessage(
   const parsed = parseMetaMessageEvent(origin, data);
   if (!parsed) {
     diag.ignoredMetaMessages += 1;
+    diag.lastIgnoredMetaSummary = getSafeStructureSummary(data);
     return null;
   }
 
@@ -380,12 +550,17 @@ export function hasTerminalEvent(diag: SignupDiagnostics): boolean {
   );
 }
 
-/** Safe one-line summary (event names and counts only). */
+/** Safe one-line summary (event names, counts, and structural clues only). */
 export function summarizeDiagnostics(diag: SignupDiagnostics): string {
   const events = diag.waSignupEvents.length ? diag.waSignupEvents.join(">") : "none";
-  return `metaMessages=${diag.metaOriginMessages}, signupEvents=[${events}], ignoredMetaMessages=${diag.ignoredMetaMessages}, rejectedByOrigin=${diag.rejectedOriginSignupMessages}${
-    diag.lastStep ? `, lastStep=${diag.lastStep}` : ""
-  }`;
+  let summary = `metaMessages=${diag.metaOriginMessages}, signupEvents=[${events}], ignoredMetaMessages=${diag.ignoredMetaMessages}, rejectedByOrigin=${diag.rejectedOriginSignupMessages}`;
+  if (diag.lastStep) {
+    summary += `, lastStep=${diag.lastStep}`;
+  }
+  if (diag.lastIgnoredMetaSummary) {
+    summary += `, lastIgnored=[${diag.lastIgnoredMetaSummary}]`;
+  }
+  return summary;
 }
 
 /**
@@ -466,13 +641,21 @@ export function classifyOnboardingOutcome(
     };
   }
 
+  const currentDomain = typeof window !== "undefined" ? window.location.origin : "https://blowsalonstudio.vercel.app";
+
   return {
     success: false,
     stage: "NO_SIGNUP_EVENT",
-    error: `[Stage: No Onboarding Event] Facebook OAuth succeeded, but Meta sent no WA_EMBEDDED_SIGNUP event at all, so the WhatsApp onboarding wizard did not run inside the popup. Configuration: ${META_COEXISTENCE_CONFIG_ID}. (${summary})`,
+    error:
+      `[Stage: No Onboarding Event] Facebook OAuth succeeded (authorization code received), but Meta sent no WhatsApp onboarding event (WA_EMBEDDED_SIGNUP). The WhatsApp Business wizard did not run inside the popup.\n\n` +
+      `Check these causes in Meta App Dashboard (App ID: ${META_APP_ID}, Config ID: ${META_COEXISTENCE_CONFIG_ID}):\n` +
+      `1. Wrong Config Type: The configuration must be created under 'Facebook Login for Business' with Login variation 'WhatsApp Embedded Signup' (not 'General').\n` +
+      `2. Coexistence Not Enabled: WhatsApp Business App Onboarding / Coexistence must be enabled on this configuration.\n` +
+      `3. Domain Not Allowed: Domain (${currentDomain}) must be added to 'Allowed Domains for the JavaScript SDK' in Facebook Login for Business settings.\n` +
+      `4. App Roles / Mode: If the app is in 'Development' mode, your Meta account or Business Portfolio must have an assigned Role (Administrator, Developer, or Tester), or the app must be in 'Live' mode with required permissions.\n\n` +
+      `Diagnostics: (${summary})`,
   };
 }
-
 
 /**
  * Launches Meta Facebook Login for Business with Embedded Signup
@@ -520,7 +703,7 @@ export function launchWhatsAppBusinessOnboarding(): Promise<LaunchEmbeddedSignup
   }
 
   console.log(
-    `[Embedded Signup] Launching Embedded Signup (App ID: ${META_APP_ID}, Config ID: ${META_COEXISTENCE_CONFIG_ID}, Version: v4)`
+    `[Embedded Signup] Launching Embedded Signup (App ID: ${META_APP_ID}, Config ID: ${META_COEXISTENCE_CONFIG_ID})`
   );
 
   return new Promise<LaunchEmbeddedSignupResult>((resolve) => {
@@ -528,8 +711,9 @@ export function launchWhatsAppBusinessOnboarding(): Promise<LaunchEmbeddedSignup
     let isFinished = false;
 
     // Listen to ALL window messages so we can tell "Meta sent nothing" apart from
-    // "Meta sent something we ignored". Only names/counts are logged, never payload values.
+    // "Meta sent something we ignored". Only structural metadata is logged, never payload values.
     const messageListener = (event: MessageEvent) => {
+      logSafeMetaMessageDiagnostic(event.origin, event.data);
       const parsed = recordMetaMessage(diag, event.origin, event.data);
       if (!parsed) return;
 
@@ -542,6 +726,7 @@ export function launchWhatsAppBusinessOnboarding(): Promise<LaunchEmbeddedSignup
       );
     };
 
+    // REGISTER LISTENER BEFORE FB.login IS CALLED
     window.addEventListener("message", messageListener);
 
     const cleanup = () => {
@@ -553,7 +738,7 @@ export function launchWhatsAppBusinessOnboarding(): Promise<LaunchEmbeddedSignup
 
     try {
       console.log(
-        `[Embedded Signup:Client] Invoking FB.login popup directly from click (config_id=${META_COEXISTENCE_CONFIG_ID}, featureType=whatsapp_business_app_onboarding, version=v4, sessionInfoVersion=3, coex=true)`
+        `[Embedded Signup:Client] Invoking FB.login popup directly from click (config_id=${META_COEXISTENCE_CONFIG_ID}, featureType=whatsapp_business_app_onboarding, sessionInfoVersion=3)`
       );
 
       // Must pass a standard synchronous function to fb.login:
@@ -568,13 +753,26 @@ export function launchWhatsAppBusinessOnboarding(): Promise<LaunchEmbeddedSignup
               )}, hasError=${Boolean(response?.error)}`
             );
 
+            // Wait grace window (1500ms) after the popup closes to capture any in-flight postMessage events from Meta.
+            // Do NOT remove the message listener until after the popup closes plus this grace window.
+            const GRACE_WINDOW_MS = 1500;
+            const deadline = Date.now() + GRACE_WINDOW_MS;
+            while (!hasTerminalEvent(diag) && Date.now() < deadline) {
+              await new Promise((r) => setTimeout(r, 100));
+            }
+
+            // Yield an extra tick for microtasks
+            await new Promise((r) => setTimeout(r, 50));
+
+            // REMOVE LISTENER ONLY AFTER POPUP CLOSED PLUS GRACE WINDOW
+            cleanup();
+
             if (response?.error) {
               const errDetail =
                 typeof response.error === "object" && response.error !== null
                   ? (response.error as { message?: string }).message || "Meta login error"
                   : String(response.error);
               console.error("[Embedded Signup:Client] FB.login error details:", errDetail);
-              cleanup();
               return resolve({
                 success: false,
                 stage: "OAUTH_ERROR",
@@ -583,10 +781,12 @@ export function launchWhatsAppBusinessOnboarding(): Promise<LaunchEmbeddedSignup
             }
 
             if (!response || response.status === "unknown" || !response.authResponse) {
-              cleanup();
               console.log(
                 `[Embedded Signup:Client] Facebook login cancelled or window closed. (${summarizeDiagnostics(diag)})`
               );
+              if (diag.cancelled || diag.errored || diag.waSignupEvents.length > 0) {
+                return resolve(classifyOnboardingOutcome(undefined, diag));
+              }
               return resolve({
                 success: false,
                 cancelled: true,
@@ -598,15 +798,6 @@ export function launchWhatsAppBusinessOnboarding(): Promise<LaunchEmbeddedSignup
             }
 
             const authCode = response.authResponse.code;
-
-            // The OAuth callback can fire before Meta's final postMessage is delivered.
-            // Wait (up to 3s) for a terminal WA_EMBEDDED_SIGNUP event before deciding.
-            const deadline = Date.now() + 3000;
-            while (!hasTerminalEvent(diag) && Date.now() < deadline) {
-              await new Promise((r) => setTimeout(r, 100));
-            }
-
-            cleanup();
 
             console.log(
               `[Embedded Signup:Client] OAuth complete: hasAuthCode=${Boolean(authCode)}, ${summarizeDiagnostics(diag)}`
@@ -638,8 +829,6 @@ export function launchWhatsAppBusinessOnboarding(): Promise<LaunchEmbeddedSignup
             setup: {},
             featureType: "whatsapp_business_app_onboarding",
             sessionInfoVersion: "3",
-            version: "v4",
-            coex: true,
           },
         }
       );

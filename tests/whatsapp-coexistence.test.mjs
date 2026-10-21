@@ -8,6 +8,7 @@ import {
   classifyOnboardingOutcome,
   hasTerminalEvent,
   summarizeDiagnostics,
+  logSafeMetaMessageDiagnostic,
 } from "../lib/whatsapp/embeddedSignup.ts";
 import { sanitizeFirestoreDoc } from "../lib/utils/firestore.ts";
 
@@ -386,8 +387,8 @@ test("WhatsApp Coexistence Test Suite", async (t) => {
     assert.doesNotThrow(() => validateMetaCallback(fixedSyncCallback));
   });
 
-  // Test Case 13 (Launch Configuration): Validate official Meta Embedded Signup v4 coexistence options
-  await t.test("Case 13: Official Meta Embedded Signup v4 coexistence options must contain version: 'v4', coex: true, and supported parameters", () => {
+  // Test Case 13 (Launch Configuration): Validate official Meta Embedded Signup coexistence options
+  await t.test("Case 13: Official Meta Embedded Signup coexistence options must contain exact required extras", () => {
     const launchOptions = {
       config_id: "1534814405338722",
       response_type: "code",
@@ -396,8 +397,6 @@ test("WhatsApp Coexistence Test Suite", async (t) => {
         setup: {},
         featureType: "whatsapp_business_app_onboarding",
         sessionInfoVersion: "3",
-        version: "v4",
-        coex: true,
       },
     };
 
@@ -406,8 +405,9 @@ test("WhatsApp Coexistence Test Suite", async (t) => {
     assert.strictEqual(launchOptions.override_default_response_type, true);
     assert.strictEqual(launchOptions.extras.featureType, "whatsapp_business_app_onboarding");
     assert.strictEqual(launchOptions.extras.sessionInfoVersion, "3");
-    assert.strictEqual(launchOptions.extras.version, "v4");
-    assert.strictEqual(launchOptions.extras.coex, true);
+    assert.deepStrictEqual(launchOptions.extras.setup, {});
+    assert.strictEqual(launchOptions.extras.version, undefined);
+    assert.strictEqual(launchOptions.extras.coex, undefined);
   });
 
   // Test Case 14 (Popup Lifecycle & Incomplete Session Guard):
@@ -683,8 +683,8 @@ test("WhatsApp Coexistence Test Suite", async (t) => {
     assert.strictEqual(out.stage, "STANDARD_FLOW_COMPLETED");
   });
 
-  // Case 22: OAuth code with zero Meta events => NO_SIGNUP_EVENT (never success)
-  await t.test("Case 22: OAuth code alone with no WA_EMBEDDED_SIGNUP event is NO_SIGNUP_EVENT, never success", () => {
+  // Case 22: OAuth code with zero Meta events => NO_SIGNUP_EVENT with actionable causes
+  await t.test("Case 22: OAuth code alone with no WA_EMBEDDED_SIGNUP event is NO_SIGNUP_EVENT with actionable causes", () => {
     const diag = createSignupDiagnostics();
     // SDK-internal Meta messages that are not signup events
     recordMetaMessage(diag, FB, "_fb_internal_xd_message");
@@ -696,6 +696,10 @@ test("WhatsApp Coexistence Test Suite", async (t) => {
     assert.strictEqual(diag.ignoredMetaMessages, 2);
     assert.ok(out.error.includes("metaMessages=2"));
     assert.ok(out.error.includes("signupEvents=[none]"));
+    assert.ok(out.error.includes("1. Wrong Config Type"));
+    assert.ok(out.error.includes("2. Coexistence Not Enabled"));
+    assert.ok(out.error.includes("3. Domain Not Allowed"));
+    assert.ok(out.error.includes("4. App Roles / Mode"));
   });
 
   // Case 23: Signup event from a non-Meta origin is counted as origin-rejected
@@ -732,6 +736,94 @@ test("WhatsApp Coexistence Test Suite", async (t) => {
     const diag2 = createSignupDiagnostics();
     recordMetaMessage(diag2, FB, { type: "WA_EMBEDDED_SIGNUP", event: "FINISH_ONLY_WABA", data: { waba_id: "987654321" } });
     assert.ok(!summarizeDiagnostics(diag2).includes("987654321"), "Summary must not include WABA ID");
+  });
+
+  // Case 26: Safe diagnostic log extracts structural metadata and never leaks secrets
+  await t.test("Case 26: Safe diagnostic log function inspects metadata without leaking secrets", () => {
+    const diagInfo = logSafeMetaMessageDiagnostic("https://www.facebook.com", {
+      type: "WA_EMBEDDED_SIGNUP",
+      event: "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING",
+      data: {
+        waba_id: "secret_waba_12345",
+        access_token: "secret_token_abcde",
+        phone_number: "+919999999999",
+      },
+    });
+
+    assert.ok(diagInfo);
+    assert.strictEqual(diagInfo.origin, "https://www.facebook.com");
+    assert.strictEqual(diagInfo.type, "WA_EMBEDDED_SIGNUP");
+    assert.strictEqual(diagInfo.event, "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING");
+    assert.deepStrictEqual(diagInfo.nestedDataKeys, ["waba_id", "access_token", "phone_number"]);
+
+    // Verify secret values do NOT exist anywhere in diagInfo
+    const jsonStr = JSON.stringify(diagInfo);
+    assert.ok(!jsonStr.includes("secret_waba_12345"));
+    assert.ok(!jsonStr.includes("secret_token_abcde"));
+    assert.ok(!jsonStr.includes("+919999999999"));
+  });
+
+  // Case 27: Parser accepts mixed-case and lowercase events & types
+  await t.test("Case 27: Parser accepts mixed-case and lowercase events & types", () => {
+    const parsedLower = parseMetaMessageEvent("https://web.facebook.com", {
+      type: "wa_embedded_signup",
+      event: "finish_whatsapp_business_app_onboarding",
+      data: { waba_id: "waba_case_test" },
+    });
+
+    assert.ok(parsedLower);
+    assert.strictEqual(parsedLower.eventType, "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING");
+    assert.strictEqual(parsedLower.wabaId, "waba_case_test");
+  });
+
+  // Case 28: Parser accepts double-serialized JSON payloads
+  await t.test("Case 28: Parser accepts double-serialized JSON payloads", () => {
+    const innerJson = JSON.stringify({
+      type: "WA_EMBEDDED_SIGNUP",
+      event: "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING",
+      data: JSON.stringify({ waba_id: "waba_double_json" }),
+    });
+    const doubleStringified = JSON.stringify(innerJson);
+
+    const parsed = parseMetaMessageEvent("https://business.facebook.com", doubleStringified);
+    assert.ok(parsed);
+    assert.strictEqual(parsed.eventType, "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING");
+    assert.strictEqual(parsed.wabaId, "waba_double_json");
+  });
+
+  // Case 29: Parser accepts known WhatsApp events even if type field is omitted
+  await t.test("Case 29: Parser accepts known WhatsApp events even if type field is omitted", () => {
+    const parsed = parseMetaMessageEvent("https://www.facebook.com", {
+      event: "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING",
+      data: { waba_id: "waba_no_type_field" },
+    });
+
+    assert.ok(parsed);
+    assert.strictEqual(parsed.eventType, "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING");
+    assert.strictEqual(parsed.wabaId, "waba_no_type_field");
+  });
+
+  // Case 30: Allowed origins accept www, web, business facebook and meta domains
+  await t.test("Case 30: Allowed origins accept www, web, and business facebook domains", () => {
+    assert.strictEqual(isAllowedMetaOrigin("https://www.facebook.com"), true);
+    assert.strictEqual(isAllowedMetaOrigin("https://web.facebook.com"), true);
+    assert.strictEqual(isAllowedMetaOrigin("https://business.facebook.com"), true);
+    assert.strictEqual(isAllowedMetaOrigin("https://connect.facebook.net"), true);
+    assert.strictEqual(isAllowedMetaOrigin("https://meta.com"), true);
+    assert.strictEqual(isAllowedMetaOrigin("https://business.meta.com"), true);
+    assert.strictEqual(isAllowedMetaOrigin("https://malicious.com"), false);
+  });
+
+  // Case 31: Diagnostics summary safely reports structural metadata of ignored messages
+  await t.test("Case 31: Diagnostics summary safely reports structural metadata of ignored messages", () => {
+    const diag = createSignupDiagnostics();
+    recordMetaMessage(diag, FB, { type: "xd_arbiter", action: "ping", arbitrary: 123 });
+    const summary = summarizeDiagnostics(diag);
+    assert.ok(summary.includes("ignoredMetaMessages=1"));
+    assert.ok(summary.includes("lastIgnored=[type=xd_arbiter"));
+    assert.ok(summary.includes("keys=[type,action,arbitrary]"));
+    // Ensure value 123 is not dumped
+    assert.ok(!summary.includes("123"));
   });
 });
 

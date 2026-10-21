@@ -63,7 +63,7 @@ export function WhatsAppSettingsView({
   /**
    * Triggers Meta Facebook Login for Business with Embedded Signup
    * Using Configuration ID: 1534814405338722
-   * Feature: whatsapp_business_app_onboarding (Session v3, Version v4)
+   * Feature: whatsapp_business_app_onboarding (sessionInfoVersion: "3")
    * 
    * CRITICAL: Called directly from user click handler without awaiting async ops,
    * preserving transient user activation in modern browsers.
@@ -330,9 +330,11 @@ export function WhatsAppSettingsView({
         {errorMessage && (
           <div className="p-4 rounded-2xl bg-[#FBEBEB] border border-[#F8D7D7] flex items-start gap-3">
             <AlertCircle size={18} className="text-[#B55B5B] shrink-0 mt-0.5" />
-            <div className="flex-1 space-y-0.5">
+            <div className="flex-1 space-y-1">
               <p className="text-xs font-semibold text-[#8B3E3E]">Connection Notice</p>
-              <p className="text-[11px] text-[#A44E4E]">{errorMessage}</p>
+              <div className="text-[11px] text-[#A44E4E] whitespace-pre-line leading-relaxed">
+                {errorMessage}
+              </div>
             </div>
             <button
               type="button"
