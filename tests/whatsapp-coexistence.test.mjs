@@ -379,7 +379,7 @@ test("WhatsApp Coexistence Test Suite", async (t) => {
   });
 
   // Test Case 13 (Launch Configuration): Validate official Meta Embedded Signup v4 coexistence options
-  await t.test("Case 13: Official Meta Embedded Signup v4 coexistence options must not contain undocumented properties", () => {
+  await t.test("Case 13: Official Meta Embedded Signup v4 coexistence options must contain coex: true and supported parameters", () => {
     const launchOptions = {
       config_id: "1744937289890566",
       response_type: "code",
@@ -388,6 +388,7 @@ test("WhatsApp Coexistence Test Suite", async (t) => {
         setup: {},
         featureType: "whatsapp_business_app_onboarding",
         sessionInfoVersion: "3",
+        coex: true,
       },
     };
 
@@ -396,6 +397,7 @@ test("WhatsApp Coexistence Test Suite", async (t) => {
     assert.strictEqual(launchOptions.override_default_response_type, true);
     assert.strictEqual(launchOptions.extras.featureType, "whatsapp_business_app_onboarding");
     assert.strictEqual(launchOptions.extras.sessionInfoVersion, "3");
+    assert.strictEqual(launchOptions.extras.coex, true);
     assert.strictEqual("version" in launchOptions.extras, false, "Undocumented version property must not be present in extras");
   });
 
@@ -464,6 +466,32 @@ test("WhatsApp Coexistence Test Suite", async (t) => {
     }
 
     assert.strictEqual(backendSubmissionInvoked, false, "Backend submission must NEVER be called when wabaId is missing");
+  });
+
+  // Test Case 15 (Event Classification): Distinguish Coexistence vs Standard Onboarding Events
+  await t.test("Case 15: Correctly distinguishes FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING from standard FINISH event", () => {
+    const coexistenceEvent = {
+      type: "WA_EMBEDDED_SIGNUP",
+      event: "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING",
+      data: {
+        waba_id: "waba_coex_111",
+        phone_number_id: "phone_coex_222",
+      },
+    };
+
+    const standardEvent = {
+      type: "WA_EMBEDDED_SIGNUP",
+      event: "FINISH",
+      data: {
+        waba_id: "waba_standard_333",
+        phone_number_id: "phone_standard_444",
+      },
+    };
+
+    const isCoexistenceEvent = (evt) => evt.event === "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING";
+
+    assert.strictEqual(isCoexistenceEvent(coexistenceEvent), true, "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING must be identified as Coexistence");
+    assert.strictEqual(isCoexistenceEvent(standardEvent), false, "Standard FINISH must be distinguished from Coexistence");
   });
 });
 

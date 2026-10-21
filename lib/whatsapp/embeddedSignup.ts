@@ -352,13 +352,14 @@ export async function launchWhatsAppBusinessOnboarding(): Promise<LaunchEmbedded
       );
 
       // Handle coexistence completion, standard finish, cancel, and error
-      if (
-        eventType === "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING" ||
-        eventType === "FINISH"
-      ) {
+      if (eventType === "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING") {
         finishEventReceived = true;
         capturedSessionData = fullPayload || null;
-        console.log(`[Embedded Signup:Client] Session completed (Event: ${eventType}, Version: ${eventVersion || "N/A"}, hasWabaId: ${Boolean(wabaId)})`);
+        console.log(`[Embedded Signup:Client] Coexistence Onboarding COMPLETED successfully! (Event: ${eventType}, Version: ${eventVersion || "N/A"}, hasWabaId: ${Boolean(wabaId)})`);
+      } else if (eventType === "FINISH") {
+        finishEventReceived = true;
+        capturedSessionData = fullPayload || null;
+        console.warn(`[Embedded Signup:Client] Standard Cloud API onboarding event (FINISH) was received instead of Coexistence (FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING). (Version: ${eventVersion || "N/A"}, hasWabaId: ${Boolean(wabaId)})`);
       } else if (eventType === "CANCEL") {
         cancelEventReceived = true;
         console.log(`[Embedded Signup:Client] Session cancelled by user (Step: ${currentStep || "UNKNOWN"}, Version: ${eventVersion || "N/A"})`);
@@ -379,7 +380,7 @@ export async function launchWhatsAppBusinessOnboarding(): Promise<LaunchEmbedded
 
     try {
       console.log(
-        `[Embedded Signup:Client] Invoking FB.login popup (config_id=${META_COEXISTENCE_CONFIG_ID}, featureType=whatsapp_business_app_onboarding, sessionInfoVersion=3)`
+        `[Embedded Signup:Client] Invoking FB.login popup (config_id=${META_COEXISTENCE_CONFIG_ID}, featureType=whatsapp_business_app_onboarding, sessionInfoVersion=3, coex=true)`
       );
 
       // Must pass a standard synchronous function to fb.login:
@@ -492,8 +493,10 @@ export async function launchWhatsAppBusinessOnboarding(): Promise<LaunchEmbedded
           response_type: "code",
           override_default_response_type: true,
           extras: {
+            setup: {},
             featureType: "whatsapp_business_app_onboarding",
             sessionInfoVersion: "3",
+            coex: true,
           },
         }
       );
