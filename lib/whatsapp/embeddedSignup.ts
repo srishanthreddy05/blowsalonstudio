@@ -122,6 +122,129 @@ export function loadFacebookSdk(): Promise<void> {
   return sdkPromise;
 }
 
+export function isAllowedMetaOrigin(origin: string): boolean {
+  if (!origin || typeof origin !== "string") return false;
+  try {
+    const url = new URL(origin);
+    const host = url.hostname.toLowerCase();
+    return (
+      host === "facebook.com" ||
+      host.endsWith(".facebook.com") ||
+      host === "fb.com" ||
+      host.endsWith(".fb.com")
+    );
+  } catch {
+    const clean = origin.toLowerCase().replace(/^https?:\/\//, "").replace(/:\d+.*$/, "");
+    return (
+      clean === "facebook.com" ||
+      clean.endsWith(".facebook.com") ||
+      clean === "fb.com" ||
+      clean.endsWith(".fb.com")
+    );
+  }
+}
+
+export interface ParsedMetaMessageEvent {
+  eventType?: string;
+  wabaId?: string;
+  phoneNumberId?: string;
+  currentStep?: string;
+  fullPayload?: EmbeddedSignupSessionData;
+}
+
+export function parseMetaMessageEvent(origin: string, rawDataInput: unknown): ParsedMetaMessageEvent | null {
+  if (!isAllowedMetaOrigin(origin)) {
+    return null;
+  }
+
+  try {
+    let rawData = rawDataInput;
+    if (typeof rawData === "string") {
+      try {
+        rawData = JSON.parse(rawData);
+      } catch {
+        return null;
+      }
+    }
+    if (!rawData || typeof rawData !== "object") return null;
+
+    const dataObj = rawData as Record<string, unknown>;
+    if (dataObj.type !== "WA_EMBEDDED_SIGNUP") {
+      return null;
+    }
+
+    const eventType = typeof dataObj.event === "string" ? dataObj.event : undefined;
+
+    let nestedData: Record<string, unknown> = {};
+    if (typeof dataObj.data === "string") {
+      try {
+        nestedData = JSON.parse(dataObj.data);
+      } catch {
+        nestedData = {};
+      }
+    } else if (dataObj.data && typeof dataObj.data === "object") {
+      nestedData = dataObj.data as Record<string, unknown>;
+    }
+
+    const rawWaba =
+      nestedData.waba_id ||
+      nestedData.wabaId ||
+      dataObj.waba_id ||
+      dataObj.wabaId;
+
+    const rawPhone =
+      nestedData.phone_number_id ||
+      nestedData.phoneNumberId ||
+      dataObj.phone_number_id ||
+      dataObj.phoneNumberId;
+
+    const rawStep =
+      nestedData.current_step ||
+      nestedData.currentStep ||
+      dataObj.current_step ||
+      dataObj.currentStep;
+
+    const wabaId =
+      typeof rawWaba === "string" && rawWaba.trim()
+        ? rawWaba.trim()
+        : typeof rawWaba === "number"
+        ? String(rawWaba)
+        : undefined;
+
+    const phoneNumberId =
+      typeof rawPhone === "string" && rawPhone.trim()
+        ? rawPhone.trim()
+        : typeof rawPhone === "number"
+        ? String(rawPhone)
+        : undefined;
+
+    const currentStep =
+      typeof rawStep === "string" && rawStep.trim()
+        ? rawStep.trim()
+        : undefined;
+
+    const fullPayload: EmbeddedSignupSessionData = {
+      ...nestedData,
+      ...dataObj,
+      waba_id: wabaId,
+      phone_number_id: phoneNumberId,
+      current_step: currentStep,
+      event: eventType,
+    };
+
+    return {
+      eventType,
+      wabaId,
+      phoneNumberId,
+      currentStep,
+      fullPayload,
+    };
+  } catch {
+    return null;
+  }
+}
+
+
 /**
  * Launches Meta Facebook Login for Business with Embedded Signup
  * configured specifically for WhatsApp Business App Coexistence.
@@ -174,32 +297,22 @@ export async function launchWhatsAppBusinessOnboarding(): Promise<LaunchEmbedded
 
     // Listen to session postMessages from Meta popup
     const messageListener = (event: MessageEvent) => {
-      // Validate origin from facebook.com
-      if (!event.origin || (!event.origin.endsWith("facebook.com") && !event.origin.endsWith("fb.com"))) {
-        return;
-      }
+      const parsed = parseMetaMessageEvent(event.origin, event.data);
+      if (!parsed) return;
 
-      try {
-        const rawData = typeof event.data === "string" ? JSON.parse(event.data) : event.data;
-        if (!rawData || typeof rawData !== "object") return;
+      const { eventType, fullPayload } = parsed;
 
-        // Meta WhatsApp Embedded Signup sends messages with type === 'WA_EMBEDDED_SIGNUP'
-        if (rawData.type === "WA_EMBEDDED_SIGNUP") {
-          const eventType = rawData.event;
-          const payloadData = (rawData.data || {}) as EmbeddedSignupSessionData;
-
-          // Safe structured logging (NEVER logs secrets/tokens)
-          if (eventType === "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING" || eventType === "FINISH") {
-            console.log("[Embedded Signup] Embedded Signup completed (Event: " + eventType + ")");
-            capturedSessionData = payloadData;
-          } else if (eventType === "CANCEL") {
-            console.log("[Embedded Signup] Embedded Signup session was cancelled by user.");
-          } else if (eventType === "ERROR") {
-            console.warn("[Embedded Signup] Embedded Signup returned error state.");
-          }
-        }
-      } catch {
-        // Ignore unparseable non-JSON messages from other extensions or window communications
+      // Handle coexistence completion, standard finish, cancel, and error
+      if (
+        eventType === "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING" ||
+        eventType === "FINISH"
+      ) {
+        console.log("[Embedded Signup] Embedded Signup completed (Event: " + eventType + ")");
+        capturedSessionData = fullPayload || null;
+      } else if (eventType === "CANCEL") {
+        console.log("[Embedded Signup] Embedded Signup session was cancelled by user.");
+      } else if (eventType === "ERROR") {
+        console.warn("[Embedded Signup] Embedded Signup returned error state.");
       }
     };
 
@@ -214,10 +327,9 @@ export async function launchWhatsAppBusinessOnboarding(): Promise<LaunchEmbedded
 
     try {
       fb.login(
-        (response) => {
-          cleanup();
-
+        async (response) => {
           if (!response || response.status === "unknown" || !response.authResponse) {
+            cleanup();
             console.log("[Embedded Signup] Facebook login cancelled or window closed.");
             return resolve({
               success: false,
@@ -227,10 +339,18 @@ export async function launchWhatsAppBusinessOnboarding(): Promise<LaunchEmbedded
           }
 
           const authCode = response.authResponse.code;
+
+          // If session event has not been processed yet, give a brief 600ms grace period
+          // for the postMessage event loop before removing listener and resolving
+          if (!capturedSessionData?.waba_id) {
+            await new Promise((r) => setTimeout(r, 600));
+          }
+
+          cleanup();
+
           const wabaId = capturedSessionData?.waba_id;
           const phoneNumberId = capturedSessionData?.phone_number_id;
 
-          // Safe structured notification without printing credentials
           console.log("[Embedded Signup] Authorization response received successfully.");
 
           return resolve({
@@ -249,6 +369,7 @@ export async function launchWhatsAppBusinessOnboarding(): Promise<LaunchEmbedded
             setup: {},
             featureType: "whatsapp_business_app_onboarding",
             sessionInfoVersion: "3",
+            version: "v4",
           },
         }
       );

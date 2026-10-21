@@ -85,6 +85,15 @@ export function WhatsAppSettingsView({
         return;
       }
 
+      if (!result.code && !result.wabaId) {
+        const incompleteErr =
+          "Meta onboarding was incomplete. Required WhatsApp Business account details were not received. Please retry.";
+        setErrorMessage(incompleteErr);
+        toast.error(incompleteErr);
+        setCoexistenceConnecting(false);
+        return;
+      }
+
       // 2. Submit onboarding authorization to dedicated backend endpoint
       toast.loading("Completing WhatsApp Business App connection...", { id: "coex-onboard" });
 
