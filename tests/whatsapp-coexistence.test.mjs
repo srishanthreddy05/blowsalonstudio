@@ -377,6 +377,27 @@ test("WhatsApp Coexistence Test Suite", async (t) => {
 
     assert.doesNotThrow(() => validateMetaCallback(fixedSyncCallback));
   });
+
+  // Test Case 13 (Launch Configuration): Validate official Meta Embedded Signup v4 coexistence options
+  await t.test("Case 13: Official Meta Embedded Signup v4 coexistence options must not contain undocumented properties", () => {
+    const launchOptions = {
+      config_id: "1744937289890566",
+      response_type: "code",
+      override_default_response_type: true,
+      extras: {
+        setup: {},
+        featureType: "whatsapp_business_app_onboarding",
+        sessionInfoVersion: "3",
+      },
+    };
+
+    assert.strictEqual(launchOptions.config_id, "1744937289890566");
+    assert.strictEqual(launchOptions.response_type, "code");
+    assert.strictEqual(launchOptions.override_default_response_type, true);
+    assert.strictEqual(launchOptions.extras.featureType, "whatsapp_business_app_onboarding");
+    assert.strictEqual(launchOptions.extras.sessionInfoVersion, "3");
+    assert.strictEqual("version" in launchOptions.extras, false, "Undocumented version property must not be present in extras");
+  });
 });
 
 

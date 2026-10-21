@@ -396,7 +396,6 @@ export async function launchWhatsAppBusinessOnboarding(): Promise<LaunchEmbedded
             setup: {},
             featureType: "whatsapp_business_app_onboarding",
             sessionInfoVersion: "3",
-            version: "v4",
           },
         }
       );
