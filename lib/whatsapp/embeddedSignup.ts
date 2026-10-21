@@ -40,6 +40,7 @@ declare global {
     FB?: {
       init: (params: {
         appId: string;
+        cookie?: boolean;
         autoLogAppEvents?: boolean;
         xfbml?: boolean;
         version: string;
@@ -87,11 +88,12 @@ export function loadFacebookSdk(): Promise<void> {
       try {
         window.FB?.init({
           appId: META_APP_ID,
+          cookie: true,
           autoLogAppEvents: true,
           xfbml: false,
           version: "v21.0",
         });
-        console.log("[Meta SDK] Facebook JavaScript SDK initialized successfully.");
+        console.log(`[Meta SDK] Facebook JavaScript SDK initialized successfully (App ID: ${META_APP_ID}, Version: v21.0).`);
         resolve();
       } catch (err) {
         console.error("[Meta SDK] FB.init error:", err instanceof Error ? err.message : err);
@@ -102,6 +104,21 @@ export function loadFacebookSdk(): Promise<void> {
     // Check if the script tag already exists in the document
     const existingScript = document.getElementById("facebook-jssdk");
     if (existingScript) {
+      if (window.FB) {
+        try {
+          window.FB.init({
+            appId: META_APP_ID,
+            cookie: true,
+            autoLogAppEvents: true,
+            xfbml: false,
+            version: "v21.0",
+          });
+          resolve();
+        } catch (e) {
+          console.warn("[Meta SDK] FB re-init notice:", e);
+          resolve();
+        }
+      }
       return;
     }
 
@@ -289,18 +306,29 @@ export async function launchWhatsAppBusinessOnboarding(): Promise<LaunchEmbedded
     };
   }
 
-  console.log("[Embedded Signup] Embedded Signup started");
+  console.log(
+    `[Embedded Signup] Embedded Signup starting (App ID: ${META_APP_ID}, Config ID: ${META_COEXISTENCE_CONFIG_ID})`
+  );
 
   return new Promise<LaunchEmbeddedSignupResult>((resolve) => {
     let capturedSessionData: EmbeddedSignupSessionData | null = null;
+    let finishEventReceived = false;
+    let cancelEventReceived = false;
+    let errorEventReceived = false;
+    let lastStepReceived: string | undefined = undefined;
     let isFinished = false;
 
     // Listen to session postMessages from Meta popup
     const messageListener = (event: MessageEvent) => {
+      if (!isAllowedMetaOrigin(event.origin)) {
+        return;
+      }
+
       const parsed = parseMetaMessageEvent(event.origin, event.data);
       if (!parsed) return;
 
       const { eventType, wabaId, phoneNumberId, currentStep, fullPayload } = parsed;
+      lastStepReceived = currentStep;
 
       // Safe structured diagnostic log (NEVER logs tokens, secrets, or PII)
       console.log(
@@ -314,11 +342,14 @@ export async function launchWhatsAppBusinessOnboarding(): Promise<LaunchEmbedded
         eventType === "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING" ||
         eventType === "FINISH"
       ) {
-        console.log(`[Embedded Signup:Client] Session completed (Event: ${eventType}, hasWabaId: ${Boolean(wabaId)})`);
+        finishEventReceived = true;
         capturedSessionData = fullPayload || null;
+        console.log(`[Embedded Signup:Client] Session completed (Event: ${eventType}, hasWabaId: ${Boolean(wabaId)})`);
       } else if (eventType === "CANCEL") {
+        cancelEventReceived = true;
         console.log(`[Embedded Signup:Client] Session cancelled by user (Step: ${currentStep || "UNKNOWN"})`);
       } else if (eventType === "ERROR") {
+        errorEventReceived = true;
         console.warn("[Embedded Signup:Client] Session returned error state.");
       }
     };
@@ -333,12 +364,30 @@ export async function launchWhatsAppBusinessOnboarding(): Promise<LaunchEmbedded
     };
 
     try {
+      console.log(
+        `[Embedded Signup:Client] Invoking FB.login popup (config_id=${META_COEXISTENCE_CONFIG_ID}, featureType=whatsapp_business_app_onboarding, sessionInfoVersion=3)`
+      );
+
       // Must pass a standard synchronous function to fb.login:
       // Meta Facebook JS SDK strictly validates callback type (Object.prototype.toString)
       // and throws "Expression is of type asyncfunction, not function" if passed an AsyncFunction.
       fb.login(
         (response) => {
           const handleLoginResponse = async () => {
+            console.log(
+              `[Embedded Signup:Client] FB.login callback invoked: status=${response?.status || "UNKNOWN"}, hasAuthResponse=${Boolean(
+                response?.authResponse
+              )}, hasError=${Boolean(response?.error)}`
+            );
+
+            if (response?.error) {
+              const errDetail =
+                typeof response.error === "object" && response.error !== null
+                  ? (response.error as { message?: string }).message || "Meta login error"
+                  : String(response.error);
+              console.error("[Embedded Signup:Client] FB.login error details:", errDetail);
+            }
+
             if (!response || response.status === "unknown" || !response.authResponse) {
               cleanup();
               console.log("[Embedded Signup:Client] Facebook login cancelled or window closed.");
@@ -353,7 +402,7 @@ export async function launchWhatsAppBusinessOnboarding(): Promise<LaunchEmbedded
 
             // If session event has not been processed yet, give a brief 600ms grace period
             // for the postMessage event loop before removing listener and resolving
-            if (!capturedSessionData?.waba_id) {
+            if (!capturedSessionData?.waba_id && !finishEventReceived) {
               console.log("[Embedded Signup:Client] Waiting brief grace window for postMessage event...");
               await new Promise((r) => setTimeout(r, 600));
             }
@@ -366,8 +415,38 @@ export async function launchWhatsAppBusinessOnboarding(): Promise<LaunchEmbedded
             console.log(
               `[Embedded Signup:Client] Authorization response processed: hasAuthCode=${Boolean(
                 authCode
-              )}, hasWabaId=${Boolean(wabaId)}, hasPhoneNumberId=${Boolean(phoneNumberId)}`
+              )}, finishEventReceived=${finishEventReceived}, cancelEventReceived=${cancelEventReceived}, hasWabaId=${Boolean(
+                wabaId
+              )}, hasPhoneNumberId=${Boolean(phoneNumberId)}`
             );
+
+            // CRITICAL: If user cancelled or popup closed early, do not claim success or send to backend
+            if (cancelEventReceived) {
+              return resolve({
+                success: false,
+                cancelled: true,
+                error: `WhatsApp connection was cancelled by the user${lastStepReceived ? ` at step: ${lastStepReceived}` : ""}.`,
+              });
+            }
+
+            if (errorEventReceived) {
+              return resolve({
+                success: false,
+                error: "Meta Embedded Signup returned an error state during onboarding.",
+              });
+            }
+
+            // CRITICAL: Do NOT claim success if onboarding did not complete or WABA ID was never received
+            if (!wabaId && !finishEventReceived) {
+              return resolve({
+                success: false,
+                cancelled: false,
+                code: authCode,
+                error:
+                  "Meta Embedded Signup was closed before phone-number and OTP verification were completed. " +
+                  "Please ensure you complete all onboarding screens in the Meta popup.",
+              });
+            }
 
             return resolve({
               success: true,
@@ -393,7 +472,6 @@ export async function launchWhatsAppBusinessOnboarding(): Promise<LaunchEmbedded
           response_type: "code",
           override_default_response_type: true,
           extras: {
-            setup: {},
             featureType: "whatsapp_business_app_onboarding",
             sessionInfoVersion: "3",
           },

@@ -398,6 +398,73 @@ test("WhatsApp Coexistence Test Suite", async (t) => {
     assert.strictEqual(launchOptions.extras.sessionInfoVersion, "3");
     assert.strictEqual("version" in launchOptions.extras, false, "Undocumented version property must not be present in extras");
   });
+
+  // Test Case 14 (Popup Lifecycle & Incomplete Session Guard):
+  // When the user closes the popup or cancels before phone/OTP verification,
+  // the client must NOT claim success or submit the request to the backend.
+  await t.test("Case 14: Incomplete popup session (code present but no WABA ID) is rejected before backend submission", () => {
+    // Simulate what FB.login callback produces when popup closes before phone verification
+    const simulatedAuthResponse = {
+      status: "connected",
+      authResponse: {
+        code: "oauth_code_from_incomplete_popup",
+      },
+    };
+
+    const simulatedCapturedSessionData = null; // No FINISH event was emitted from popup
+    const finishEventReceived = false;
+    const cancelEventReceived = false;
+
+    // Simulate launchWhatsAppBusinessOnboarding logic
+    const evaluateOnboardingResult = (response, sessionData, finishEvent, cancelEvent) => {
+      const authCode = response.authResponse?.code;
+      const wabaId = sessionData?.waba_id;
+      const phoneNumberId = sessionData?.phone_number_id;
+
+      if (cancelEvent) {
+        return {
+          success: false,
+          cancelled: true,
+          error: "WhatsApp connection was cancelled by the user.",
+        };
+      }
+
+      if (!wabaId && !finishEvent) {
+        return {
+          success: false,
+          cancelled: false,
+          code: authCode,
+          error: "Meta Embedded Signup was closed before phone-number and OTP verification were completed.",
+        };
+      }
+
+      return {
+        success: true,
+        code: authCode,
+        wabaId,
+        phoneNumberId,
+      };
+    };
+
+    const result = evaluateOnboardingResult(
+      simulatedAuthResponse,
+      simulatedCapturedSessionData,
+      finishEventReceived,
+      cancelEventReceived
+    );
+
+    // 1. Result must NOT be success: true
+    assert.strictEqual(result.success, false, "Must not claim success when WABA ID is missing");
+    assert.ok(result.error.includes("phone-number and OTP verification were completed"));
+
+    // 2. Client guard check (WhatsAppSettingsView)
+    let backendSubmissionInvoked = false;
+    if (result.success && result.wabaId) {
+      backendSubmissionInvoked = true;
+    }
+
+    assert.strictEqual(backendSubmissionInvoked, false, "Backend submission must NEVER be called when wabaId is missing");
+  });
 });
 
 

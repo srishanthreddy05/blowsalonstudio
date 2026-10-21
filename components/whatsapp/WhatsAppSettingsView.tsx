@@ -85,10 +85,12 @@ export function WhatsAppSettingsView({
         return;
       }
 
-      if (!result.code && !result.wabaId) {
+      // STRICT CHECK: wabaId must be present to submit to backend
+      if (!result.wabaId) {
         const incompleteErr =
-          "Meta onboarding was incomplete. Required WhatsApp Business account details were not received. Please retry.";
-        console.warn("[WhatsAppSettings:Client] Incomplete onboarding: missing code and wabaId");
+          result.error ||
+          "Meta onboarding was incomplete. WhatsApp Business Account details were not received. Please complete all popup steps and retry.";
+        console.warn("[WhatsAppSettings:Client] Incomplete onboarding: missing wabaId, aborting backend submission");
         setErrorMessage(incompleteErr);
         toast.error(incompleteErr);
         setCoexistenceConnecting(false);
