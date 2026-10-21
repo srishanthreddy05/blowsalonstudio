@@ -163,6 +163,7 @@ export function isAllowedMetaOrigin(origin: string): boolean {
 
 export interface ParsedMetaMessageEvent {
   eventType?: string;
+  eventVersion?: number | string;
   wabaId?: string;
   phoneNumberId?: string;
   currentStep?: string;
@@ -202,6 +203,17 @@ export function parseMetaMessageEvent(origin: string, rawDataInput: unknown): Pa
     } else if (dataObj.data && typeof dataObj.data === "object") {
       nestedData = dataObj.data as Record<string, unknown>;
     }
+
+    const rawVersion =
+      dataObj.version ||
+      nestedData.version ||
+      dataObj.sessionInfoVersion ||
+      nestedData.sessionInfoVersion;
+
+    const eventVersion =
+      typeof rawVersion === "number" || typeof rawVersion === "string"
+        ? rawVersion
+        : undefined;
 
     const rawWaba =
       nestedData.waba_id ||
@@ -247,10 +259,12 @@ export function parseMetaMessageEvent(origin: string, rawDataInput: unknown): Pa
       phone_number_id: phoneNumberId,
       current_step: currentStep,
       event: eventType,
+      version: eventVersion,
     };
 
     return {
       eventType,
+      eventVersion,
       wabaId,
       phoneNumberId,
       currentStep,
@@ -327,12 +341,12 @@ export async function launchWhatsAppBusinessOnboarding(): Promise<LaunchEmbedded
       const parsed = parseMetaMessageEvent(event.origin, event.data);
       if (!parsed) return;
 
-      const { eventType, wabaId, phoneNumberId, currentStep, fullPayload } = parsed;
+      const { eventType, eventVersion, wabaId, phoneNumberId, currentStep, fullPayload } = parsed;
       lastStepReceived = currentStep;
 
       // Safe structured diagnostic log (NEVER logs tokens, secrets, or PII)
       console.log(
-        `[Embedded Signup:Client] Meta postMessage received: event=${eventType || "UNKNOWN"}, hasWabaId=${Boolean(
+        `[Embedded Signup:Client] Meta postMessage received: event=${eventType || "UNKNOWN"}, version=${eventVersion || "N/A"}, hasWabaId=${Boolean(
           wabaId
         )}, hasPhoneNumberId=${Boolean(phoneNumberId)}${currentStep ? `, step=${currentStep}` : ""}`
       );
@@ -344,10 +358,10 @@ export async function launchWhatsAppBusinessOnboarding(): Promise<LaunchEmbedded
       ) {
         finishEventReceived = true;
         capturedSessionData = fullPayload || null;
-        console.log(`[Embedded Signup:Client] Session completed (Event: ${eventType}, hasWabaId: ${Boolean(wabaId)})`);
+        console.log(`[Embedded Signup:Client] Session completed (Event: ${eventType}, Version: ${eventVersion || "N/A"}, hasWabaId: ${Boolean(wabaId)})`);
       } else if (eventType === "CANCEL") {
         cancelEventReceived = true;
-        console.log(`[Embedded Signup:Client] Session cancelled by user (Step: ${currentStep || "UNKNOWN"})`);
+        console.log(`[Embedded Signup:Client] Session cancelled by user (Step: ${currentStep || "UNKNOWN"}, Version: ${eventVersion || "N/A"})`);
       } else if (eventType === "ERROR") {
         errorEventReceived = true;
         console.warn("[Embedded Signup:Client] Session returned error state.");
@@ -438,13 +452,19 @@ export async function launchWhatsAppBusinessOnboarding(): Promise<LaunchEmbedded
 
             // CRITICAL: Do NOT claim success if onboarding did not complete or WABA ID was never received
             if (!wabaId && !finishEventReceived) {
+              const errorReason = lastStepReceived
+                ? `Meta onboarding was closed at step '${lastStepReceived}' before phone-number and OTP verification were completed.`
+                : "Meta Facebook Login authorized, but the WhatsApp Business onboarding flow did not open. Please ensure in Meta App Dashboard (App ID: " +
+                  META_APP_ID +
+                  ") that Configuration " +
+                  META_COEXISTENCE_CONFIG_ID +
+                  " has the 'WhatsApp Embedded Signup' variation selected with WhatsApp Accounts and https://blowsalonstudio.vercel.app in Allowed Domains for JavaScript SDK.";
+
               return resolve({
                 success: false,
                 cancelled: false,
                 code: authCode,
-                error:
-                  "Meta Embedded Signup was closed before phone-number and OTP verification were completed. " +
-                  "Please ensure you complete all onboarding screens in the Meta popup.",
+                error: errorReason,
               });
             }
 
