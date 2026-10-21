@@ -30,6 +30,7 @@ export interface LaunchEmbeddedSignupResult {
   phoneNumberId?: string;
   sessionData?: EmbeddedSignupSessionData;
   error?: string;
+  stage?: string;
   cancelled?: boolean;
   httpsRequired?: boolean;
 }
@@ -148,7 +149,11 @@ export function isAllowedMetaOrigin(origin: string): boolean {
       host === "facebook.com" ||
       host.endsWith(".facebook.com") ||
       host === "fb.com" ||
-      host.endsWith(".fb.com")
+      host.endsWith(".fb.com") ||
+      host === "facebook.net" ||
+      host.endsWith(".facebook.net") ||
+      host === "meta.com" ||
+      host.endsWith(".meta.com")
     );
   } catch {
     const clean = origin.toLowerCase().replace(/^https?:\/\//, "").replace(/:\d+.*$/, "");
@@ -156,7 +161,11 @@ export function isAllowedMetaOrigin(origin: string): boolean {
       clean === "facebook.com" ||
       clean.endsWith(".facebook.com") ||
       clean === "fb.com" ||
-      clean.endsWith(".fb.com")
+      clean.endsWith(".fb.com") ||
+      clean === "facebook.net" ||
+      clean.endsWith(".facebook.net") ||
+      clean === "meta.com" ||
+      clean.endsWith(".meta.com")
     );
   }
 }
@@ -280,48 +289,49 @@ export function parseMetaMessageEvent(origin: string, rawDataInput: unknown): Pa
  * Launches Meta Facebook Login for Business with Embedded Signup
  * configured specifically for WhatsApp Business App Coexistence.
  *
+ * CRITICAL:
+ * Must be called synchronously from the user's click handler without awaiting
+ * asynchronous operations first, ensuring modern browsers maintain transient
+ * user activation and do not block the popup or sever window.opener cross-origin messaging.
+ *
  * IMPORTANT: Meta enforces HTTPS for FB.login() as of June 2018.
  * This will NOT work on plain http://localhost. You must use HTTPS:
  *   - Production: works automatically (HTTPS)
  *   - Local dev: use `ngrok http 3000` and open the ngrok HTTPS URL
  * Reference: https://developers.facebook.com/blog/post/2018/06/08/enforce-https-facebook-login/
  */
-export async function launchWhatsAppBusinessOnboarding(): Promise<LaunchEmbeddedSignupResult> {
+export function launchWhatsAppBusinessOnboarding(): Promise<LaunchEmbeddedSignupResult> {
   if (typeof window === "undefined") {
-    return { success: false, error: "Window is not available." };
+    return Promise.resolve({ success: false, error: "Window is not available." });
   }
 
-  // Meta enforces HTTPS for FB.login(). Detect HTTP early and return a clear error.
+  // Meta enforces HTTPS for FB.login(). Detect HTTP early and return a clear diagnostic.
   if (window.location.protocol === "http:") {
-    return {
+    return Promise.resolve({
       success: false,
       httpsRequired: true,
+      stage: "HTTPS_REQUIRED",
       error:
         "Meta Embedded Signup requires HTTPS. " +
         "For local testing, use ngrok: run `ngrok http 3000` and open the https:// URL it provides. " +
         "In production this works automatically.",
-    };
-  }
-
-  try {
-    await loadFacebookSdk();
-  } catch (err: unknown) {
-    return {
-      success: false,
-      error: err instanceof Error ? err.message : "Could not load Facebook SDK.",
-    };
+    });
   }
 
   const fb = window.FB;
   if (!fb) {
-    return {
+    // Trigger background load if SDK is missing, and instruct user to click again
+    loadFacebookSdk().catch(() => {});
+    return Promise.resolve({
       success: false,
-      error: "Meta SDK is not initialized. Please refresh and try again.",
-    };
+      stage: "SDK_INITIALIZING",
+      error:
+        "[Stage: SDK Initializing] Meta Facebook SDK was not ready. It has now been initiated. Please click 'Connect WhatsApp Business App' again to launch the popup directly.",
+    });
   }
 
   console.log(
-    `[Embedded Signup] Embedded Signup starting (App ID: ${META_APP_ID}, Config ID: ${META_COEXISTENCE_CONFIG_ID})`
+    `[Embedded Signup] Launching Embedded Signup (App ID: ${META_APP_ID}, Config ID: ${META_COEXISTENCE_CONFIG_ID}, Version: v4)`
   );
 
   return new Promise<LaunchEmbeddedSignupResult>((resolve) => {
@@ -380,7 +390,7 @@ export async function launchWhatsAppBusinessOnboarding(): Promise<LaunchEmbedded
 
     try {
       console.log(
-        `[Embedded Signup:Client] Invoking FB.login popup (config_id=${META_COEXISTENCE_CONFIG_ID}, featureType=whatsapp_business_app_onboarding, sessionInfoVersion=3, coex=true)`
+        `[Embedded Signup:Client] Invoking FB.login popup directly from click (config_id=${META_COEXISTENCE_CONFIG_ID}, featureType=whatsapp_business_app_onboarding, version=v4, sessionInfoVersion=3, coex=true)`
       );
 
       // Must pass a standard synchronous function to fb.login:
@@ -401,6 +411,12 @@ export async function launchWhatsAppBusinessOnboarding(): Promise<LaunchEmbedded
                   ? (response.error as { message?: string }).message || "Meta login error"
                   : String(response.error);
               console.error("[Embedded Signup:Client] FB.login error details:", errDetail);
+              cleanup();
+              return resolve({
+                success: false,
+                stage: "OAUTH_ERROR",
+                error: `[Stage: OAuth Error] Facebook Login authorization failed: ${errDetail}`,
+              });
             }
 
             if (!response || response.status === "unknown" || !response.authResponse) {
@@ -409,7 +425,8 @@ export async function launchWhatsAppBusinessOnboarding(): Promise<LaunchEmbedded
               return resolve({
                 success: false,
                 cancelled: true,
-                error: "WhatsApp connection was cancelled.",
+                stage: "USER_CANCELLED",
+                error: `[Stage: User Cancelled] WhatsApp connection was cancelled by the user${lastStepReceived ? ` at step: ${lastStepReceived}` : ""}.`,
               });
             }
 
@@ -435,36 +452,36 @@ export async function launchWhatsAppBusinessOnboarding(): Promise<LaunchEmbedded
               )}, hasPhoneNumberId=${Boolean(phoneNumberId)}`
             );
 
-            // CRITICAL: If user cancelled or popup closed early, do not claim success or send to backend
+            // If user explicitly cancelled or popup closed early
             if (cancelEventReceived) {
               return resolve({
                 success: false,
                 cancelled: true,
-                error: `WhatsApp connection was cancelled by the user${lastStepReceived ? ` at step: ${lastStepReceived}` : ""}.`,
+                stage: "USER_CANCELLED",
+                error: `[Stage: User Cancelled] WhatsApp connection was cancelled by the user${lastStepReceived ? ` at step: ${lastStepReceived}` : ""}.`,
               });
             }
 
             if (errorEventReceived) {
               return resolve({
                 success: false,
-                error: "Meta Embedded Signup returned an error state during onboarding.",
+                stage: "POPUP_ERROR",
+                error: "[Stage: Popup Error] Meta Embedded Signup returned an error state during onboarding.",
               });
             }
 
-            // CRITICAL: Do NOT claim success if onboarding did not complete or WABA ID was never received
+            // Distinguish Facebook OAuth authorization from WhatsApp Coexistence onboarding:
+            // If Facebook OAuth succeeded (code received) but no Coexistence finish event or WABA ID was received:
             if (!wabaId && !finishEventReceived) {
               const errorReason = lastStepReceived
-                ? `Meta onboarding was closed at step '${lastStepReceived}' before phone-number and OTP verification were completed.`
-                : "Meta Facebook Login authorized, but the WhatsApp Business onboarding flow did not open. Please ensure in Meta App Dashboard (App ID: " +
-                  META_APP_ID +
-                  ") that Configuration " +
-                  META_COEXISTENCE_CONFIG_ID +
-                  " has the 'WhatsApp Embedded Signup' variation selected with WhatsApp Accounts and https://blowsalonstudio.vercel.app in Allowed Domains for JavaScript SDK.";
+                ? `[Stage: Popup Incomplete] Meta onboarding was closed at step '${lastStepReceived}' before phone-number and OTP verification were completed.`
+                : `[Stage: Flow Incomplete] Facebook OAuth authorization succeeded (auth code received), but the WhatsApp Business Onboarding wizard did not return a completion event (WA_EMBEDDED_SIGNUP / FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING). Configuration: ${META_COEXISTENCE_CONFIG_ID}.`;
 
               return resolve({
                 success: false,
                 cancelled: false,
                 code: authCode,
+                stage: "FLOW_INCOMPLETE",
                 error: errorReason,
               });
             }
@@ -475,6 +492,7 @@ export async function launchWhatsAppBusinessOnboarding(): Promise<LaunchEmbedded
               wabaId: typeof wabaId === "string" ? wabaId : undefined,
               phoneNumberId: typeof phoneNumberId === "string" ? phoneNumberId : undefined,
               sessionData: capturedSessionData || undefined,
+              stage: "ONBOARDING_COMPLETED",
             });
           };
 
@@ -484,7 +502,8 @@ export async function launchWhatsAppBusinessOnboarding(): Promise<LaunchEmbedded
             console.error("[Embedded Signup:Client] Handler error:", msg);
             resolve({
               success: false,
-              error: "WhatsApp connection could not be completed: " + msg,
+              stage: "HANDLER_ERROR",
+              error: "[Stage: Handler Error] WhatsApp connection could not be completed: " + msg,
             });
           });
         },
@@ -496,6 +515,7 @@ export async function launchWhatsAppBusinessOnboarding(): Promise<LaunchEmbedded
             setup: {},
             featureType: "whatsapp_business_app_onboarding",
             sessionInfoVersion: "3",
+            version: "v4",
             coex: true,
           },
         }
@@ -506,7 +526,8 @@ export async function launchWhatsAppBusinessOnboarding(): Promise<LaunchEmbedded
       console.error("[Embedded Signup] Launch error:", msg);
       return resolve({
         success: false,
-        error: "WhatsApp connection could not be completed: " + msg,
+        stage: "LAUNCH_ERROR",
+        error: "[Stage: Launch Error] WhatsApp connection could not be completed: " + msg,
       });
     }
   });

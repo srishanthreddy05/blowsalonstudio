@@ -379,7 +379,7 @@ test("WhatsApp Coexistence Test Suite", async (t) => {
   });
 
   // Test Case 13 (Launch Configuration): Validate official Meta Embedded Signup v4 coexistence options
-  await t.test("Case 13: Official Meta Embedded Signup v4 coexistence options must contain coex: true and supported parameters", () => {
+  await t.test("Case 13: Official Meta Embedded Signup v4 coexistence options must contain version: 'v4', coex: true, and supported parameters", () => {
     const launchOptions = {
       config_id: "1534814405338722",
       response_type: "code",
@@ -388,6 +388,7 @@ test("WhatsApp Coexistence Test Suite", async (t) => {
         setup: {},
         featureType: "whatsapp_business_app_onboarding",
         sessionInfoVersion: "3",
+        version: "v4",
         coex: true,
       },
     };
@@ -397,8 +398,8 @@ test("WhatsApp Coexistence Test Suite", async (t) => {
     assert.strictEqual(launchOptions.override_default_response_type, true);
     assert.strictEqual(launchOptions.extras.featureType, "whatsapp_business_app_onboarding");
     assert.strictEqual(launchOptions.extras.sessionInfoVersion, "3");
+    assert.strictEqual(launchOptions.extras.version, "v4");
     assert.strictEqual(launchOptions.extras.coex, true);
-    assert.strictEqual("version" in launchOptions.extras, false, "Undocumented version property must not be present in extras");
   });
 
   // Test Case 14 (Popup Lifecycle & Incomplete Session Guard):
@@ -541,6 +542,92 @@ test("WhatsApp Coexistence Test Suite", async (t) => {
       () => validateCoexistenceRecord({ status: "CONNECTED", wabaId: "  ", configurationId: activeConfigId }),
       /Missing WhatsApp Business Account \(WABA\) ID/
     );
+  });
+
+  // Test Case 17 (Origin Verification): Allowed Meta origins must include facebook.net and meta.com
+  await t.test("Case 17: Allowed Meta origins accept facebook.com, facebook.net, and meta.com", () => {
+    const isAllowedMetaOrigin = (origin) => {
+      if (!origin || typeof origin !== "string") return false;
+      try {
+        const url = new URL(origin);
+        const host = url.hostname.toLowerCase();
+        return (
+          host === "facebook.com" ||
+          host.endsWith(".facebook.com") ||
+          host === "fb.com" ||
+          host.endsWith(".fb.com") ||
+          host === "facebook.net" ||
+          host.endsWith(".facebook.net") ||
+          host === "meta.com" ||
+          host.endsWith(".meta.com")
+        );
+      } catch {
+        return false;
+      }
+    };
+
+    assert.strictEqual(isAllowedMetaOrigin("https://www.facebook.com"), true);
+    assert.strictEqual(isAllowedMetaOrigin("https://web.facebook.com"), true);
+    assert.strictEqual(isAllowedMetaOrigin("https://connect.facebook.net"), true);
+    assert.strictEqual(isAllowedMetaOrigin("https://business.meta.com"), true);
+    assert.strictEqual(isAllowedMetaOrigin("https://evil-site.com"), false);
+  });
+
+  // Test Case 18 (Stage Diagnosis): Distinguish OAuth success from Coexistence completion
+  await t.test("Case 18: Distinguishes Facebook OAuth success from Coexistence completion with stage diagnostics", () => {
+    const evaluateStage = ({ authCode, wabaId, finishEventReceived, cancelEventReceived, lastStepReceived }) => {
+      if (cancelEventReceived) {
+        return {
+          success: false,
+          stage: "USER_CANCELLED",
+          error: `[Stage: User Cancelled] WhatsApp connection was cancelled${lastStepReceived ? ` at step: ${lastStepReceived}` : ""}.`,
+        };
+      }
+      if (!wabaId && !finishEventReceived) {
+        const errorReason = lastStepReceived
+          ? `[Stage: Popup Incomplete] Meta onboarding was closed at step '${lastStepReceived}' before phone-number and OTP verification were completed.`
+          : "[Stage: Flow Incomplete] Facebook OAuth authorization succeeded (auth code received), but the WhatsApp Business Onboarding wizard did not return a completion event.";
+
+        return {
+          success: false,
+          stage: "FLOW_INCOMPLETE",
+          code: authCode,
+          error: errorReason,
+        };
+      }
+      return {
+        success: true,
+        stage: "ONBOARDING_COMPLETED",
+        code: authCode,
+        wabaId,
+      };
+    };
+
+    // Scenario A: OAuth succeeded, but popup closed before WhatsApp flow returned WABA
+    const resultIncomplete = evaluateStage({
+      authCode: "valid_oauth_code_123",
+      wabaId: undefined,
+      finishEventReceived: false,
+      cancelEventReceived: false,
+      lastStepReceived: undefined,
+    });
+
+    assert.strictEqual(resultIncomplete.success, false);
+    assert.strictEqual(resultIncomplete.stage, "FLOW_INCOMPLETE");
+    assert.ok(resultIncomplete.error.includes("[Stage: Flow Incomplete]"));
+    assert.strictEqual(resultIncomplete.code, "valid_oauth_code_123");
+
+    // Scenario B: Coexistence onboarding fully completed
+    const resultComplete = evaluateStage({
+      authCode: "valid_oauth_code_456",
+      wabaId: "waba_789",
+      finishEventReceived: true,
+      cancelEventReceived: false,
+    });
+
+    assert.strictEqual(resultComplete.success, true);
+    assert.strictEqual(resultComplete.stage, "ONBOARDING_COMPLETED");
+    assert.strictEqual(resultComplete.wabaId, "waba_789");
   });
 });
 

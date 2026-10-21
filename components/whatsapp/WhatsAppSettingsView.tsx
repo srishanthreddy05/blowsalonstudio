@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   ShieldCheck,
   Receipt,
@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import type { WhatsAppStatusResponse, WhatsAppCoexistenceAccount } from "@/types/whatsapp";
 import * as whatsappService from "@/services/whatsapp";
-import { launchWhatsAppBusinessOnboarding } from "@/lib/whatsapp/embeddedSignup";
+import { launchWhatsAppBusinessOnboarding, loadFacebookSdk } from "@/lib/whatsapp/embeddedSignup";
 import { toast } from "react-hot-toast";
 
 function WhatsAppBrandIcon({ size = 20, className = "" }: { size?: number; className?: string }) {
@@ -53,88 +53,106 @@ export function WhatsAppSettingsView({
   const coexistence: WhatsAppCoexistenceAccount | null = statusData?.coexistence || null;
   const isCoexistenceConnected = coexistence?.status === "CONNECTED";
 
+  // Preload Meta Facebook SDK on mount so FB.login can be called directly without async delays
+  useEffect(() => {
+    loadFacebookSdk().catch((err) => {
+      console.warn("[Meta SDK] Preload warning:", err instanceof Error ? err.message : err);
+    });
+  }, []);
+
   /**
    * Triggers Meta Facebook Login for Business with Embedded Signup
    * Using Configuration ID: 1534814405338722
-   * Feature: whatsapp_business_app_onboarding (Session v3)
-   * REQUIRES HTTPS — use ngrok for local testing.
+   * Feature: whatsapp_business_app_onboarding (Session v3, Version v4)
+   * 
+   * CRITICAL: Called directly from user click handler without awaiting async ops,
+   * preserving transient user activation in modern browsers.
    */
-  const handleConnectCoexistence = async () => {
+  const handleConnectCoexistence = () => {
     setErrorMessage(null);
     setHttpsRequired(false);
     setCoexistenceConnecting(true);
 
-    try {
-      // 1. Launch client-side Meta Embedded Signup popup
-      const result = await launchWhatsAppBusinessOnboarding();
-
-      if (!result.success) {
-        if (result.httpsRequired) {
-          setHttpsRequired(true);
+    // Call launch directly from the click event turn to preserve browser popup user gesture
+    launchWhatsAppBusinessOnboarding()
+      .then(async (result) => {
+        if (!result.success) {
+          if (result.httpsRequired) {
+            setHttpsRequired(true);
+            setCoexistenceConnecting(false);
+            return;
+          }
+          if (result.cancelled) {
+            toast(result.error || "WhatsApp connection was cancelled.", { icon: "ℹ️" });
+          } else {
+            const userErr = result.error || "WhatsApp connection could not be completed.";
+            setErrorMessage(userErr);
+            toast.error(userErr);
+          }
           setCoexistenceConnecting(false);
           return;
         }
-        if (result.cancelled) {
-          toast("WhatsApp connection was cancelled.", { icon: "ℹ️" });
-        } else {
-          const userErr = result.error || "WhatsApp connection could not be completed.";
-          setErrorMessage(userErr);
-          toast.error(userErr);
+
+        // STRICT CHECK: WABA ID or OAuth authorization code must be present to proceed to backend
+        if (!result.wabaId && !result.code) {
+          const incompleteErr =
+            result.error ||
+            "[Stage: Flow Incomplete] Meta onboarding was incomplete. WhatsApp Business Account details were not received. Please complete all popup steps and retry.";
+          console.warn("[WhatsAppSettings:Client] Incomplete onboarding: missing both wabaId and code, aborting backend submission");
+          setErrorMessage(incompleteErr);
+          toast.error(incompleteErr);
+          setCoexistenceConnecting(false);
+          return;
         }
+
+        // 2. Submit onboarding authorization to dedicated backend endpoint
+        console.log(
+          `[WhatsAppSettings:Client] Submitting onboarding to backend: hasAuthCode=${Boolean(
+            result.code
+          )}, hasWabaId=${Boolean(result.wabaId)}, hasPhoneNumberId=${Boolean(result.phoneNumberId)}`
+        );
+        toast.loading("Completing WhatsApp Business App connection...", { id: "coex-onboard" });
+
+        const backendResult = await whatsappService.completeEmbeddedSignup({
+          code: result.code,
+          wabaId: result.wabaId,
+          phoneNumberId: result.phoneNumberId,
+          sessionData: result.sessionData,
+        });
+
+        console.log(
+          `[WhatsAppSettings:Client] Backend response received: success=${Boolean(
+            backendResult.success
+          )}, hasError=${Boolean(backendResult.error)}`
+        );
+
+        if (!backendResult.success) {
+          const errorDetail = backendResult.error || "Meta could not verify the WhatsApp Business account.";
+          setErrorMessage(errorDetail);
+          toast.error(errorDetail, { id: "coex-onboard" });
+          setCoexistenceConnecting(false);
+          return;
+        }
+
+        if (!backendResult.coexistence?.wabaId) {
+          const missingWabaErr = "[Stage: WABA Resolution Failed] Meta onboarding completed, but no valid WhatsApp Business Account ID was returned.";
+          setErrorMessage(missingWabaErr);
+          toast.error(missingWabaErr, { id: "coex-onboard" });
+          setCoexistenceConnecting(false);
+          return;
+        }
+
+        toast.success("WhatsApp Business App connection completed.", { id: "coex-onboard" });
+        onRefresh();
+      })
+      .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : "WhatsApp connection could not be completed.";
+        setErrorMessage(msg);
+        toast.error(msg, { id: "coex-onboard" });
+      })
+      .finally(() => {
         setCoexistenceConnecting(false);
-        return;
-      }
-
-      // STRICT CHECK: WABA ID or OAuth authorization code must be present to proceed to backend
-      if (!result.wabaId && !result.code) {
-        const incompleteErr =
-          result.error ||
-          "Meta onboarding was incomplete. WhatsApp Business Account details were not received. Please complete all popup steps and retry.";
-        console.warn("[WhatsAppSettings:Client] Incomplete onboarding: missing both wabaId and code, aborting backend submission");
-        setErrorMessage(incompleteErr);
-        toast.error(incompleteErr);
-        setCoexistenceConnecting(false);
-        return;
-      }
-
-      // 2. Submit onboarding authorization to dedicated backend endpoint
-      console.log(
-        `[WhatsAppSettings:Client] Submitting onboarding to backend: hasAuthCode=${Boolean(
-          result.code
-        )}, hasWabaId=${Boolean(result.wabaId)}, hasPhoneNumberId=${Boolean(result.phoneNumberId)}`
-      );
-      toast.loading("Completing WhatsApp Business App connection...", { id: "coex-onboard" });
-
-      const backendResult = await whatsappService.completeEmbeddedSignup({
-        code: result.code,
-        wabaId: result.wabaId,
-        phoneNumberId: result.phoneNumberId,
-        sessionData: result.sessionData,
       });
-
-      console.log(
-        `[WhatsAppSettings:Client] Backend response received: success=${Boolean(
-          backendResult.success
-        )}, hasError=${Boolean(backendResult.error)}`
-      );
-
-      if (!backendResult.success) {
-        const errorDetail = backendResult.error || "Meta could not verify the WhatsApp Business account.";
-        setErrorMessage(errorDetail);
-        toast.error(errorDetail, { id: "coex-onboard" });
-        setCoexistenceConnecting(false);
-        return;
-      }
-
-      toast.success("WhatsApp Business App connection completed.", { id: "coex-onboard" });
-      onRefresh();
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "WhatsApp connection could not be completed.";
-      setErrorMessage(msg);
-      toast.error(msg, { id: "coex-onboard" });
-    } finally {
-      setCoexistenceConnecting(false);
-    }
   };
 
   /**
