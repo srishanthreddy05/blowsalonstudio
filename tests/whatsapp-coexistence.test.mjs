@@ -1,6 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isAllowedMetaOrigin, parseMetaMessageEvent } from "../lib/whatsapp/embeddedSignup.ts";
+import {
+  isAllowedMetaOrigin,
+  parseMetaMessageEvent,
+  createSignupDiagnostics,
+  recordMetaMessage,
+  classifyOnboardingOutcome,
+  hasTerminalEvent,
+  summarizeDiagnostics,
+} from "../lib/whatsapp/embeddedSignup.ts";
 import { sanitizeFirestoreDoc } from "../lib/utils/firestore.ts";
 
 test("WhatsApp Coexistence Test Suite", async (t) => {
@@ -628,6 +636,102 @@ test("WhatsApp Coexistence Test Suite", async (t) => {
     assert.strictEqual(resultComplete.success, true);
     assert.strictEqual(resultComplete.stage, "ONBOARDING_COMPLETED");
     assert.strictEqual(resultComplete.wabaId, "waba_789");
+  });
+
+  const FB = "https://www.facebook.com";
+
+  // Case 19: Real Coexistence completion (string-encoded, as Meta sends it) succeeds
+  await t.test("Case 19: FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING (JSON string) yields success with WABA ID", () => {
+    const diag = createSignupDiagnostics();
+    recordMetaMessage(diag, FB, JSON.stringify({
+      type: "WA_EMBEDDED_SIGNUP",
+      event: "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING",
+      version: 3,
+      data: { waba_id: "111222333" },
+    }));
+    assert.strictEqual(hasTerminalEvent(diag), true);
+    const out = classifyOnboardingOutcome("code_x", diag);
+    assert.strictEqual(out.success, true);
+    assert.strictEqual(out.stage, "ONBOARDING_COMPLETED");
+    assert.strictEqual(out.wabaId, "111222333");
+  });
+
+  // Case 20 (Regression): FINISH_ONLY_WABA used to be silently dropped -> "Flow Incomplete"
+  await t.test("Case 20 (Regression): FINISH_ONLY_WABA is recorded and reported as the wrong flow, not dropped", () => {
+    const diag = createSignupDiagnostics();
+    recordMetaMessage(diag, FB, JSON.stringify({
+      type: "WA_EMBEDDED_SIGNUP",
+      event: "FINISH_ONLY_WABA",
+      version: 3,
+      data: { waba_id: "444555666" },
+    }));
+    assert.deepStrictEqual(diag.waSignupEvents, ["FINISH_ONLY_WABA"]);
+    assert.strictEqual(hasTerminalEvent(diag), true);
+    const out = classifyOnboardingOutcome("code_x", diag);
+    assert.strictEqual(out.success, false, "Standard flow must not be saved as Coexistence");
+    assert.strictEqual(out.stage, "STANDARD_FLOW_COMPLETED");
+    assert.ok(out.error.includes("FINISH_ONLY_WABA"));
+    assert.strictEqual(out.wabaId, undefined);
+  });
+
+  // Case 21: Standard FINISH is not Coexistence
+  await t.test("Case 21: Standard FINISH event is reported as wrong flow and never connects", () => {
+    const diag = createSignupDiagnostics();
+    recordMetaMessage(diag, FB, { type: "WA_EMBEDDED_SIGNUP", event: "FINISH", data: { waba_id: "1", phone_number_id: "2" } });
+    const out = classifyOnboardingOutcome("code_x", diag);
+    assert.strictEqual(out.success, false);
+    assert.strictEqual(out.stage, "STANDARD_FLOW_COMPLETED");
+  });
+
+  // Case 22: OAuth code with zero Meta events => NO_SIGNUP_EVENT (never success)
+  await t.test("Case 22: OAuth code alone with no WA_EMBEDDED_SIGNUP event is NO_SIGNUP_EVENT, never success", () => {
+    const diag = createSignupDiagnostics();
+    // SDK-internal Meta messages that are not signup events
+    recordMetaMessage(diag, FB, "_fb_internal_xd_message");
+    recordMetaMessage(diag, FB, { type: "SOMETHING_ELSE" });
+    const out = classifyOnboardingOutcome("valid_code", diag);
+    assert.strictEqual(out.success, false);
+    assert.strictEqual(out.stage, "NO_SIGNUP_EVENT");
+    assert.strictEqual(diag.metaOriginMessages, 2);
+    assert.strictEqual(diag.ignoredMetaMessages, 2);
+    assert.ok(out.error.includes("metaMessages=2"));
+    assert.ok(out.error.includes("signupEvents=[none]"));
+  });
+
+  // Case 23: Signup event from a non-Meta origin is counted as origin-rejected
+  await t.test("Case 23: WA_EMBEDDED_SIGNUP from a non-Meta origin is ignored but diagnosed", () => {
+    const diag = createSignupDiagnostics();
+    recordMetaMessage(diag, "https://evil.example.com", JSON.stringify({
+      type: "WA_EMBEDDED_SIGNUP",
+      event: "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING",
+      data: { waba_id: "spoofed" },
+    }));
+    assert.strictEqual(diag.coexistencePayload, undefined, "Spoofed event must not be accepted");
+    const out = classifyOnboardingOutcome("code", diag);
+    assert.strictEqual(out.success, false);
+    assert.strictEqual(out.stage, "ORIGIN_FILTERED");
+  });
+
+  // Case 24: Coexistence event without WABA ID never succeeds
+  await t.test("Case 24: Coexistence event missing waba_id is rejected", () => {
+    const diag = createSignupDiagnostics();
+    recordMetaMessage(diag, FB, { type: "WA_EMBEDDED_SIGNUP", event: "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING", data: {} });
+    const out = classifyOnboardingOutcome("code", diag);
+    assert.strictEqual(out.success, false);
+    assert.strictEqual(out.stage, "COEXISTENCE_MISSING_WABA");
+  });
+
+  // Case 25: CANCEL carries step; diagnostics summary never contains IDs
+  await t.test("Case 25: CANCEL reports step, and summaries never leak IDs", () => {
+    const diag = createSignupDiagnostics();
+    recordMetaMessage(diag, FB, { type: "WA_EMBEDDED_SIGNUP", event: "CANCEL", data: { current_step: "PHONE_NUMBER_VERIFICATION" } });
+    const out = classifyOnboardingOutcome("code", diag);
+    assert.strictEqual(out.cancelled, true);
+    assert.ok(out.error.includes("PHONE_NUMBER_VERIFICATION"));
+
+    const diag2 = createSignupDiagnostics();
+    recordMetaMessage(diag2, FB, { type: "WA_EMBEDDED_SIGNUP", event: "FINISH_ONLY_WABA", data: { waba_id: "987654321" } });
+    assert.ok(!summarizeDiagnostics(diag2).includes("987654321"), "Summary must not include WABA ID");
   });
 });
 

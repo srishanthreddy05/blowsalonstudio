@@ -284,6 +284,195 @@ export function parseMetaMessageEvent(origin: string, rawDataInput: unknown): Pa
   }
 }
 
+/**
+ * Per-launch diagnostics. Records WHAT arrived from Meta (event names, counts,
+ * step names) without ever storing tokens, codes, IDs, or personal data in logs.
+ */
+export interface SignupDiagnostics {
+  /** postMessages received from an allowed Meta origin */
+  metaOriginMessages: number;
+  /** Meta-origin messages that were not WA_EMBEDDED_SIGNUP (SDK internals etc.) */
+  ignoredMetaMessages: number;
+  /** Messages mentioning WA_EMBEDDED_SIGNUP that were rejected by origin filtering */
+  rejectedOriginSignupMessages: number;
+  /** WA_EMBEDDED_SIGNUP event names in arrival order */
+  waSignupEvents: string[];
+  lastStep?: string;
+  /** Payload of FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING (Coexistence) */
+  coexistencePayload?: EmbeddedSignupSessionData;
+  /** FINISH / FINISH_ONLY_WABA — standard Embedded Signup, NOT Coexistence */
+  standardFinishEvent?: string;
+  cancelled: boolean;
+  errored: boolean;
+  errorMessage?: string;
+}
+
+export const COEXISTENCE_FINISH_EVENT = "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING";
+export const STANDARD_FINISH_EVENTS = ["FINISH", "FINISH_ONLY_WABA"];
+
+export function createSignupDiagnostics(): SignupDiagnostics {
+  return {
+    metaOriginMessages: 0,
+    ignoredMetaMessages: 0,
+    rejectedOriginSignupMessages: 0,
+    waSignupEvents: [],
+    cancelled: false,
+    errored: false,
+  };
+}
+
+function mentionsEmbeddedSignup(data: unknown): boolean {
+  try {
+    const text = typeof data === "string" ? data : JSON.stringify(data);
+    return typeof text === "string" && text.includes("WA_EMBEDDED_SIGNUP");
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Records a single window `message` event into diagnostics.
+ * Every WA_EMBEDDED_SIGNUP event is recorded — none are silently dropped.
+ */
+export function recordMetaMessage(
+  diag: SignupDiagnostics,
+  origin: string,
+  data: unknown
+): ParsedMetaMessageEvent | null {
+  if (!isAllowedMetaOrigin(origin)) {
+    if (mentionsEmbeddedSignup(data)) {
+      diag.rejectedOriginSignupMessages += 1;
+    }
+    return null;
+  }
+
+  diag.metaOriginMessages += 1;
+  const parsed = parseMetaMessageEvent(origin, data);
+  if (!parsed) {
+    diag.ignoredMetaMessages += 1;
+    return null;
+  }
+
+  const eventName = parsed.eventType || "UNKNOWN";
+  diag.waSignupEvents.push(eventName);
+  if (parsed.currentStep) diag.lastStep = parsed.currentStep;
+
+  if (eventName === COEXISTENCE_FINISH_EVENT) {
+    diag.coexistencePayload = parsed.fullPayload;
+  } else if (STANDARD_FINISH_EVENTS.includes(eventName)) {
+    diag.standardFinishEvent = eventName;
+  } else if (eventName === "CANCEL") {
+    diag.cancelled = true;
+  } else if (eventName === "ERROR") {
+    diag.errored = true;
+    const msg = parsed.fullPayload?.error_message;
+    if (typeof msg === "string" && msg.trim()) {
+      diag.errorMessage = msg.trim().slice(0, 200);
+    }
+  }
+  return parsed;
+}
+
+/** True once Meta has sent an event that ends the session. */
+export function hasTerminalEvent(diag: SignupDiagnostics): boolean {
+  return Boolean(
+    diag.coexistencePayload || diag.standardFinishEvent || diag.cancelled || diag.errored
+  );
+}
+
+/** Safe one-line summary (event names and counts only). */
+export function summarizeDiagnostics(diag: SignupDiagnostics): string {
+  const events = diag.waSignupEvents.length ? diag.waSignupEvents.join(">") : "none";
+  return `metaMessages=${diag.metaOriginMessages}, signupEvents=[${events}], ignoredMetaMessages=${diag.ignoredMetaMessages}, rejectedByOrigin=${diag.rejectedOriginSignupMessages}${
+    diag.lastStep ? `, lastStep=${diag.lastStep}` : ""
+  }`;
+}
+
+/**
+ * Decides the onboarding outcome after Facebook OAuth returned an auth code.
+ * An OAuth code alone is NEVER treated as completed onboarding. Success requires
+ * the Coexistence completion event carrying a non-empty WABA ID.
+ */
+export function classifyOnboardingOutcome(
+  authCode: string | undefined,
+  diag: SignupDiagnostics
+): LaunchEmbeddedSignupResult {
+  const summary = summarizeDiagnostics(diag);
+
+  if (diag.cancelled) {
+    return {
+      success: false,
+      cancelled: true,
+      stage: "USER_CANCELLED",
+      error: `[Stage: User Cancelled] WhatsApp connection was cancelled${
+        diag.lastStep ? ` at step: ${diag.lastStep}` : ""
+      }.`,
+    };
+  }
+
+  if (diag.errored) {
+    return {
+      success: false,
+      stage: "POPUP_ERROR",
+      error: `[Stage: Popup Error] Meta Embedded Signup reported an error${
+        diag.errorMessage ? `: ${diag.errorMessage}` : ""
+      }. (${summary})`,
+    };
+  }
+
+  if (diag.coexistencePayload) {
+    const wabaId = diag.coexistencePayload.waba_id;
+    if (typeof wabaId === "string" && wabaId.trim()) {
+      const phone = diag.coexistencePayload.phone_number_id;
+      return {
+        success: true,
+        stage: "ONBOARDING_COMPLETED",
+        code: authCode,
+        wabaId: wabaId.trim(),
+        phoneNumberId: typeof phone === "string" && phone.trim() ? phone.trim() : undefined,
+        sessionData: diag.coexistencePayload,
+      };
+    }
+    return {
+      success: false,
+      stage: "COEXISTENCE_MISSING_WABA",
+      error: `[Stage: Coexistence Event Without WABA] Meta sent ${COEXISTENCE_FINISH_EVENT} but it contained no WhatsApp Business Account ID. Nothing was saved. (${summary})`,
+    };
+  }
+
+  if (diag.standardFinishEvent) {
+    return {
+      success: false,
+      stage: "STANDARD_FLOW_COMPLETED",
+      error: `[Stage: Wrong Onboarding Flow] Meta completed the standard Embedded Signup (${diag.standardFinishEvent}) instead of WhatsApp Business App onboarding (${COEXISTENCE_FINISH_EVENT}). The existing-app option was not offered or not selected in the popup. Nothing was saved. (${summary})`,
+    };
+  }
+
+  if (diag.waSignupEvents.length > 0) {
+    return {
+      success: false,
+      stage: "POPUP_INCOMPLETE",
+      error: `[Stage: Popup Incomplete] Meta onboarding events arrived but no completion event was sent${
+        diag.lastStep ? ` (last step: ${diag.lastStep})` : ""
+      }. (${summary})`,
+    };
+  }
+
+  if (diag.rejectedOriginSignupMessages > 0) {
+    return {
+      success: false,
+      stage: "ORIGIN_FILTERED",
+      error: `[Stage: Event Rejected By Origin Filter] A WA_EMBEDDED_SIGNUP message arrived from an origin outside the Meta allow-list and was ignored. (${summary})`,
+    };
+  }
+
+  return {
+    success: false,
+    stage: "NO_SIGNUP_EVENT",
+    error: `[Stage: No Onboarding Event] Facebook OAuth succeeded, but Meta sent no WA_EMBEDDED_SIGNUP event at all, so the WhatsApp onboarding wizard did not run inside the popup. Configuration: ${META_COEXISTENCE_CONFIG_ID}. (${summary})`,
+  };
+}
+
 
 /**
  * Launches Meta Facebook Login for Business with Embedded Signup
@@ -335,48 +524,22 @@ export function launchWhatsAppBusinessOnboarding(): Promise<LaunchEmbeddedSignup
   );
 
   return new Promise<LaunchEmbeddedSignupResult>((resolve) => {
-    let capturedSessionData: EmbeddedSignupSessionData | null = null;
-    let finishEventReceived = false;
-    let cancelEventReceived = false;
-    let errorEventReceived = false;
-    let lastStepReceived: string | undefined = undefined;
+    const diag = createSignupDiagnostics();
     let isFinished = false;
 
-    // Listen to session postMessages from Meta popup
+    // Listen to ALL window messages so we can tell "Meta sent nothing" apart from
+    // "Meta sent something we ignored". Only names/counts are logged, never payload values.
     const messageListener = (event: MessageEvent) => {
-      if (!isAllowedMetaOrigin(event.origin)) {
-        return;
-      }
-
-      const parsed = parseMetaMessageEvent(event.origin, event.data);
+      const parsed = recordMetaMessage(diag, event.origin, event.data);
       if (!parsed) return;
 
-      const { eventType, eventVersion, wabaId, phoneNumberId, currentStep, fullPayload } = parsed;
-      lastStepReceived = currentStep;
-
-      // Safe structured diagnostic log (NEVER logs tokens, secrets, or PII)
       console.log(
-        `[Embedded Signup:Client] Meta postMessage received: event=${eventType || "UNKNOWN"}, version=${eventVersion || "N/A"}, hasWabaId=${Boolean(
-          wabaId
-        )}, hasPhoneNumberId=${Boolean(phoneNumberId)}${currentStep ? `, step=${currentStep}` : ""}`
+        `[Embedded Signup:Client] WA_EMBEDDED_SIGNUP event: event=${parsed.eventType || "UNKNOWN"}, version=${
+          parsed.eventVersion || "N/A"
+        }, hasWabaId=${Boolean(parsed.wabaId)}, hasPhoneNumberId=${Boolean(parsed.phoneNumberId)}${
+          parsed.currentStep ? `, step=${parsed.currentStep}` : ""
+        }`
       );
-
-      // Handle coexistence completion, standard finish, cancel, and error
-      if (eventType === "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING") {
-        finishEventReceived = true;
-        capturedSessionData = fullPayload || null;
-        console.log(`[Embedded Signup:Client] Coexistence Onboarding COMPLETED successfully! (Event: ${eventType}, Version: ${eventVersion || "N/A"}, hasWabaId: ${Boolean(wabaId)})`);
-      } else if (eventType === "FINISH") {
-        finishEventReceived = true;
-        capturedSessionData = fullPayload || null;
-        console.warn(`[Embedded Signup:Client] Standard Cloud API onboarding event (FINISH) was received instead of Coexistence (FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING). (Version: ${eventVersion || "N/A"}, hasWabaId: ${Boolean(wabaId)})`);
-      } else if (eventType === "CANCEL") {
-        cancelEventReceived = true;
-        console.log(`[Embedded Signup:Client] Session cancelled by user (Step: ${currentStep || "UNKNOWN"}, Version: ${eventVersion || "N/A"})`);
-      } else if (eventType === "ERROR") {
-        errorEventReceived = true;
-        console.warn("[Embedded Signup:Client] Session returned error state.");
-      }
     };
 
     window.addEventListener("message", messageListener);
@@ -421,79 +584,39 @@ export function launchWhatsAppBusinessOnboarding(): Promise<LaunchEmbeddedSignup
 
             if (!response || response.status === "unknown" || !response.authResponse) {
               cleanup();
-              console.log("[Embedded Signup:Client] Facebook login cancelled or window closed.");
+              console.log(
+                `[Embedded Signup:Client] Facebook login cancelled or window closed. (${summarizeDiagnostics(diag)})`
+              );
               return resolve({
                 success: false,
                 cancelled: true,
                 stage: "USER_CANCELLED",
-                error: `[Stage: User Cancelled] WhatsApp connection was cancelled by the user${lastStepReceived ? ` at step: ${lastStepReceived}` : ""}.`,
+                error: `[Stage: User Cancelled] WhatsApp connection was cancelled by the user${
+                  diag.lastStep ? ` at step: ${diag.lastStep}` : ""
+                }.`,
               });
             }
 
             const authCode = response.authResponse.code;
 
-            // If session event has not been processed yet, give a brief 600ms grace period
-            // for the postMessage event loop before removing listener and resolving
-            if (!capturedSessionData?.waba_id && !finishEventReceived) {
-              console.log("[Embedded Signup:Client] Waiting brief grace window for postMessage event...");
-              await new Promise((r) => setTimeout(r, 600));
+            // The OAuth callback can fire before Meta's final postMessage is delivered.
+            // Wait (up to 3s) for a terminal WA_EMBEDDED_SIGNUP event before deciding.
+            const deadline = Date.now() + 3000;
+            while (!hasTerminalEvent(diag) && Date.now() < deadline) {
+              await new Promise((r) => setTimeout(r, 100));
             }
 
             cleanup();
 
-            const wabaId = capturedSessionData?.waba_id;
-            const phoneNumberId = capturedSessionData?.phone_number_id;
-
             console.log(
-              `[Embedded Signup:Client] Authorization response processed: hasAuthCode=${Boolean(
-                authCode
-              )}, finishEventReceived=${finishEventReceived}, cancelEventReceived=${cancelEventReceived}, hasWabaId=${Boolean(
-                wabaId
-              )}, hasPhoneNumberId=${Boolean(phoneNumberId)}`
+              `[Embedded Signup:Client] OAuth complete: hasAuthCode=${Boolean(authCode)}, ${summarizeDiagnostics(diag)}`
             );
 
-            // If user explicitly cancelled or popup closed early
-            if (cancelEventReceived) {
-              return resolve({
-                success: false,
-                cancelled: true,
-                stage: "USER_CANCELLED",
-                error: `[Stage: User Cancelled] WhatsApp connection was cancelled by the user${lastStepReceived ? ` at step: ${lastStepReceived}` : ""}.`,
-              });
+            const outcome = classifyOnboardingOutcome(authCode, diag);
+            if (!outcome.success) {
+              console.warn(`[Embedded Signup:Client] Onboarding not completed: stage=${outcome.stage}`);
             }
-
-            if (errorEventReceived) {
-              return resolve({
-                success: false,
-                stage: "POPUP_ERROR",
-                error: "[Stage: Popup Error] Meta Embedded Signup returned an error state during onboarding.",
-              });
-            }
-
-            // Distinguish Facebook OAuth authorization from WhatsApp Coexistence onboarding:
-            // If Facebook OAuth succeeded (code received) but no Coexistence finish event or WABA ID was received:
-            if (!wabaId && !finishEventReceived) {
-              const errorReason = lastStepReceived
-                ? `[Stage: Popup Incomplete] Meta onboarding was closed at step '${lastStepReceived}' before phone-number and OTP verification were completed.`
-                : `[Stage: Flow Incomplete] Facebook OAuth authorization succeeded (auth code received), but the WhatsApp Business Onboarding wizard did not return a completion event (WA_EMBEDDED_SIGNUP / FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING). Configuration: ${META_COEXISTENCE_CONFIG_ID}.`;
-
-              return resolve({
-                success: false,
-                cancelled: false,
-                code: authCode,
-                stage: "FLOW_INCOMPLETE",
-                error: errorReason,
-              });
-            }
-
-            return resolve({
-              success: true,
-              code: authCode,
-              wabaId: typeof wabaId === "string" ? wabaId : undefined,
-              phoneNumberId: typeof phoneNumberId === "string" ? phoneNumberId : undefined,
-              sessionData: capturedSessionData || undefined,
-              stage: "ONBOARDING_COMPLETED",
-            });
+            return resolve(outcome);
           };
 
           handleLoginResponse().catch((err) => {

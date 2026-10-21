@@ -124,6 +124,22 @@ export async function POST(request: Request) {
       extractSafeId(sessionData?.data?.phone_number_id) ||
       extractSafeId(sessionData?.data?.phoneNumberId);
 
+    // An OAuth authorization code alone does NOT prove Coexistence onboarding completed.
+    // The WABA ID must come from Meta's FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING event.
+    if (!resolvedWabaId) {
+      console.warn(
+        `[Embedded Signup:Server] Rejected: no WABA ID from Meta onboarding event (hasCode=${Boolean(code)})`
+      );
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "[Stage: Server Validation] WhatsApp Business App onboarding did not complete: no WhatsApp Business Account ID was received from Meta's onboarding event. Nothing was saved.",
+        },
+        { status: 400 }
+      );
+    }
+
     let exchangedUserToken: string | null = null;
 
     // 2. If authorization code is provided, exchange for user access token if App Secret is available

@@ -93,12 +93,13 @@ export function WhatsAppSettingsView({
           return;
         }
 
-        // STRICT CHECK: WABA ID or OAuth authorization code must be present to proceed to backend
-        if (!result.wabaId && !result.code) {
+        // STRICT CHECK: a WABA ID from Meta's Coexistence completion event is required.
+        // An OAuth code alone never counts as completed onboarding.
+        if (!result.wabaId) {
           const incompleteErr =
             result.error ||
-            "[Stage: Flow Incomplete] Meta onboarding was incomplete. WhatsApp Business Account details were not received. Please complete all popup steps and retry.";
-          console.warn("[WhatsAppSettings:Client] Incomplete onboarding: missing both wabaId and code, aborting backend submission");
+            "[Stage: Flow Incomplete] Meta onboarding did not return a WhatsApp Business Account ID. Nothing was saved. Please complete all popup steps and retry.";
+          console.warn("[WhatsAppSettings:Client] Incomplete onboarding: missing wabaId, aborting backend submission");
           setErrorMessage(incompleteErr);
           toast.error(incompleteErr);
           setCoexistenceConnecting(false);
