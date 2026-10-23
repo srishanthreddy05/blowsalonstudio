@@ -235,7 +235,7 @@ export function BillingTable({
                     value={row.staff || ""}
                     disabled={disabled || row.isCreditSettle}
                     onChange={(event) => updateRow(row.id, { staff: event.target.value })}
-                    className={`h-9 w-full rounded-xl border px-2.5 outline-none transition focus:border-[#6F776D] disabled:bg-[#F7F7F4] disabled:text-[#747A72] text-xs font-semibold cursor-pointer appearance-none ${
+                    className={`h-9 w-full rounded-xl border px-2.5 outline-none transition focus:border-[#6F776D] disabled:bg-[#F7F7F4] disabled:text-[#747A72] text-xs font-semibold cursor-pointer ${
                       !row.staff && !row.isCreditSettle
                         ? "border-[#CCD2C8] bg-[#FFFFFF] text-[#747A72]"
                         : "border-[#E0E4DD] bg-[#F7F7F4] text-[#292D29]"

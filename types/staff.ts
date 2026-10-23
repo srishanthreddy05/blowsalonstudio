@@ -26,6 +26,6 @@ export function formatStaffRole(role?: string): "Stylist" | "Manager" {
 export function normalizeStaffRole(role?: string): StaffRole {
   if (!role) return "STYLIST";
   const normalized = role.trim().toUpperCase();
-  if (normalized === "MANAGER") return "MANAGER";
+  if (normalized === "MANAGER" || normalized === "SALON MANAGER") return "MANAGER";
   return "STYLIST";
 }

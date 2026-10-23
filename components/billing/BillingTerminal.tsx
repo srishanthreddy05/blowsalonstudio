@@ -69,8 +69,8 @@ export function BillingTerminal({
     () =>
       staffContextData.filter(
         (s) =>
-          s.status === "Active" &&
-          s.dutyStatus === "onDuty" &&
+          Boolean(s.name?.trim()) &&
+          s.status?.trim().toLowerCase() === "active" &&
           normalizeStaffRole(s.role) !== "MANAGER"
       ),
     [staffContextData]

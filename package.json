@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --test tests/whatsapp-coexistence.test.mjs",
+    "test": "node --test tests/whatsapp-coexistence.test.mjs tests/staff-dropdown.test.mjs",
     "whatsapp:server": "node whatsapp-server/index.js"
   },
   "dependencies": {
