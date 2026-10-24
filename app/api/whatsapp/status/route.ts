@@ -12,10 +12,6 @@ export async function GET() {
     const provider = getWhatsAppProvider();
     const statusResult = await provider.getStatus();
 
-    const isMetaConfigured = Boolean(
-      process.env.WHATSAPP_ACCESS_TOKEN && process.env.WHATSAPP_PHONE_NUMBER_ID
-    );
-
     // Fetch settings from Firestore
     let autoSendInvoice = true;
     let whatsappEnabled = true;
@@ -42,14 +38,22 @@ export async function GET() {
       );
     }
 
+    // Connection is configured only when the Coexistence account is active
+    const isCoexistenceConfigured = Boolean(
+      coexistence &&
+      typeof coexistence === "object" &&
+      (coexistence as any).status === "CONNECTED" &&
+      (coexistence as any).wabaId
+    );
+
     return NextResponse.json({
       status: statusResult.status,
       connectedNumber: statusResult.connectedNumber || null,
-      qrCode: statusResult.qrCode || null,
+      qrCode: null,
       provider: statusResult.provider,
       errorMessage: statusResult.errorMessage || null,
       errorCode: statusResult.errorCode || null,
-      metaCloudConfigured: isMetaConfigured,
+      metaCloudConfigured: isCoexistenceConfigured,
       whatsappEnabled,
       autoSendInvoice,
       coexistence: coexistence || null,

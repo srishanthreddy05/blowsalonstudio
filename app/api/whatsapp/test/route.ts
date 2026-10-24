@@ -38,11 +38,9 @@ export async function POST(request: Request) {
       environmentConfig: {
         apiVersion: process.env.WHATSAPP_CLOUD_API_VERSION || "v21.0 (default)",
         hasAccessToken: Boolean(process.env.WHATSAPP_ACCESS_TOKEN),
-        hasPhoneNumberId: Boolean(process.env.WHATSAPP_PHONE_NUMBER_ID),
-        hasBusinessAccountId: Boolean(process.env.WHATSAPP_BUSINESS_ACCOUNT_ID),
         hasVerifyToken: Boolean(process.env.WHATSAPP_VERIFY_TOKEN),
         hasAppSecret: Boolean(process.env.WHATSAPP_APP_SECRET),
-        templateName: process.env.WHATSAPP_INVOICE_TEMPLATE_NAME || "Not configured (using text receipts)",
+        architecture: "Coexistence (Firestore-resolved WABA & Phone ID)",
       },
     });
   } catch (err: unknown) {

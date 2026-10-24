@@ -603,4 +603,4 @@ async function deleteInvoice(id: string): Promise<void> {
   }
 }
 
-export { deleteInvoice as delete };
+export { deleteInvoice, deleteInvoice as delete };

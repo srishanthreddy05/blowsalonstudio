@@ -10,6 +10,7 @@ import {
   Loader2,
   ExternalLink,
   Unlink,
+  Server,
 } from "lucide-react";
 import type { WhatsAppStatusResponse, WhatsAppCoexistenceAccount } from "@/types/whatsapp";
 import * as whatsappService from "@/services/whatsapp";
@@ -49,7 +50,6 @@ export function WhatsAppSettingsView({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [httpsRequired, setHttpsRequired] = useState(false);
 
-  const isCloudConnected = statusData?.status === "CONNECTED";
   const coexistence: WhatsAppCoexistenceAccount | null = statusData?.coexistence || null;
   const isCoexistenceConnected = coexistence?.status === "CONNECTED";
 
@@ -182,80 +182,7 @@ export function WhatsAppSettingsView({
 
   return (
     <div className="space-y-6 max-w-5xl">
-      {/* 1. Connection Overview Card */}
-      <div className="p-6 rounded-3xl bg-[#FFFFFF] border border-[#E0E4DD] shadow-xs space-y-5">
-        <div className="flex items-center justify-between border-b border-[#E0E4DD] pb-4">
-          <div className="flex items-center gap-3">
-            <div className="grid size-11 place-items-center rounded-2xl bg-[#E8ECE5] text-[#5F7A62] border border-[#CCD2C8]">
-              <WhatsAppBrandIcon size={22} />
-            </div>
-            <div>
-              <h3 className="font-serif text-base font-bold text-[#2F352F]">
-                WhatsApp Provider & Connection
-              </h3>
-              <p className="text-xs text-[#747A72]">
-                Provider:{" "}
-                <span className="font-semibold text-[#2F352F]">
-                  {statusData?.provider === "WHATSAPP_CLOUD_API"
-                    ? "Meta WhatsApp Cloud API"
-                    : "QR WhatsApp (Web Session)"}
-                </span>
-              </p>
-            </div>
-          </div>
-
-          <span
-            className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${
-              isCloudConnected
-                ? "bg-[#E8ECE5] text-[#5F7A62] border-[#5F7A62]/30"
-                : "bg-[#FBEBEB] text-[#B55B5B] border-[#F8D7D7]"
-            }`}
-          >
-            <span
-              className={`size-1.5 rounded-full ${
-                isCloudConnected ? "bg-[#5F7A62]" : "bg-[#B55B5B]"
-              }`}
-            />
-            {isCloudConnected ? "Connected" : "Disconnected"}
-          </span>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="p-4 rounded-2xl bg-[#F7F7F4] border border-[#E0E4DD] space-y-1">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-[#747A72] block">
-              Registered Phone Number
-            </span>
-            <span className="font-mono text-sm font-bold text-[#2F352F]">
-              {statusData?.connectedNumber || "Meta Cloud Registered Number"}
-            </span>
-          </div>
-
-          <div className="p-4 rounded-2xl bg-[#F7F7F4] border border-[#E0E4DD] space-y-1">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-[#747A72] block">
-              Meta Graph API Version
-            </span>
-            <span className="font-mono text-sm font-bold text-[#2F352F]">
-              v21.0 (Cloud API)
-            </span>
-          </div>
-        </div>
-
-        <div className="p-4 rounded-2xl bg-[#E8ECE5]/30 border border-[#CCD2C8] flex items-center justify-between">
-          <div className="flex items-center gap-2 text-xs text-[#5F7A62] font-semibold">
-            <ShieldCheck size={16} />
-            <span>Secure Server-Side Meta Authentication Active</span>
-          </div>
-          <button
-            type="button"
-            onClick={onRefresh}
-            className="text-xs font-bold text-[#5F7A62] hover:underline cursor-pointer"
-          >
-            Check Status
-          </button>
-        </div>
-      </div>
-
-      {/* 2. Connect WhatsApp Business (Coexistence Onboarding Section) */}
+      {/* 1. WhatsApp Business Connection (Single Authoritative Card) */}
       <div className="p-6 rounded-3xl bg-[#FFFFFF] border border-[#E0E4DD] shadow-xs space-y-5">
         <div className="flex items-center justify-between border-b border-[#E0E4DD] pb-4">
           <div className="flex items-center gap-3">
@@ -264,7 +191,7 @@ export function WhatsAppSettingsView({
             </div>
             <div>
               <h3 className="font-serif text-base font-bold text-[#2F352F]">
-                Connect WhatsApp Business
+                WhatsApp Business Connection
               </h3>
               <p className="text-xs text-[#747A72]">
                 WhatsApp Business App ↔ Cloud API Coexistence
@@ -284,8 +211,8 @@ export function WhatsAppSettingsView({
               Connected
             </span>
           ) : (
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border bg-[#F7F7F4] text-[#747A72] border-[#E0E4DD]">
-              <span className="size-1.5 rounded-full bg-[#A0A69D]" />
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border bg-[#FBEBEB] text-[#B55B5B] border-[#F8D7D7]">
+              <span className="size-1.5 rounded-full bg-[#B55B5B]" />
               Not Connected
             </span>
           )}
@@ -348,33 +275,53 @@ export function WhatsAppSettingsView({
 
         {/* Connection Details if CONNECTED */}
         {isCoexistenceConnected && coexistence && (
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div className="p-4 rounded-2xl bg-[#F7F7F4] border border-[#E0E4DD] space-y-1">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-[#747A72] block">
-                Business Number
-              </span>
-              <span className="font-mono text-xs font-bold text-[#2F352F]">
-                {coexistence.businessPhoneNumber || "Verified WhatsApp Business"}
-              </span>
+          <div className="space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="p-4 rounded-2xl bg-[#F7F7F4] border border-[#E0E4DD] space-y-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-[#747A72] block">
+                  Business Number
+                </span>
+                <span className="font-mono text-xs font-bold text-[#2F352F]">
+                  {coexistence.businessPhoneNumber || "Verified WhatsApp Business"}
+                </span>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-[#F7F7F4] border border-[#E0E4DD] space-y-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-[#747A72] block">
+                  WABA
+                </span>
+                <span className="font-mono text-xs font-bold text-[#5F7A62] flex items-center gap-1.5">
+                  <CheckCircle2 size={13} className="text-[#5F7A62]" />
+                  Connected
+                </span>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-[#F7F7F4] border border-[#E0E4DD] space-y-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-[#747A72] block">
+                  Feature Type
+                </span>
+                <span className="font-mono text-[11px] font-semibold text-[#2F352F] truncate block">
+                  Coexistence Active
+                </span>
+              </div>
             </div>
 
-            <div className="p-4 rounded-2xl bg-[#F7F7F4] border border-[#E0E4DD] space-y-1">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-[#747A72] block">
-                WABA
-              </span>
-              <span className="font-mono text-xs font-bold text-[#5F7A62] flex items-center gap-1.5">
-                <CheckCircle2 size={13} className="text-[#5F7A62]" />
-                Connected
-              </span>
-            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="p-4 rounded-2xl bg-[#F7F7F4] border border-[#E0E4DD] space-y-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-[#747A72] block">
+                  Meta Graph API Version
+                </span>
+                <span className="font-mono text-sm font-bold text-[#2F352F]">
+                  v21.0 (Cloud API)
+                </span>
+              </div>
 
-            <div className="p-4 rounded-2xl bg-[#F7F7F4] border border-[#E0E4DD] space-y-1">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-[#747A72] block">
-                Feature Type
-              </span>
-              <span className="font-mono text-[11px] font-semibold text-[#2F352F] truncate block">
-                Coexistence Active
-              </span>
+              <div className="p-4 rounded-2xl bg-[#E8ECE5]/30 border border-[#CCD2C8] flex items-center gap-2">
+                <ShieldCheck size={16} className="text-[#5F7A62]" />
+                <span className="text-xs text-[#5F7A62] font-semibold">
+                  Secure Server-Side Meta Authentication Active
+                </span>
+              </div>
             </div>
           </div>
         )}
@@ -425,13 +372,21 @@ export function WhatsAppSettingsView({
             </button>
           )}
 
-          <span className="text-[10px] text-[#A0A69D] font-mono ml-auto">
+          <button
+            type="button"
+            onClick={onRefresh}
+            className="text-xs font-bold text-[#5F7A62] hover:underline cursor-pointer ml-auto"
+          >
+            Check Status
+          </button>
+
+          <span className="text-[10px] text-[#A0A69D] font-mono">
             Config ID: 1534814405338722
           </span>
         </div>
       </div>
 
-      {/* 3. Master WhatsApp Kill-Switch & Automation Toggles */}
+      {/* 2. Master WhatsApp Kill-Switch & Automation Toggles */}
       <div className="p-6 rounded-3xl bg-[#FFFFFF] border border-[#E0E4DD] shadow-xs space-y-5">
         <h3 className="font-serif text-base font-bold text-[#2F352F] border-b border-[#E0E4DD] pb-3">
           Messaging Controls
@@ -496,7 +451,7 @@ export function WhatsAppSettingsView({
         </div>
       </div>
 
-      {/* 4. Invoice Receipt Template Preview */}
+      {/* 3. Invoice Receipt Template Preview */}
       <div className="p-6 rounded-3xl bg-[#FFFFFF] border border-[#E0E4DD] shadow-xs space-y-4">
         <div className="flex items-center justify-between border-b border-[#E0E4DD] pb-3">
           <h3 className="font-serif text-base font-bold text-[#2F352F] flex items-center gap-2">

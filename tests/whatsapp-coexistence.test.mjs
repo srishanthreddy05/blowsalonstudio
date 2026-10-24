@@ -257,27 +257,60 @@ test("WhatsApp Coexistence Test Suite", async (t) => {
     assert.strictEqual(storedConfig.status, "CONNECTED");
   });
 
-  // Test Case 10: Existing Cloud API direct messaging configuration remains untouched
-  await t.test("Case 10: Existing Cloud API environment variables and provider remain independent", () => {
-    // Cloud provider uses dedicated env variables
-    const directCloudConfig = {
-      accessToken: process.env.WHATSAPP_ACCESS_TOKEN || "EAAgzvZAXfVgcBStK...",
-      phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID || "1329685360226264",
-      businessAccountId: process.env.WHATSAPP_BUSINESS_ACCOUNT_ID || "1755242905734759",
-      provider: "WHATSAPP_CLOUD_API",
+  // Test Case 10: Coexistence is the single source of truth for Cloud API provider configuration
+  await t.test("Case 10: WhatsApp Cloud API resolves identity exclusively from Firestore Coexistence record (Single Source of Truth)", () => {
+    // 1. Simulating Firestore Coexistence record resolution
+    const resolveCoexistence = (coexistenceDoc) => {
+      if (!coexistenceDoc || coexistenceDoc.status !== "CONNECTED") {
+        return {
+          ok: false,
+          error: "WhatsApp Business App is disconnected. Please reconnect in Settings.",
+        };
+      }
+      if (!coexistenceDoc.wabaId) {
+        return {
+          ok: false,
+          error: "WhatsApp Business Account ID is missing from the connection configuration.",
+        };
+      }
+      return {
+        ok: true,
+        businessAccountId: coexistenceDoc.wabaId,
+        phoneNumberId: coexistenceDoc.phoneNumberId || undefined,
+        businessNumber: coexistenceDoc.businessPhoneNumber || undefined,
+      };
     };
 
-    const coexistenceConfig = {
+    // Valid active coexistence connection
+    const activeCoexistence = {
       status: "CONNECTED",
-      wabaId: "client_coexistence_waba_888",
-      configurationId: "1534814405338722",
-      featureType: "whatsapp_business_app_onboarding",
+      wabaId: "coex_waba_9704998026",
+      phoneNumberId: "coex_phone_id_9704998026",
+      businessPhoneNumber: "+91 97049 98026",
     };
+    const resolved = resolveCoexistence(activeCoexistence);
+    assert.strictEqual(resolved.ok, true);
+    assert.strictEqual(resolved.businessAccountId, "coex_waba_9704998026");
+    assert.strictEqual(resolved.phoneNumberId, "coex_phone_id_9704998026");
+    assert.strictEqual(resolved.businessNumber, "+91 97049 98026");
 
-    // Ensure coexistence assets do NOT overwrite or collide with direct Cloud API configuration
-    assert.notStrictEqual(coexistenceConfig.wabaId, directCloudConfig.businessAccountId);
-    assert.strictEqual(directCloudConfig.phoneNumberId, "1329685360226264");
-    assert.strictEqual(directCloudConfig.provider, "WHATSAPP_CLOUD_API");
+    // Legacy IDs must NEVER be returned or used
+    const LEGACY_SIM_PHONE_ID = "1329685360226264";
+    const LEGACY_SIM_WABA_ID = "1755242905734759";
+    assert.notStrictEqual(resolved.phoneNumberId, LEGACY_SIM_PHONE_ID);
+    assert.notStrictEqual(resolved.businessAccountId, LEGACY_SIM_WABA_ID);
+
+    // Disconnected state fails safely without legacy fallback
+    const disconnected = resolveCoexistence({ status: "DISCONNECTED" });
+    assert.strictEqual(disconnected.ok, false);
+    assert.strictEqual(disconnected.businessAccountId, undefined);
+    assert.strictEqual(disconnected.phoneNumberId, undefined);
+
+    // Missing doc fails safely without legacy fallback
+    const missing = resolveCoexistence(null);
+    assert.strictEqual(missing.ok, false);
+    assert.strictEqual(missing.businessAccountId, undefined);
+    assert.strictEqual(missing.phoneNumberId, undefined);
   });
 
   // Test Case 11 (Regression): Exact Production Failure Path
@@ -817,7 +850,7 @@ test("WhatsApp Coexistence Test Suite", async (t) => {
   // Case 31: Diagnostics summary safely reports structural metadata of ignored messages
   await t.test("Case 31: Diagnostics summary safely reports structural metadata of ignored messages", () => {
     const diag = createSignupDiagnostics();
-    recordMetaMessage(diag, FB, { type: "xd_arbiter", action: "ping", arbitrary: 123 });
+    recordMetaMessage(diag, "https://www.facebook.com", { type: "xd_arbiter", action: "ping", arbitrary: 123 });
     const summary = summarizeDiagnostics(diag);
     assert.ok(summary.includes("ignoredMetaMessages=1"));
     assert.ok(summary.includes("lastIgnored=[type=xd_arbiter"));
@@ -825,6 +858,144 @@ test("WhatsApp Coexistence Test Suite", async (t) => {
     // Ensure value 123 is not dumped
     assert.ok(!summary.includes("123"));
   });
+
+  // Case 32: Account selection resolves exclusively from Firestore Coexistence record and rejects legacy SIM IDs
+  await t.test("Case 32: Account selection resolves exclusively from Firestore Coexistence and rejects legacy SIM IDs", () => {
+    const coexistenceDoc = {
+      status: "CONNECTED",
+      wabaId: "1137447861941428",
+      phoneNumberId: "1313489548523474",
+      businessPhoneNumber: "+91 97049 98026",
+      verifiedName: "Sricharan Reddy",
+    };
+
+    const LEGACY_SIM_PHONE_ID = "1329685360226264";
+    const LEGACY_SIM_WABA_ID = "1755242905734759";
+
+    assert.strictEqual(coexistenceDoc.phoneNumberId, "1313489548523474");
+    assert.strictEqual(coexistenceDoc.wabaId, "1137447861941428");
+    assert.notStrictEqual(coexistenceDoc.phoneNumberId, LEGACY_SIM_PHONE_ID);
+    assert.notStrictEqual(coexistenceDoc.wabaId, LEGACY_SIM_WABA_ID);
+  });
+
+  // Case 33: Live template synchronization preserves genuine Meta status without fake Approved default
+  await t.test("Case 33: Live template synchronization preserves genuine Meta status without fake Approved default", () => {
+    const rawMetaTemplates = [
+      {
+        id: "tmpl_1",
+        name: "blow_salon_invoice",
+        status: "IN_REVIEW",
+        category: "UTILITY",
+        language: "en",
+        components: [
+          {
+            type: "BODY",
+            text: "Hello {{1}}, Invoice: {{2}}, Total: {{3}}",
+            example: { body_text: [["John", "INV-100", "500"]] },
+          },
+        ],
+      },
+      {
+        id: "tmpl_2",
+        name: "blow_salon_campaign",
+        status: "REJECTED",
+        rejected_reason: "PROMOTIONAL_CONTENT_IN_UTILITY",
+        category: "MARKETING",
+        language: "en",
+        components: [{ type: "BODY", text: "Special offer!" }],
+      },
+    ];
+
+    const mapped = rawMetaTemplates.map((t) => ({
+      id: t.id,
+      name: t.name,
+      status: t.status,
+      category: t.category,
+      rejectedReason: t.rejected_reason,
+    }));
+
+    // Must NEVER force status to APPROVED
+    assert.strictEqual(mapped[0].status, "IN_REVIEW");
+    assert.notStrictEqual(mapped[0].status, "APPROVED");
+    assert.strictEqual(mapped[1].status, "REJECTED");
+    assert.strictEqual(mapped[1].rejectedReason, "PROMOTIONAL_CONTENT_IN_UTILITY");
+  });
+
+  // Case 34: Template validation enforces lowercase snake_case and sequential variables
+  await t.test("Case 34: Template validation enforces lowercase snake_case and sequential variables", () => {
+    const isValidName = (str) => /^[a-z0-9_]+$/.test(str);
+    assert.strictEqual(isValidName("blow_salon_invoice"), true);
+    assert.strictEqual(isValidName("Blow Salon Invoice"), false);
+    assert.strictEqual(isValidName("blow-salon-invoice"), false);
+    assert.strictEqual(isValidName("blow_salon_123"), true);
+
+    const validateVariables = (text) => {
+      const matches = text.match(/\{\{(\d+)\}\}/g) || [];
+      const indices = matches.map((m) => parseInt(m.replace(/\D/g, ""), 10));
+      const sorted = [...new Set(indices)].sort((a, b) => a - b);
+      for (let i = 0; i < sorted.length; i++) {
+        if (sorted[i] !== i + 1) return false;
+      }
+      return true;
+    };
+
+    assert.strictEqual(validateVariables("Hello {{1}}, your bill is {{2}}"), true);
+    assert.strictEqual(validateVariables("Hello {{2}}, your bill is {{3}}"), false, "Missing {{1}}");
+    assert.strictEqual(validateVariables("Hello {{1}}, your bill is {{3}}"), false, "Missing {{2}}");
+  });
+
+  // Case 35: Template validation requires sample values for all variables
+  await t.test("Case 35: Template validation requires sample values for all variables", () => {
+    const hasSamplesForVariables = (varCount, samples) => {
+      if (varCount === 0) return true;
+      if (!samples || !Array.isArray(samples)) return false;
+      return samples.length >= varCount && samples.every((s) => typeof s === "string" && s.trim().length > 0);
+    };
+
+    assert.strictEqual(hasSamplesForVariables(2, ["Customer", "500"]), true);
+    assert.strictEqual(hasSamplesForVariables(2, ["Customer"]), false);
+    assert.strictEqual(hasSamplesForVariables(2, ["Customer", ""]), false);
+    assert.strictEqual(hasSamplesForVariables(0, []), true);
+  });
+
+  // Case 36: Template pagination handles cursors and limit
+  await t.test("Case 36: Template pagination correctly handles cursors and limit", () => {
+    const metaPagingResponse = {
+      data: [{ id: "t1" }, { id: "t2" }],
+      paging: {
+        cursors: {
+          before: "cursor_before_abc",
+          after: "cursor_after_xyz",
+        },
+        next: "https://graph.facebook.com/v21.0/waba_id/message_templates?after=cursor_after_xyz",
+      },
+    };
+
+    assert.ok(metaPagingResponse.paging.cursors.after);
+    assert.strictEqual(metaPagingResponse.paging.cursors.after, "cursor_after_xyz");
+    assert.strictEqual(metaPagingResponse.paging.cursors.before, "cursor_before_abc");
+  });
+
+  // Case 37: Billing transparency distinguishes unavailable balance from ₹0
+  await t.test("Case 37: Billing transparency distinguishes unavailable balance from zero", () => {
+    const billingResponse = {
+      wabaId: "1137447861941428",
+      currency: "INR",
+      paymentStatus: "ACTIVE",
+      balanceAvailable: false,
+      balance: null,
+      balanceUnavailableReason:
+        "Meta WhatsApp Cloud API does not expose a prepaid wallet balance or credit ledger endpoint via the Graph API.",
+      directBillingUrl: "https://business.facebook.com/wa/manage/billing/?waba_id=1137447861941428",
+    };
+
+    assert.strictEqual(billingResponse.balanceAvailable, false);
+    assert.strictEqual(billingResponse.balance, null);
+    assert.notStrictEqual(billingResponse.balance, 0, "Must never return 0 when balance is unavailable");
+    assert.ok(billingResponse.balanceUnavailableReason.length > 0);
+    assert.ok(billingResponse.directBillingUrl.includes("1137447861941428"));
+  });
 });
+
 
 

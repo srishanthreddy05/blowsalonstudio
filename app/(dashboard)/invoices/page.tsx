@@ -3,10 +3,11 @@
 import { useEffect, useMemo, useState } from "react";
 import * as invoicesService from "@/services/invoices";
 import { formatCurrency } from "@/components/salon-dashboard/types";
-import { Search, Eye, Calendar, Edit2 } from "lucide-react";
+import { Search, Eye, Calendar, Edit2, Trash2, Loader2, AlertCircle } from "lucide-react";
 import Link from "next/link";
 import { toLocalDateString } from "@/lib/utils/date";
 import { getCurrentBusinessMonth } from "@/lib/utils/businessMonth";
+import { toast } from "react-hot-toast";
 import { db } from "@/lib/firebase";
 import {
   collection,
@@ -26,6 +27,10 @@ export default function InvoicesPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [lastDoc, setLastDoc] = useState<any>(null);
   const [hasMore, setHasMore] = useState(false);
+
+  // Deletion state
+  const [invoiceToDelete, setInvoiceToDelete] = useState<any | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   // Date range filters
   const currentBm = useMemo(() => getCurrentBusinessMonth(), []);
@@ -106,6 +111,28 @@ export default function InvoicesPage() {
   useEffect(() => {
     loadInvoices(false);
   }, [dateFrom, dateTo]);
+
+  // Handle invoice deletion
+  const handleConfirmDelete = async () => {
+    if (!invoiceToDelete?.id) return;
+    const invId = invoiceToDelete.id;
+    const invNo = invoiceToDelete.invoiceNo || invoiceToDelete.invoiceNumber || invId;
+
+    setDeleting(true);
+    toast.loading(`Deleting invoice ${invNo}...`, { id: "delete-inv" });
+    try {
+      await invoicesService.delete(invId);
+      setInvoices((prev) => prev.filter((i) => i.id !== invId));
+      toast.success(`Invoice ${invNo} deleted successfully.`, { id: "delete-inv" });
+      setInvoiceToDelete(null);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to delete invoice";
+      console.error("Failed to delete invoice:", err);
+      toast.error(msg, { id: "delete-inv" });
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   // Filter & Search Logic (scoping done at Firestore level, filter only search query here)
   const filteredInvoices = useMemo(() => {
@@ -251,6 +278,15 @@ export default function InvoicesPage() {
                             <Edit2 size={13} />
                             Edit
                           </Link>
+                          <button
+                            type="button"
+                            onClick={() => setInvoiceToDelete(inv)}
+                            className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-[#F8D7D7] bg-[#FFFFFF] px-3 text-xs font-semibold text-[#B55B5B] hover:bg-[#FBEBEB] hover:border-[#F8D7D7] transition shadow-xs cursor-pointer"
+                            title="Delete invoice"
+                          >
+                            <Trash2 size={13} />
+                            Delete
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -277,6 +313,78 @@ export default function InvoicesPage() {
           )}
         </>
       )}
+
+      {/* Delete Confirmation Modal */}
+      {invoiceToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="fixed inset-0 bg-[#292D29]/50 backdrop-blur-xs"
+            onClick={() => !deleting && setInvoiceToDelete(null)}
+          />
+          <div className="relative w-full max-w-md rounded-3xl border border-[#E0E4DD] bg-[#FFFFFF] p-6 shadow-2xl z-10 animate-in zoom-in-95 duration-200 space-y-5">
+            <div className="flex items-center gap-3">
+              <div className="grid size-11 place-items-center rounded-2xl border bg-[#FBEBEB] border-[#F8D7D7] text-[#B55B5B]">
+                <Trash2 size={20} />
+              </div>
+              <div>
+                <h3 className="font-serif text-lg font-bold text-[#2F352F]">
+                  Delete Invoice?
+                </h3>
+                <p className="text-xs text-[#747A72]">
+                  {invoiceToDelete.invoiceNo || invoiceToDelete.invoiceNumber || "Invoice"}
+                </p>
+              </div>
+            </div>
+
+            <div className="text-xs text-[#2F352F] leading-relaxed bg-[#F7F7F4] p-3.5 rounded-2xl border border-[#E0E4DD] space-y-2">
+              <p>
+                Are you sure you want to permanently delete invoice{" "}
+                <strong className="text-[#2F352F] font-mono">
+                  {invoiceToDelete.invoiceNo || invoiceToDelete.invoiceNumber}
+                </strong>{" "}
+                for{" "}
+                <strong className="text-[#2F352F]">
+                  {invoiceToDelete.customerName}
+                </strong>{" "}
+                ({formatCurrency(invoiceToDelete.grandTotal || 0)})?
+              </p>
+              <p className="text-[#B55B5B] font-medium text-[11px]">
+                ⚠️ This action will permanently remove this invoice and automatically reverse all associated revenue, visits, and staff/inventory statistics.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#E0E4DD]">
+              <button
+                type="button"
+                disabled={deleting}
+                onClick={() => setInvoiceToDelete(null)}
+                className="rounded-xl border border-[#CCD2C8] px-4 py-2 text-xs font-bold text-[#747A72] hover:bg-[#F7F7F4] hover:text-[#2F352F] transition cursor-pointer disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={deleting}
+                onClick={handleConfirmDelete}
+                className="inline-flex items-center gap-1.5 rounded-xl px-5 py-2 text-xs font-bold text-white bg-[#B55B5B] hover:bg-[#9C4040] shadow-xs transition cursor-pointer disabled:opacity-50"
+              >
+                {deleting ? (
+                  <>
+                    <Loader2 size={13} className="animate-spin" />
+                    <span>Deleting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 size={13} />
+                    <span>Delete Invoice</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+

@@ -39,38 +39,8 @@ export async function getStatus(): Promise<WhatsAppStatusResponse> {
   }
 }
 
-export async function connect(): Promise<WhatsAppStatusResponse> {
-  try {
-    const res = await fetch("/api/whatsapp/connect", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok || data.success === false) {
-      throw new Error(data.error || "Failed to initiate WhatsApp connection");
-    }
-    return data;
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "Failed to initiate WhatsApp connection";
-    throw new Error(msg);
-  }
-}
-
-export async function disconnect(): Promise<void> {
-  try {
-    const res = await fetch("/api/whatsapp/disconnect", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-    });
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      throw new Error(data.error || "Failed to disconnect WhatsApp");
-    }
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "Failed to disconnect WhatsApp";
-    throw new Error(msg);
-  }
-}
+// Legacy connect() and disconnect() removed — WhatsApp connection is managed
+// exclusively through the Coexistence embedded-signup flow (completeEmbeddedSignup / disconnectCoexistence).
 
 export async function sendInvoiceWhatsApp(
   invoiceId: string,
@@ -193,6 +163,35 @@ export async function updateSettings(
   return data.settings;
 }
 
+// ==================== DASHBOARD MANAGEMENT METHODS ====================
+
+export async function getAccountOverview(): Promise<import("@/types/whatsapp").WhatsAppAccountOverview> {
+  const res = await fetch("/api/whatsapp/account-overview", { cache: "no-store" });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok && !data.overview) {
+    throw new Error(data.error || "Failed to load WhatsApp account overview");
+  }
+  return data.overview;
+}
+
+export async function getBillingInfo(): Promise<import("@/types/whatsapp").WhatsAppBillingInfo> {
+  const res = await fetch("/api/whatsapp/billing", { cache: "no-store" });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.error || "Failed to fetch WhatsApp billing details");
+  }
+  return data.billing;
+}
+
+export async function getInsights(): Promise<import("@/types/whatsapp").WhatsAppInsightsData> {
+  const res = await fetch("/api/whatsapp/insights", { cache: "no-store" });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.error || "Failed to fetch WhatsApp insights");
+  }
+  return data.insights;
+}
+
 // ==================== CAMPAIGN & TEMPLATE SERVICE METHODS ====================
 
 export async function getTemplates(purpose?: "campaign" | "invoice" | "test"): Promise<WhatsAppTemplate[]> {
@@ -205,6 +204,55 @@ export async function getTemplates(purpose?: "campaign" | "invoice" | "test"): P
   } catch {
     return [];
   }
+}
+
+export async function getTemplatesDetailed(params?: {
+  purpose?: string;
+  status?: string;
+  category?: string;
+  limit?: number;
+  after?: string;
+  before?: string;
+}): Promise<{
+  templates: WhatsAppTemplate[];
+  paging?: { cursors?: { before?: string; after?: string }; next?: string; previous?: string };
+  error?: string;
+  lastSync?: string;
+  isStale?: boolean;
+}> {
+  const searchParams = new URLSearchParams();
+  if (params?.purpose) searchParams.set("purpose", params.purpose);
+  if (params?.status) searchParams.set("status", params.status);
+  if (params?.category) searchParams.set("category", params.category);
+  if (params?.limit) searchParams.set("limit", String(params.limit));
+  if (params?.after) searchParams.set("after", params.after);
+  if (params?.before) searchParams.set("before", params.before);
+
+  const res = await fetch(`/api/whatsapp/templates?${searchParams.toString()}`, { cache: "no-store" });
+  const data = await res.json().catch(() => ({ templates: [] }));
+  return data;
+}
+
+export async function createTemplate(
+  payload: import("@/types/whatsapp").CreateWhatsAppTemplateRequest
+): Promise<{
+  success: boolean;
+  id?: string;
+  status?: string;
+  category?: string;
+  message?: string;
+  error?: string;
+}> {
+  const res = await fetch("/api/whatsapp/templates", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.success === false) {
+    throw new Error(data.error || "Failed to submit template to Meta");
+  }
+  return data;
 }
 
 export async function getCampaigns(): Promise<WhatsAppCampaign[]> {

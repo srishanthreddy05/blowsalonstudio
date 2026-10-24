@@ -24,10 +24,8 @@ const CALLING_SESSIONS_COLLECTION = "whatsapp_calling_test_sessions";
 const memoryCallingSessions = new Map<string, CallingSession>();
 const memoryCustomerPermissions = new Map<string, CallingPermissionStatus>();
 
-function getMetaConfig() {
+async function getMetaConfig() {
   const accessToken = process.env.WHATSAPP_ACCESS_TOKEN?.trim();
-  const phoneNumberId =
-    process.env.WHATSAPP_PHONE_NUMBER_ID?.trim() || "1329685360226264";
   const apiVersion = (
     process.env.WHATSAPP_CLOUD_API_VERSION || "v21.0"
   )
@@ -39,9 +37,26 @@ function getMetaConfig() {
       "WHATSAPP_ACCESS_TOKEN is missing in environment variables."
     );
   }
+
+  // Resolve phone-number ID from Firestore Coexistence record (sole source of truth)
+  let phoneNumberId: string | undefined;
+  try {
+    const { db: firestoreDb } = await import("@/lib/firebase");
+    const { doc: fsDoc, getDoc: fsGetDoc } = await import("firebase/firestore");
+    const coexDoc = await fsGetDoc(fsDoc(firestoreDb, "settings", "whatsapp_coexistence"));
+    if (coexDoc.exists()) {
+      const data = coexDoc.data();
+      if (data?.status === "CONNECTED" && data?.phoneNumberId) {
+        phoneNumberId = String(data.phoneNumberId).trim();
+      }
+    }
+  } catch (err) {
+    console.warn("[WhatsApp Calling] Failed to resolve Coexistence phone-number ID:", err instanceof Error ? err.message : err);
+  }
+
   if (!phoneNumberId) {
     throw new Error(
-      "WHATSAPP_PHONE_NUMBER_ID is missing in environment variables."
+      "WhatsApp Business App is not connected or phone-number ID is missing. Connect in Settings."
     );
   }
 
@@ -167,7 +182,7 @@ export async function requestCallingPermission(
     };
   }
 
-  const { accessToken, phoneNumberId, apiVersion } = getMetaConfig();
+  const { accessToken, phoneNumberId, apiVersion } = await getMetaConfig();
   const url = `https://graph.facebook.com/${apiVersion}/${phoneNumberId}/messages`;
 
   const payload = {
@@ -281,7 +296,7 @@ export async function checkCallingPermission(
   // Check memory permission if updated by webhook
   const cachedPerm = memoryCustomerPermissions.get(normalized.digits);
 
-  const { accessToken, phoneNumberId, apiVersion } = getMetaConfig();
+  const { accessToken, phoneNumberId, apiVersion } = await getMetaConfig();
   const url = `https://graph.facebook.com/${apiVersion}/${phoneNumberId}/call_permissions?user_wa_id=${normalized.digits}`;
 
   try {
@@ -403,7 +418,7 @@ export async function initiateWhatsAppCall(
     };
   }
 
-  const { accessToken, phoneNumberId, apiVersion } = getMetaConfig();
+  const { accessToken, phoneNumberId, apiVersion } = await getMetaConfig();
   const url = `https://graph.facebook.com/${apiVersion}/${phoneNumberId}/calls`;
 
   const payload = {
@@ -502,7 +517,7 @@ export async function terminateWhatsAppCall(
     return { success: false, error: "Call ID is required to terminate." };
   }
 
-  const { accessToken, phoneNumberId, apiVersion } = getMetaConfig();
+  const { accessToken, phoneNumberId, apiVersion } = await getMetaConfig();
   const url = `https://graph.facebook.com/${apiVersion}/${phoneNumberId}/calls`;
 
   const payload = {

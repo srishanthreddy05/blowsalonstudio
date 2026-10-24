@@ -5,7 +5,9 @@ import type {
   SendMessageResult,
   SendInvoiceResult,
 } from "./types";
-import type { WhatsAppErrorCode } from "@/types/whatsapp";
+import type { WhatsAppErrorCode, WhatsAppCoexistenceAccount } from "@/types/whatsapp";
+import { db } from "@/lib/firebase";
+import { doc, getDoc } from "firebase/firestore";
 import { normalizePhoneNumber } from "@/lib/utils/phone";
 import { formatDisplayDate, toLocalDateString } from "@/lib/utils/date";
 import { logWhatsAppAction, maskPhoneNumber } from "./logger";
@@ -30,14 +32,65 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
   private businessAccountId?: string;
   private businessNumber?: string;
   private invoiceTemplateName: string;
+  private _coexistenceResolved = false;
+  private _coexistenceError?: string;
 
   constructor() {
     this.apiVersion = (process.env.WHATSAPP_CLOUD_API_VERSION || "v21.0").trim().replace(/^v?/, "v");
     this.accessToken = process.env.WHATSAPP_ACCESS_TOKEN?.trim();
-    this.phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID?.trim() || "1329685360226264";
-    this.businessAccountId = process.env.WHATSAPP_BUSINESS_ACCOUNT_ID?.trim() || "1755242905734759";
-    this.businessNumber = process.env.WHATSAPP_BUSINESS_NUMBER?.trim();
     this.invoiceTemplateName = "blow_salon_invoice";
+  }
+
+  /**
+   * Resolves the active WhatsApp Business Account (WABA) ID and phone-number ID
+   * from the Firestore Coexistence configuration record.
+   * Called lazily on first use and cached for the request lifecycle.
+   * Never falls back to legacy environment variables or hardcoded IDs.
+   */
+  private async resolveCoexistenceConfig(): Promise<void> {
+    if (this._coexistenceResolved) return;
+    this._coexistenceResolved = true;
+
+    try {
+      const coexDoc = await getDoc(doc(db, "settings", "whatsapp_coexistence"));
+
+      if (!coexDoc.exists()) {
+        this._coexistenceError =
+          "WhatsApp Business App is not connected. Please connect your WhatsApp Business number in Settings.";
+        this.phoneNumberId = undefined;
+        this.businessAccountId = undefined;
+        return;
+      }
+
+      const data = coexDoc.data() as Partial<WhatsAppCoexistenceAccount>;
+
+      if (data.status !== "CONNECTED") {
+        this._coexistenceError =
+          "WhatsApp Business App is disconnected. Please reconnect in Settings.";
+        this.phoneNumberId = undefined;
+        this.businessAccountId = undefined;
+        return;
+      }
+
+      if (!data.wabaId) {
+        this._coexistenceError =
+          "WhatsApp Business Account ID is missing from the connection configuration. Please reconnect.";
+        this.phoneNumberId = undefined;
+        this.businessAccountId = undefined;
+        return;
+      }
+
+      this.businessAccountId = data.wabaId;
+      this.phoneNumberId = data.phoneNumberId || undefined;
+      this.businessNumber = data.businessPhoneNumber || undefined;
+      this._coexistenceError = undefined;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to read WhatsApp configuration";
+      console.error("[CloudProvider] Coexistence config resolution error:", msg);
+      this._coexistenceError = "WhatsApp configuration could not be loaded: " + msg;
+      this.phoneNumberId = undefined;
+      this.businessAccountId = undefined;
+    }
   }
 
   /**
@@ -89,9 +142,12 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
   }
 
   public async connect(): Promise<void> {
-    // Cloud API uses HTTP bearer tokens — validation happens during getStatus/sendMessage
+    await this.resolveCoexistenceConfig();
     if (!this.accessToken || !this.phoneNumberId) {
-      throw new Error("WhatsApp Cloud API credentials not configured in environment variables.");
+      throw new Error(
+        this._coexistenceError ||
+        "WhatsApp is not configured. Connect your WhatsApp Business App in Settings."
+      );
     }
   }
 
@@ -100,14 +156,17 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
   }
 
   public async getStatus(): Promise<ProviderStatusResult> {
-    const isConfigured = Boolean(this.accessToken && this.phoneNumberId);
+    await this.resolveCoexistenceConfig();
+
+    const isConfigured = Boolean(this.accessToken && this.phoneNumberId && this.businessAccountId);
 
     if (!isConfigured) {
       return {
         status: "DISCONNECTED",
         provider: this.providerType,
         errorCode: "WHATSAPP_NOT_CONFIGURED",
-        errorMessage: "WhatsApp Cloud API not configured. Missing WHATSAPP_ACCESS_TOKEN or WHATSAPP_PHONE_NUMBER_ID.",
+        errorMessage: this._coexistenceError ||
+          "WhatsApp is not configured. Connect your WhatsApp Business App in Settings.",
       };
     }
 
@@ -446,10 +505,11 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
    * Explicitly excludes 'hello_world' and any unapproved templates from the UI.
    */
   public async getTemplates(): Promise<any[]> {
-    if (!this.accessToken) {
+    await this.resolveCoexistenceConfig();
+    if (!this.accessToken || !this.businessAccountId) {
       return [];
     }
-    const wabaId = this.businessAccountId || "1755242905734759";
+    const wabaId = this.businessAccountId;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10000);
 

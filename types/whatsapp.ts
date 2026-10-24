@@ -54,12 +54,22 @@ export type WhatsAppMessageType =
 
 
 
+export type WhatsAppTemplateStatus =
+  | "APPROVED"
+  | "PENDING"
+  | "IN_REVIEW"
+  | "REJECTED"
+  | "PAUSED"
+  | "DISABLED"
+  | "APPEAL_REQUESTED";
+
 export interface WhatsAppTemplateComponent {
   type: "HEADER" | "BODY" | "FOOTER" | "BUTTONS";
   format?: "TEXT" | "IMAGE" | "DOCUMENT" | "VIDEO";
   text?: string;
   example?: {
     header_text?: string[];
+    header_handle?: string[];
     body_text?: string[][];
   };
   buttons?: Array<{
@@ -74,7 +84,7 @@ export interface WhatsAppTemplate {
   id: string;
   name: string;
   language: string;
-  status: "APPROVED" | "PENDING" | "REJECTED" | "PAUSED" | "DISABLED";
+  status: WhatsAppTemplateStatus;
   category: "MARKETING" | "UTILITY" | "AUTHENTICATION";
   components: WhatsAppTemplateComponent[];
   bodyText?: string;
@@ -83,6 +93,86 @@ export interface WhatsAppTemplate {
   variableCount: number;
   variableKeys?: string[];
   variableSampleMap?: Record<string, string>;
+  qualityScore?: {
+    score?: string;
+  };
+  rejectedReason?: string;
+}
+
+export interface CreateWhatsAppTemplateRequest {
+  name: string;
+  category: "MARKETING" | "UTILITY" | "AUTHENTICATION";
+  language: string;
+  components: WhatsAppTemplateComponent[];
+}
+
+export interface WhatsAppAccountOverview {
+  connected: boolean;
+  status: WhatsAppConnectionStatus;
+  businessPhoneNumber?: string;
+  verifiedName?: string;
+  wabaId?: string;
+  phoneNumberId?: string;
+  qualityRating?: string;
+  messagingLimitTier?: string;
+  codeVerificationStatus?: string;
+  nameStatus?: string;
+  platformType?: string;
+  throughput?: { level?: string };
+  waba?: {
+    id?: string;
+    name?: string;
+    currency?: string;
+    timezoneId?: string;
+    accountReviewStatus?: string;
+    messageTemplateNamespace?: string;
+  } | null;
+  lastSync: string;
+  errors?: Array<{
+    scope: string;
+    code?: number;
+    message: string;
+    actionableAdvice: string;
+  }>;
+}
+
+export interface WhatsAppBillingInfo {
+  wabaId: string;
+  currency: string | null;
+  timezoneId: string | null;
+  accountReviewStatus: string | null;
+  paymentStatus: "ACTIVE" | "PENDING" | "RESTRICTED" | "UNKNOWN";
+  balanceAvailable: boolean;
+  balance: number | null;
+  balanceUnavailableReason: string;
+  directBillingUrl: string;
+  lastSync: string;
+}
+
+export interface WhatsAppInsightsData {
+  totalSent30d: number;
+  deliveredRate: number;
+  readRate: number;
+  failedRate: number;
+  deliveryBreakdown: {
+    sent: number;
+    delivered: number;
+    read: number;
+    failed: number;
+  };
+  phoneQuality: string;
+  messagingLimitTier: string;
+  webhookStatus: "HEALTHY" | "DEGRADED" | "UNKNOWN";
+  lastWebhookEvent: string | null;
+  recentEvents: Array<{
+    id: string;
+    recipient: string;
+    type: string;
+    status: string;
+    timestamp: string;
+    error?: string | null;
+  }>;
+  lastSync: string;
 }
 
 export interface WhatsAppCampaign {
