@@ -16,7 +16,7 @@ export async function GET() {
 
     const coexSnap = await getDoc(doc(db, "settings", "whatsapp_coexistence"));
     const coexData = coexSnap.exists() ? coexSnap.data() : null;
-    const phoneNumberId = coexData?.phoneNumberId?.trim();
+    const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID?.trim() || coexData?.phoneNumberId?.trim();
     const token = process.env.WHATSAPP_ACCESS_TOKEN?.trim();
 
     if (phoneNumberId && token) {

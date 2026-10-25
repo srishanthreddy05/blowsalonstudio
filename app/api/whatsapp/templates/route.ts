@@ -17,6 +17,10 @@ const API_VERSION = (process.env.WHATSAPP_CLOUD_API_VERSION || "v21.0").trim().r
  * Helper to resolve WABA ID from Firestore Coexistence record (single source of truth).
  */
 async function getCoexistenceWaba(): Promise<{ wabaId?: string; error?: string }> {
+  const envWaba = process.env.WHATSAPP_BUSINESS_ACCOUNT_ID?.trim();
+  if (envWaba) {
+    return { wabaId: envWaba };
+  }
   try {
     const snap = await getDoc(doc(db, "settings", "whatsapp_coexistence"));
     if (!snap.exists()) {

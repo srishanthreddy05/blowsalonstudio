@@ -10,23 +10,28 @@ const API_VERSION = (process.env.WHATSAPP_CLOUD_API_VERSION || "v21.0").trim().r
 
 export async function GET() {
   try {
-    const snap = await getDoc(doc(db, "settings", "whatsapp_coexistence"));
-    if (!snap.exists()) {
-      return NextResponse.json(
-        { error: "WhatsApp Business App is not connected." },
-        { status: 400 }
-      );
-    }
+    const envWaba = process.env.WHATSAPP_BUSINESS_ACCOUNT_ID?.trim();
+    let wabaId = envWaba;
 
-    const data = snap.data();
-    if (data?.status !== "CONNECTED" || !data?.wabaId) {
-      return NextResponse.json(
-        { error: "WhatsApp Business App is disconnected or WABA ID is missing." },
-        { status: 400 }
-      );
-    }
+    if (!wabaId) {
+      const snap = await getDoc(doc(db, "settings", "whatsapp_coexistence"));
+      if (!snap.exists()) {
+        return NextResponse.json(
+          { error: "WhatsApp Business App is not connected." },
+          { status: 400 }
+        );
+      }
 
-    const wabaId = String(data.wabaId).trim();
+      const data = snap.data();
+      if (data?.status !== "CONNECTED" || !data?.wabaId) {
+        return NextResponse.json(
+          { error: "WhatsApp Business App is disconnected or WABA ID is missing." },
+          { status: 400 }
+        );
+      }
+
+      wabaId = String(data.wabaId).trim();
+    }
     const token = process.env.WHATSAPP_ACCESS_TOKEN?.trim();
 
     let currency: string | null = null;

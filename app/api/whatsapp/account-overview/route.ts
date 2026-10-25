@@ -52,8 +52,8 @@ export async function GET() {
       });
     }
 
-    const phoneNumberId = coexData.phoneNumberId?.trim();
-    const wabaId = coexData.wabaId?.trim();
+    const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID?.trim() || coexData.phoneNumberId?.trim();
+    const wabaId = process.env.WHATSAPP_BUSINESS_ACCOUNT_ID?.trim() || coexData.wabaId?.trim();
 
     let phoneData: any = null;
     let wabaData: any = null;

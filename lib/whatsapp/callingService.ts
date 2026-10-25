@@ -38,20 +38,22 @@ async function getMetaConfig() {
     );
   }
 
-  // Resolve phone-number ID from Firestore Coexistence record (sole source of truth)
-  let phoneNumberId: string | undefined;
-  try {
-    const { db: firestoreDb } = await import("@/lib/firebase");
-    const { doc: fsDoc, getDoc: fsGetDoc } = await import("firebase/firestore");
-    const coexDoc = await fsGetDoc(fsDoc(firestoreDb, "settings", "whatsapp_coexistence"));
-    if (coexDoc.exists()) {
-      const data = coexDoc.data();
-      if (data?.status === "CONNECTED" && data?.phoneNumberId) {
-        phoneNumberId = String(data.phoneNumberId).trim();
+  // Resolve phone-number ID from server env var or Firestore Coexistence record
+  let phoneNumberId: string | undefined = process.env.WHATSAPP_PHONE_NUMBER_ID?.trim();
+  if (!phoneNumberId) {
+    try {
+      const { db: firestoreDb } = await import("@/lib/firebase");
+      const { doc: fsDoc, getDoc: fsGetDoc } = await import("firebase/firestore");
+      const coexDoc = await fsGetDoc(fsDoc(firestoreDb, "settings", "whatsapp_coexistence"));
+      if (coexDoc.exists()) {
+        const data = coexDoc.data();
+        if (data?.status === "CONNECTED" && data?.phoneNumberId) {
+          phoneNumberId = String(data.phoneNumberId).trim();
+        }
       }
+    } catch (err) {
+      console.warn("[WhatsApp Calling] Failed to resolve Coexistence phone-number ID:", err instanceof Error ? err.message : err);
     }
-  } catch (err) {
-    console.warn("[WhatsApp Calling] Failed to resolve Coexistence phone-number ID:", err instanceof Error ? err.message : err);
   }
 
   if (!phoneNumberId) {

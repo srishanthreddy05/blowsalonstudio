@@ -18,6 +18,7 @@ export interface TemplateDefinition {
   category: "UTILITY" | "MARKETING" | "AUTHENTICATION";
   expectedParamCount: number;
   exposedInUI: boolean;
+  headerFormat?: "IMAGE" | "TEXT" | "NONE";
   purpose?: "invoice" | "campaign" | "appointment" | "test";
   description?: string;
 }
@@ -29,6 +30,7 @@ export const META_WHATSAPP_TEMPLATES: Record<string, TemplateDefinition> = {
     category: "UTILITY",
     expectedParamCount: 8,
     exposedInUI: true,
+    headerFormat: "IMAGE",
     purpose: "invoice",
     description: "BLOW SALON official invoice receipt template (8 parameters)",
   },
@@ -38,6 +40,7 @@ export const META_WHATSAPP_TEMPLATES: Record<string, TemplateDefinition> = {
     category: "UTILITY",
     expectedParamCount: 1,
     exposedInUI: true,
+    headerFormat: "IMAGE",
     purpose: "appointment",
     description: "BLOW SALON appointment confirmation template (1 parameter)",
   },
@@ -47,6 +50,7 @@ export const META_WHATSAPP_TEMPLATES: Record<string, TemplateDefinition> = {
     category: "UTILITY",
     expectedParamCount: 1,
     exposedInUI: true,
+    headerFormat: "IMAGE",
     purpose: "appointment",
     description: "BLOW SALON appointment reminder template (1 parameter)",
   },
@@ -56,6 +60,7 @@ export const META_WHATSAPP_TEMPLATES: Record<string, TemplateDefinition> = {
     category: "MARKETING",
     expectedParamCount: 2,
     exposedInUI: true,
+    headerFormat: "IMAGE",
     purpose: "campaign",
     description: "BLOW SALON promotional campaign template (2 parameters)",
   },
@@ -65,6 +70,7 @@ export const META_WHATSAPP_TEMPLATES: Record<string, TemplateDefinition> = {
     category: "UTILITY",
     expectedParamCount: 0,
     exposedInUI: true,
+    headerFormat: "NONE",
     purpose: "test",
     description: "Meta integration test template (0 parameters)",
   },
@@ -74,9 +80,64 @@ export const META_WHATSAPP_TEMPLATES: Record<string, TemplateDefinition> = {
     category: "UTILITY",
     expectedParamCount: 0,
     exposedInUI: false,
+    headerFormat: "NONE",
     description: "Default Meta test template (hidden from UI)",
   },
 };
+
+export const DEFAULT_TEMPLATE_HEADER_IMAGE_URL =
+  "https://blowsalonstudio.vercel.app/blowtemplate.png";
+
+/**
+ * Returns the header format of an approved template ("IMAGE", "TEXT", or "NONE").
+ */
+export function getTemplateHeaderFormat(templateName: string): "IMAGE" | "TEXT" | "NONE" {
+  const registered = META_WHATSAPP_TEMPLATES[templateName];
+  return registered?.headerFormat || "NONE";
+}
+
+/**
+ * Checks whether an approved template requires an IMAGE header component.
+ */
+export function templateRequiresImageHeader(templateName: string): boolean {
+  return getTemplateHeaderFormat(templateName) === "IMAGE";
+}
+
+/**
+ * Prepends an IMAGE header component if the template format requires it.
+ * Preserves all body parameters untouched.
+ * Omits header for templates without an IMAGE header.
+ */
+export function prependTemplateImageHeader(
+  templateName: string,
+  components?: Array<Record<string, unknown>>,
+  imageUrl: string = DEFAULT_TEMPLATE_HEADER_IMAGE_URL
+): Array<Record<string, unknown>> {
+  const list: Array<Record<string, unknown>> = components && Array.isArray(components)
+    ? components.map((c) => ({ ...c }))
+    : [];
+
+  if (templateRequiresImageHeader(templateName)) {
+    const hasHeader = list.some(
+      (c) => (c.type || "").toString().toLowerCase() === "header"
+    );
+    if (!hasHeader) {
+      list.unshift({
+        type: "header",
+        parameters: [
+          {
+            type: "image",
+            image: {
+              link: imageUrl,
+            },
+          },
+        ],
+      });
+    }
+  }
+
+  return list;
+}
 
 /**
  * Returns the exact centralized language code for a template name.

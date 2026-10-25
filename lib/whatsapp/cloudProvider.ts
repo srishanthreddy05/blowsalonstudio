@@ -16,8 +16,13 @@ import {
   getTemplateLanguage,
   isTemplateExposedInUI,
   sanitizeTemplateVariable,
+  templateRequiresImageHeader,
+  getTemplateHeaderFormat,
   META_WHATSAPP_TEMPLATES,
 } from "./templateRegistry";
+
+export const DEFAULT_TEMPLATE_HEADER_IMAGE_URL =
+  "https://blowsalonstudio.vercel.app/blowtemplate.png";
 
 /**
  * Meta WhatsApp Cloud API Provider.
@@ -39,58 +44,219 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
   constructor() {
     this.apiVersion = (process.env.WHATSAPP_CLOUD_API_VERSION || "v21.0").trim().replace(/^v?/, "v");
     this.accessToken = process.env.WHATSAPP_ACCESS_TOKEN?.trim();
+    this.phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID?.trim();
+    this.businessAccountId = process.env.WHATSAPP_BUSINESS_ACCOUNT_ID?.trim();
     this.invoiceTemplateName = "blow_salon_invoices";
   }
 
   /**
-   * Resolves the active WhatsApp Business Account (WABA) ID and phone-number ID
-   * from the Firestore Coexistence configuration record.
+   * Temporary server-side diagnostic logging for Meta Cloud API authentication and permissions.
+   * Logs masked token (first 6 & last 4), phone number ID, WABA ID, and debug_token inspection
+   * (scopes and granular_scopes only). Never logs full tokens or secrets.
+   */
+  private async logAuthDebugInfo(): Promise<void> {
+    const token = this.accessToken;
+    const masked = token
+      ? `${token.slice(0, 6)}...${token.slice(-4)} (length: ${token.length})`
+      : "MISSING";
+    const phoneId = this.phoneNumberId || "MISSING";
+    const wabaId = this.businessAccountId || "MISSING";
+
+    console.log("[WhatsApp Auth Debug] ========================================");
+    console.log(`[WhatsApp Auth Debug] Token: ${masked}`);
+    console.log(`[WhatsApp Auth Debug] Phone Number ID: ${phoneId}`);
+    console.log(`[WhatsApp Auth Debug] WABA ID: ${wabaId}`);
+
+    if (token) {
+      try {
+        const debugUrl = `https://graph.facebook.com/${this.apiVersion}/debug_token?input_token=${encodeURIComponent(
+          token
+        )}&access_token=${encodeURIComponent(token)}`;
+
+        const res = await fetch(debugUrl, { method: "GET" });
+        const data = await res.json().catch(() => ({}));
+
+        if (res.ok && data?.data) {
+          console.log(`[WhatsApp Auth Debug] debug_token scopes:`, data.data.scopes);
+          console.log(
+            `[WhatsApp Auth Debug] debug_token granular_scopes:`,
+            JSON.stringify(data.data.granular_scopes, null, 2)
+          );
+        } else {
+          console.warn(
+            `[WhatsApp Auth Debug] debug_token query returned error:`,
+            data.error?.message || res.statusText
+          );
+        }
+      } catch (err) {
+        console.warn(
+          `[WhatsApp Auth Debug] debug_token network check failed:`,
+          err instanceof Error ? err.message : err
+        );
+      }
+    }
+    console.log("[WhatsApp Auth Debug] ========================================");
+  }
+
+  private static templateHeaderCache = new Map<string, { hasImageHeader: boolean; expiresAt: number }>();
+
+  /**
+   * Returns the server-configured template header image URL.
+   * Server only, defaulting to https://blowsalonstudio.vercel.app/blowtemplate.png
+   */
+  public getHeaderImageUrl(): string {
+    return (process.env.WHATSAPP_TEMPLATE_HEADER_IMAGE_URL || DEFAULT_TEMPLATE_HEADER_IMAGE_URL).trim();
+  }
+
+  /**
+   * Detects whether a template has an IMAGE header.
+   * Checks in-memory cache first (cached for 5 minutes).
+   * If uncached and WABA ID / access token are available, queries Meta Graph API:
+   * GET /{wabaId}/message_templates?name={templateName}
+   * Falls back to centralized template registry (templateRequiresImageHeader) if network fails or unconfigured.
+   */
+  public async hasImageHeader(templateName: string): Promise<boolean> {
+    const now = Date.now();
+    const cached = CloudWhatsAppProvider.templateHeaderCache.get(templateName);
+    if (cached && now < cached.expiresAt) {
+      return cached.hasImageHeader;
+    }
+
+    // Default registry fallback
+    let result = templateRequiresImageHeader(templateName);
+
+    if (this.accessToken && this.businessAccountId) {
+      try {
+        const url = `https://graph.facebook.com/${this.apiVersion}/${encodeURIComponent(
+          this.businessAccountId
+        )}/message_templates?name=${encodeURIComponent(templateName)}&limit=5`;
+
+        const res = await fetch(url, {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${this.accessToken}`,
+            "Content-Type": "application/json",
+          },
+        });
+
+        if (res.ok) {
+          const json = await res.json().catch(() => ({}));
+          const match = (json.data || []).find((t: any) => t.name === templateName);
+          if (match && Array.isArray(match.components)) {
+            const hasImage = match.components.some(
+              (c: any) =>
+                (c.type || "").toString().toUpperCase() === "HEADER" &&
+                (c.format || "").toString().toUpperCase() === "IMAGE"
+            );
+            result = hasImage;
+          }
+        }
+      } catch {
+        // Fall back gracefully to static registry
+      }
+    }
+
+    // Cache for 5 minutes
+    CloudWhatsAppProvider.templateHeaderCache.set(templateName, {
+      hasImageHeader: result,
+      expiresAt: now + 5 * 60 * 1000,
+    });
+
+    return result;
+  }
+
+  /**
+   * Prepares and prepends IMAGE header component when the template format requires it.
+   * Format: { "type": "header", "parameters": [ { "type": "image", "image": { "link": <URL> } } ] }
+   * Preserves all body parameters untouched.
+   */
+  public async buildTemplateComponents(
+    templateName: string,
+    components?: Array<Record<string, unknown>>
+  ): Promise<Array<Record<string, unknown>>> {
+    const list: Array<Record<string, unknown>> = components && Array.isArray(components)
+      ? components.map((c) => ({ ...c }))
+      : [];
+
+    const needsImage = await this.hasImageHeader(templateName);
+    if (needsImage) {
+      const hasHeader = list.some(
+        (c) => (c.type || "").toString().toLowerCase() === "header"
+      );
+      if (!hasHeader) {
+        list.unshift({
+          type: "header",
+          parameters: [
+            {
+              type: "image",
+              image: {
+                link: this.getHeaderImageUrl(),
+              },
+            },
+          ],
+        });
+      }
+    }
+
+    return list;
+  }
+
+  /**
+   * Resolves the active WhatsApp Business Account (WABA) ID and phone-number ID.
+   * Priority: Server environment variables (WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_BUSINESS_ACCOUNT_ID)
+   * fallback to Firestore Coexistence configuration record (settings/whatsapp_coexistence).
    * Called lazily on first use and cached for the request lifecycle.
-   * Never falls back to legacy environment variables or hardcoded IDs.
    */
   private async resolveCoexistenceConfig(): Promise<void> {
     if (this._coexistenceResolved) return;
     this._coexistenceResolved = true;
 
+    // Check server environment variables first
+    const envPhoneId = process.env.WHATSAPP_PHONE_NUMBER_ID?.trim();
+    const envWabaId = process.env.WHATSAPP_BUSINESS_ACCOUNT_ID?.trim();
+    if (envPhoneId) this.phoneNumberId = envPhoneId;
+    if (envWabaId) this.businessAccountId = envWabaId;
+
     try {
       const coexDoc = await getDoc(doc(db, "settings", "whatsapp_coexistence"));
 
       if (!coexDoc.exists()) {
-        this._coexistenceError =
-          "WhatsApp Business App is not connected. Please connect your WhatsApp Business number in Settings.";
-        this.phoneNumberId = undefined;
-        this.businessAccountId = undefined;
-        return;
+        if (!this.phoneNumberId || !this.businessAccountId) {
+          this._coexistenceError =
+            "WhatsApp Business App is not connected. Please connect your WhatsApp Business number in Settings.";
+          this.phoneNumberId = this.phoneNumberId || undefined;
+          this.businessAccountId = this.businessAccountId || undefined;
+          return;
+        }
+      } else {
+        const data = coexDoc.data() as Partial<WhatsAppCoexistenceAccount>;
+
+        if (data.status !== "CONNECTED" && (!this.phoneNumberId || !this.businessAccountId)) {
+          this._coexistenceError =
+            "WhatsApp Business App is disconnected. Please reconnect in Settings.";
+          this.phoneNumberId = undefined;
+          this.businessAccountId = undefined;
+          return;
+        }
+
+        // Firestore values serve as defaults when environment variables are not set
+        if (!this.businessAccountId && data.wabaId) {
+          this.businessAccountId = data.wabaId;
+        }
+        if (!this.phoneNumberId && data.phoneNumberId) {
+          this.phoneNumberId = data.phoneNumberId;
+        }
+        this.businessNumber = data.businessPhoneNumber || undefined;
       }
-
-      const data = coexDoc.data() as Partial<WhatsAppCoexistenceAccount>;
-
-      if (data.status !== "CONNECTED") {
-        this._coexistenceError =
-          "WhatsApp Business App is disconnected. Please reconnect in Settings.";
-        this.phoneNumberId = undefined;
-        this.businessAccountId = undefined;
-        return;
-      }
-
-      if (!data.wabaId) {
-        this._coexistenceError =
-          "WhatsApp Business Account ID is missing from the connection configuration. Please reconnect.";
-        this.phoneNumberId = undefined;
-        this.businessAccountId = undefined;
-        return;
-      }
-
-      this.businessAccountId = data.wabaId;
-      this.phoneNumberId = data.phoneNumberId || undefined;
-      this.businessNumber = data.businessPhoneNumber || undefined;
       this._coexistenceError = undefined;
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Failed to read WhatsApp configuration";
-      console.error("[CloudProvider] Coexistence config resolution error:", msg);
-      this._coexistenceError = "WhatsApp configuration could not be loaded: " + msg;
-      this.phoneNumberId = undefined;
-      this.businessAccountId = undefined;
+      if (!this.phoneNumberId || !this.businessAccountId) {
+        const msg = err instanceof Error ? err.message : "Failed to read WhatsApp configuration";
+        console.error("[CloudProvider] Coexistence config resolution error:", msg);
+        this._coexistenceError = "WhatsApp configuration could not be loaded: " + msg;
+        this.phoneNumberId = undefined;
+        this.businessAccountId = undefined;
+      }
     }
   }
 
@@ -210,6 +376,7 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
     const timeoutId = setTimeout(() => controller.abort(), 10000);
 
     try {
+      await this.logAuthDebugInfo();
       const url = `https://graph.facebook.com/${this.apiVersion}/${this.phoneNumberId}/messages`;
 
       const response = await fetch(url, {
@@ -374,6 +541,9 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
 
     const bodyParamCount = bodyParameters.length;
 
+    // Prepend IMAGE header component if required by template definition or Meta Graph API
+    let finalComponents = await this.buildTemplateComponents(templateName, components);
+
     if (templateName === "3p_direct_integration_test_template") {
       if (bodyParamCount !== 0) {
         return {
@@ -383,7 +553,7 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
         };
       }
       // Guarantee zero components sent for 3p_direct_integration_test_template
-      components = undefined;
+      finalComponents = [];
     } else if (templateName === "blow_salon_invoices") {
       if (bodyParamCount !== 8) {
         return {
@@ -425,6 +595,7 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
     const timeoutId = setTimeout(() => controller.abort(), 10000);
 
     try {
+      await this.logAuthDebugInfo();
       const url = `https://graph.facebook.com/${this.apiVersion}/${this.phoneNumberId}/messages`;
 
       const payload: Record<string, unknown> = {
@@ -435,7 +606,7 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
         template: {
           name: templateName,
           language: { code: lang },
-          ...(components && components.length > 0 ? { components } : {}),
+          ...(finalComponents && finalComponents.length > 0 ? { components: finalComponents } : {}),
         },
       };
 
