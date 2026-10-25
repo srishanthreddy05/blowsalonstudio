@@ -204,6 +204,7 @@ export async function POST(
           // Add record to unified whatsapp_messages audit collection
           const auditRecord: Omit<WhatsAppMessageRecord, "id"> = {
             messageType: "MARKETING_CAMPAIGN",
+            category: "MARKETING",
             campaignId: id,
             campaignName: campaign.name,
             customerId: rec.customerId || null,
@@ -215,6 +216,8 @@ export async function POST(
             status: "SENT",
             provider: provider.providerType,
             messageId: sendResult.messageId || null,
+            costPerMessage: 0.90,
+            estimatedCharge: 0.90,
             sentAt: nowIso,
             createdAt: nowIso,
             updatedAt: nowIso,
@@ -234,6 +237,7 @@ export async function POST(
 
           const auditRecord: Omit<WhatsAppMessageRecord, "id"> = {
             messageType: "MARKETING_CAMPAIGN",
+            category: "MARKETING",
             campaignId: id,
             campaignName: campaign.name,
             customerId: rec.customerId || null,
@@ -246,6 +250,8 @@ export async function POST(
             provider: provider.providerType,
             errorMessage: sendResult.error || "Message delivery failed",
             errorCode: sendResult.errorCode || null,
+            costPerMessage: 0.90,
+            estimatedCharge: 0,
             createdAt: nowIso,
             updatedAt: nowIso,
           };

@@ -3,7 +3,6 @@ import type {
   WhatsAppCampaignRecipient,
   WhatsAppCampaignStatus,
 } from "@/types/whatsapp";
-import { normalizeCount } from "@/lib/utils/firestore";
 
 export interface CampaignCalculatedStats {
   totalRecipients: number;
@@ -121,7 +120,7 @@ export function applyStatsToCampaign(
  */
 export async function getCampaignStats(
   campaignId: string,
-  firestoreDb?: any
+  firestoreDb?: import("firebase/firestore").Firestore
 ): Promise<CampaignCalculatedStats> {
   const { db } = await import("@/lib/firebase");
   const { collection, getDocs, query, where } = await import("firebase/firestore");

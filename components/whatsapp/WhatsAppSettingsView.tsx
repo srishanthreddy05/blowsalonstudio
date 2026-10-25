@@ -10,11 +10,20 @@ import {
   Loader2,
   ExternalLink,
   Unlink,
-  Server,
+  Sparkles,
+  CreditCard,
+  Activity,
+  Sliders,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import type { WhatsAppStatusResponse, WhatsAppCoexistenceAccount } from "@/types/whatsapp";
 import * as whatsappService from "@/services/whatsapp";
 import { launchWhatsAppBusinessOnboarding, loadFacebookSdk } from "@/lib/whatsapp/embeddedSignup";
+import { TemplatesView } from "@/components/whatsapp/TemplatesView";
+import { BillingUsageView } from "@/components/whatsapp/BillingUsageView";
+import { AccountOverviewView } from "@/components/whatsapp/AccountOverviewView";
+import { InsightsHealthView } from "@/components/whatsapp/InsightsHealthView";
 import { toast } from "react-hot-toast";
 
 function WhatsAppBrandIcon({ size = 20, className = "" }: { size?: number; className?: string }) {
@@ -24,6 +33,8 @@ function WhatsAppBrandIcon({ size = 20, className = "" }: { size?: number; class
     </svg>
   );
 }
+
+export type SettingsSubSection = "CONNECTION" | "TEMPLATES" | "USAGE" | "AUTOMATION";
 
 interface WhatsAppSettingsViewProps {
   statusData: WhatsAppStatusResponse | null;
@@ -44,11 +55,13 @@ export function WhatsAppSettingsView({
   onToggleAutoSend,
   savingSettings = false,
 }: WhatsAppSettingsViewProps) {
+  const [subSection, setSubSection] = useState<SettingsSubSection>("CONNECTION");
   const [previewOpen, setPreviewOpen] = useState(false);
   const [coexistenceConnecting, setCoexistenceConnecting] = useState(false);
   const [coexistenceDisconnecting, setCoexistenceDisconnecting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [httpsRequired, setHttpsRequired] = useState(false);
+  const [showOverviewHealth, setShowOverviewHealth] = useState(false);
 
   const coexistence: WhatsAppCoexistenceAccount | null = statusData?.coexistence || null;
   const isCoexistenceConnected = coexistence?.status === "CONNECTED";
@@ -60,20 +73,11 @@ export function WhatsAppSettingsView({
     });
   }, []);
 
-  /**
-   * Triggers Meta Facebook Login for Business with Embedded Signup
-   * Using Configuration ID: 1534814405338722
-   * Feature: whatsapp_business_app_onboarding (sessionInfoVersion: "3")
-   * 
-   * CRITICAL: Called directly from user click handler without awaiting async ops,
-   * preserving transient user activation in modern browsers.
-   */
   const handleConnectCoexistence = () => {
     setErrorMessage(null);
     setHttpsRequired(false);
     setCoexistenceConnecting(true);
 
-    // Call launch directly from the click event turn to preserve browser popup user gesture
     launchWhatsAppBusinessOnboarding()
       .then(async (result) => {
         if (!result.success) {
@@ -93,25 +97,16 @@ export function WhatsAppSettingsView({
           return;
         }
 
-        // STRICT CHECK: a WABA ID from Meta's Coexistence completion event is required.
-        // An OAuth code alone never counts as completed onboarding.
         if (!result.wabaId) {
           const incompleteErr =
             result.error ||
             "[Stage: Flow Incomplete] Meta onboarding did not return a WhatsApp Business Account ID. Nothing was saved. Please complete all popup steps and retry.";
-          console.warn("[WhatsAppSettings:Client] Incomplete onboarding: missing wabaId, aborting backend submission");
           setErrorMessage(incompleteErr);
           toast.error(incompleteErr);
           setCoexistenceConnecting(false);
           return;
         }
 
-        // 2. Submit onboarding authorization to dedicated backend endpoint
-        console.log(
-          `[WhatsAppSettings:Client] Submitting onboarding to backend: hasAuthCode=${Boolean(
-            result.code
-          )}, hasWabaId=${Boolean(result.wabaId)}, hasPhoneNumberId=${Boolean(result.phoneNumberId)}`
-        );
         toast.loading("Completing WhatsApp Business App connection...", { id: "coex-onboard" });
 
         const backendResult = await whatsappService.completeEmbeddedSignup({
@@ -121,24 +116,10 @@ export function WhatsAppSettingsView({
           sessionData: result.sessionData,
         });
 
-        console.log(
-          `[WhatsAppSettings:Client] Backend response received: success=${Boolean(
-            backendResult.success
-          )}, hasError=${Boolean(backendResult.error)}`
-        );
-
         if (!backendResult.success) {
           const errorDetail = backendResult.error || "Meta could not verify the WhatsApp Business account.";
           setErrorMessage(errorDetail);
           toast.error(errorDetail, { id: "coex-onboard" });
-          setCoexistenceConnecting(false);
-          return;
-        }
-
-        if (!backendResult.coexistence?.wabaId) {
-          const missingWabaErr = "[Stage: WABA Resolution Failed] Meta onboarding completed, but no valid WhatsApp Business Account ID was returned.";
-          setErrorMessage(missingWabaErr);
-          toast.error(missingWabaErr, { id: "coex-onboard" });
           setCoexistenceConnecting(false);
           return;
         }
@@ -156,10 +137,6 @@ export function WhatsAppSettingsView({
       });
   };
 
-  /**
-   * Disconnects the coexistence onboarding state from Firestore
-   * (Does not touch existing production environment variables)
-   */
   const handleDisconnectCoexistence = async () => {
     if (!window.confirm("Disconnect WhatsApp Business App coexistence from BLOW SALON?")) {
       return;
@@ -181,322 +158,421 @@ export function WhatsAppSettingsView({
   };
 
   return (
-    <div className="space-y-6 max-w-5xl">
-      {/* 1. WhatsApp Business Connection (Single Authoritative Card) */}
-      <div className="p-6 rounded-3xl bg-[#FFFFFF] border border-[#E0E4DD] shadow-xs space-y-5">
-        <div className="flex items-center justify-between border-b border-[#E0E4DD] pb-4">
-          <div className="flex items-center gap-3">
-            <div className="grid size-11 place-items-center rounded-2xl bg-[#E8ECE5] text-[#5F7A62] border border-[#CCD2C8]">
-              <Smartphone size={22} />
-            </div>
-            <div>
-              <h3 className="font-serif text-base font-bold text-[#2F352F]">
-                WhatsApp Business Connection
-              </h3>
-              <p className="text-xs text-[#747A72]">
-                WhatsApp Business App ↔ Cloud API Coexistence
-              </p>
-            </div>
-          </div>
+    <div className="space-y-6">
+      {/* ── Settings Sub-Navigation ─────────────────────────────────────────── */}
+      <div className="flex items-center gap-1 p-1 rounded-2xl bg-[#F7F7F4] border border-[#E0E4DD] w-full sm:w-fit overflow-x-auto">
+        {/* 1. Connection */}
+        <button
+          type="button"
+          onClick={() => setSubSection("CONNECTION")}
+          className={`flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition cursor-pointer ${
+            subSection === "CONNECTION"
+              ? "bg-[#FFFFFF] text-[#2F352F] shadow-xs border border-[#CCD2C8]"
+              : "text-[#747A72] hover:text-[#2F352F]"
+          }`}
+        >
+          <Smartphone size={14} className={subSection === "CONNECTION" ? "text-[#5F7A62]" : ""} />
+          <span>Connection</span>
+        </button>
 
-          {/* Status Badge */}
-          {coexistenceConnecting ? (
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border bg-[#FFF8E6] text-[#A67514] border-[#F3E2B8]">
-              <Loader2 size={12} className="animate-spin text-[#A67514]" />
-              Connecting...
-            </span>
-          ) : isCoexistenceConnected ? (
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border bg-[#E8ECE5] text-[#5F7A62] border-[#5F7A62]/30">
-              <span className="size-1.5 rounded-full bg-[#5F7A62]" />
-              Connected
-            </span>
-          ) : (
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border bg-[#FBEBEB] text-[#B55B5B] border-[#F8D7D7]">
-              <span className="size-1.5 rounded-full bg-[#B55B5B]" />
-              Not Connected
-            </span>
-          )}
-        </div>
+        {/* 2. Templates */}
+        <button
+          type="button"
+          onClick={() => setSubSection("TEMPLATES")}
+          className={`flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition cursor-pointer ${
+            subSection === "TEMPLATES"
+              ? "bg-[#FFFFFF] text-[#2F352F] shadow-xs border border-[#CCD2C8]"
+              : "text-[#747A72] hover:text-[#2F352F]"
+          }`}
+        >
+          <Sparkles size={14} className={subSection === "TEMPLATES" ? "text-[#5F7A62]" : ""} />
+          <span>Templates</span>
+        </button>
 
-        {/* Informational description */}
-        <p className="text-xs text-[#747A72] leading-relaxed">
-          Link your salon&apos;s active WhatsApp Business mobile or desktop app to BLOW SALON ERP.
-          With Meta Coexistence, you can continue chatting directly with clients from your mobile device
-          while the ERP dispatches official receipts, automated reminders, and marketing campaigns simultaneously.
-        </p>
+        {/* 3. Usage */}
+        <button
+          type="button"
+          onClick={() => setSubSection("USAGE")}
+          className={`flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition cursor-pointer ${
+            subSection === "USAGE"
+              ? "bg-[#FFFFFF] text-[#2F352F] shadow-xs border border-[#CCD2C8]"
+              : "text-[#747A72] hover:text-[#2F352F]"
+          }`}
+        >
+          <Receipt size={14} className={subSection === "USAGE" ? "text-[#5F7A62]" : ""} />
+          <span>Usage</span>
+        </button>
 
-        {/* HTTPS Required Notice (development-only guard) */}
-        {httpsRequired && (
-          <div className="p-4 rounded-2xl bg-[#FFF8E6] border border-[#F3E2B8] flex items-start gap-3">
-            <span className="text-lg shrink-0 mt-0.5">🔒</span>
-            <div className="flex-1 space-y-1.5">
-              <p className="text-xs font-bold text-[#7A5C0A]">HTTPS Required for Meta Embedded Signup</p>
-              <p className="text-[11px] text-[#8A6B1A] leading-relaxed">
-                Meta enforces HTTPS for Facebook Login. This works automatically in production.
-                For local testing, expose your dev server over HTTPS using{" "}
-                <strong>ngrok</strong>:
-              </p>
-              <div className="bg-[#FFFBF0] border border-[#EDD98A] rounded-xl px-3 py-2 font-mono text-[11px] text-[#5C4A0A] select-all">
-                ngrok http 3000
-              </div>
-              <p className="text-[11px] text-[#8A6B1A]">
-                Open the <strong>https://</strong> URL ngrok provides, then click the button again.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setHttpsRequired(false)}
-              className="text-xs text-[#7A5C0A] font-bold hover:underline cursor-pointer shrink-0"
-            >
-              Dismiss
-            </button>
-          </div>
-        )}
+        {/* 4. Automation Preferences */}
+        <button
+          type="button"
+          onClick={() => setSubSection("AUTOMATION")}
+          className={`flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition cursor-pointer ${
+            subSection === "AUTOMATION"
+              ? "bg-[#FFFFFF] text-[#2F352F] shadow-xs border border-[#CCD2C8]"
+              : "text-[#747A72] hover:text-[#2F352F]"
+          }`}
+        >
+          <Sliders size={14} className={subSection === "AUTOMATION" ? "text-[#5F7A62]" : ""} />
+          <span>Automation Preferences</span>
+        </button>
+      </div>
 
-        {/* Error notification if any */}
-        {errorMessage && (
-          <div className="p-4 rounded-2xl bg-[#FBEBEB] border border-[#F8D7D7] flex items-start gap-3">
-            <AlertCircle size={18} className="text-[#B55B5B] shrink-0 mt-0.5" />
-            <div className="flex-1 space-y-1">
-              <p className="text-xs font-semibold text-[#8B3E3E]">Connection Notice</p>
-              <div className="text-[11px] text-[#A44E4E] whitespace-pre-line leading-relaxed">
-                {errorMessage}
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => setErrorMessage(null)}
-              className="text-xs text-[#8B3E3E] font-bold hover:underline cursor-pointer"
-            >
-              Dismiss
-            </button>
-          </div>
-        )}
-
-        {/* Connection Details if CONNECTED */}
-        {isCoexistenceConnected && coexistence && (
-          <div className="space-y-3">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div className="p-4 rounded-2xl bg-[#F7F7F4] border border-[#E0E4DD] space-y-1">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-[#747A72] block">
-                  Business Number
-                </span>
-                <span className="font-mono text-xs font-bold text-[#2F352F]">
-                  {coexistence.businessPhoneNumber || "Verified WhatsApp Business"}
-                </span>
+      {/* ── 1. CONNECTION SUB-SECTION ────────────────────────────────────────── */}
+      {subSection === "CONNECTION" && (
+        <div className="space-y-6 max-w-5xl animate-in fade-in duration-150">
+          {/* WhatsApp Business Connection Card */}
+          <div className="p-6 rounded-3xl bg-[#FFFFFF] border border-[#E0E4DD] shadow-xs space-y-5">
+            <div className="flex items-center justify-between border-b border-[#E0E4DD] pb-4">
+              <div className="flex items-center gap-3">
+                <div className="grid size-11 place-items-center rounded-2xl bg-[#E8ECE5] text-[#5F7A62] border border-[#CCD2C8]">
+                  <Smartphone size={22} />
+                </div>
+                <div>
+                  <h3 className="font-serif text-base font-bold text-[#2F352F]">
+                    WhatsApp Business Connection
+                  </h3>
+                  <p className="text-xs text-[#747A72]">
+                    WhatsApp Business App ↔ Cloud API Coexistence
+                  </p>
+                </div>
               </div>
 
-              <div className="p-4 rounded-2xl bg-[#F7F7F4] border border-[#E0E4DD] space-y-1">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-[#747A72] block">
-                  WABA
+              {/* Status Badge */}
+              {coexistenceConnecting ? (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border bg-[#FFF8E6] text-[#A67514] border-[#F3E2B8]">
+                  <Loader2 size={12} className="animate-spin text-[#A67514]" />
+                  Connecting...
                 </span>
-                <span className="font-mono text-xs font-bold text-[#5F7A62] flex items-center gap-1.5">
-                  <CheckCircle2 size={13} className="text-[#5F7A62]" />
+              ) : isCoexistenceConnected ? (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border bg-[#E8ECE5] text-[#5F7A62] border-[#5F7A62]/30">
+                  <span className="size-1.5 rounded-full bg-[#5F7A62]" />
                   Connected
                 </span>
-              </div>
-
-              <div className="p-4 rounded-2xl bg-[#F7F7F4] border border-[#E0E4DD] space-y-1">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-[#747A72] block">
-                  Feature Type
-                </span>
-                <span className="font-mono text-[11px] font-semibold text-[#2F352F] truncate block">
-                  Coexistence Active
-                </span>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="p-4 rounded-2xl bg-[#F7F7F4] border border-[#E0E4DD] space-y-1">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-[#747A72] block">
-                  Meta Graph API Version
-                </span>
-                <span className="font-mono text-sm font-bold text-[#2F352F]">
-                  v21.0 (Cloud API)
-                </span>
-              </div>
-
-              <div className="p-4 rounded-2xl bg-[#E8ECE5]/30 border border-[#CCD2C8] flex items-center gap-2">
-                <ShieldCheck size={16} className="text-[#5F7A62]" />
-                <span className="text-xs text-[#5F7A62] font-semibold">
-                  Secure Server-Side Meta Authentication Active
-                </span>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Action Controls */}
-        <div className="pt-2 flex flex-wrap items-center gap-3">
-          <button
-            type="button"
-            disabled={coexistenceConnecting || coexistenceDisconnecting}
-            onClick={handleConnectCoexistence}
-            className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl text-xs font-bold transition-all shadow-xs cursor-pointer disabled:opacity-50 ${
-              isCoexistenceConnected
-                ? "bg-[#F7F7F4] text-[#2F352F] border border-[#CCD2C8] hover:bg-[#E8ECE5]"
-                : "bg-[#5F7A62] text-white hover:bg-[#4E6651]"
-            }`}
-          >
-            {coexistenceConnecting ? (
-              <>
-                <Loader2 size={15} className="animate-spin" />
-                <span>Connecting to Meta...</span>
-              </>
-            ) : (
-              <>
-                <WhatsAppBrandIcon size={16} />
-                <span>
-                  {isCoexistenceConnected
-                    ? "Reconnect WhatsApp Business App"
-                    : "Connect WhatsApp Business App"}
-                </span>
-                <ExternalLink size={13} className="opacity-70" />
-              </>
-            )}
-          </button>
-
-          {isCoexistenceConnected && (
-            <button
-              type="button"
-              disabled={coexistenceDisconnecting}
-              onClick={handleDisconnectCoexistence}
-              className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-2xl text-xs font-bold text-[#B55B5B] hover:bg-[#FBEBEB] border border-transparent hover:border-[#F8D7D7] transition-colors cursor-pointer disabled:opacity-50"
-            >
-              {coexistenceDisconnecting ? (
-                <Loader2 size={14} className="animate-spin" />
               ) : (
-                <Unlink size={14} />
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border bg-[#FBEBEB] text-[#B55B5B] border-[#F8D7D7]">
+                  <span className="size-1.5 rounded-full bg-[#B55B5B]" />
+                  Not Connected
+                </span>
               )}
-              <span>Disconnect</span>
-            </button>
-          )}
-
-          <button
-            type="button"
-            onClick={onRefresh}
-            className="text-xs font-bold text-[#5F7A62] hover:underline cursor-pointer ml-auto"
-          >
-            Check Status
-          </button>
-
-          <span className="text-[10px] text-[#A0A69D] font-mono">
-            Config ID: 1534814405338722
-          </span>
-        </div>
-      </div>
-
-      {/* 2. Master WhatsApp Kill-Switch & Automation Toggles */}
-      <div className="p-6 rounded-3xl bg-[#FFFFFF] border border-[#E0E4DD] shadow-xs space-y-5">
-        <h3 className="font-serif text-base font-bold text-[#2F352F] border-b border-[#E0E4DD] pb-3">
-          Messaging Controls
-        </h3>
-
-        <div className="space-y-4">
-          {/* Master Switch */}
-          <div className="flex items-center justify-between p-4 rounded-2xl bg-[#F7F7F4] border border-[#E0E4DD]">
-            <div className="space-y-0.5">
-              <span className="text-xs font-bold text-[#2F352F] block">
-                Master WhatsApp Switch
-              </span>
-              <p className="text-[11px] text-[#747A72]">
-                Globally enables or halts all WhatsApp dispatches (inbox, invoices, campaigns, retries).
-              </p>
             </div>
-            <button
-              type="button"
-              disabled={savingSettings}
-              onClick={() => onToggleMasterSwitch(!whatsappEnabled)}
-              className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full border-2 transition-colors cursor-pointer disabled:opacity-50 ${
-                whatsappEnabled
-                  ? "border-[#5F7A62] bg-[#5F7A62]"
-                  : "border-[#CCD2C8] bg-[#CCD2C8]"
-              }`}
-            >
-              <span
-                className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-xs transition-transform ${
-                  whatsappEnabled ? "translate-x-5" : "translate-x-0.5"
-                }`}
-              />
-            </button>
-          </div>
 
-          {/* Auto-send Invoice Toggle */}
-          <div className="flex items-center justify-between p-4 rounded-2xl bg-[#F7F7F4] border border-[#E0E4DD]">
-            <div className="space-y-0.5">
-              <span className="text-xs font-bold text-[#2F352F] block">
-                Automatic Invoice WhatsApp Receipts
-              </span>
-              <p className="text-[11px] text-[#747A72]">
-                Automatically dispatches the official invoice template when saving an invoice in Billing.
-              </p>
-            </div>
-            <button
-              type="button"
-              disabled={savingSettings}
-              onClick={() => onToggleAutoSend(!autoSendInvoice)}
-              className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full border-2 transition-colors cursor-pointer disabled:opacity-50 ${
-                autoSendInvoice
-                  ? "border-[#5F7A62] bg-[#5F7A62]"
-                  : "border-[#CCD2C8] bg-[#CCD2C8]"
-              }`}
-            >
-              <span
-                className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-xs transition-transform ${
-                  autoSendInvoice ? "translate-x-5" : "translate-x-0.5"
-                }`}
-              />
-            </button>
-          </div>
-        </div>
-      </div>
+            <p className="text-xs text-[#747A72] leading-relaxed">
+              Link your salon&apos;s active WhatsApp Business mobile or desktop app to BLOW SALON ERP.
+              With Meta Coexistence, you can continue chatting directly with clients from your mobile device
+              while the ERP dispatches official receipts, automated reminders, and marketing campaigns simultaneously.
+            </p>
 
-      {/* 3. Invoice Receipt Template Preview */}
-      <div className="p-6 rounded-3xl bg-[#FFFFFF] border border-[#E0E4DD] shadow-xs space-y-4">
-        <div className="flex items-center justify-between border-b border-[#E0E4DD] pb-3">
-          <h3 className="font-serif text-base font-bold text-[#2F352F] flex items-center gap-2">
-            <Receipt size={16} className="text-[#5F7A62]" />
-            Invoice Receipt Preview
-          </h3>
-          <button
-            type="button"
-            onClick={() => setPreviewOpen(!previewOpen)}
-            className="text-xs font-bold text-[#5F7A62] hover:underline cursor-pointer"
-          >
-            {previewOpen ? "Hide Preview" : "Show Template Preview"}
-          </button>
-        </div>
-
-        {previewOpen && (
-          <div className="p-4 rounded-2xl bg-[#E8ECE5]/30 border border-[#CCD2C8] space-y-2 animate-in fade-in">
-            <div className="bg-[#FFFFFF] p-4 rounded-2xl border border-[#E0E4DD] text-xs space-y-2 text-[#292D29] max-w-md">
-              <p className="font-semibold text-[#2F352F]">Hello Customer 👋</p>
-              <p className="text-[11px] text-[#747A72]">
-                Thank you for visiting <strong className="text-[#2F352F]">BLOW SALON</strong>.
-              </p>
-              <div className="text-[11px] bg-[#F7F7F4] p-3 rounded-xl border border-[#E0E4DD] space-y-2">
-                <div className="flex justify-between font-mono text-[11px] pb-1 border-b border-[#E0E4DD]">
-                  <span>Invoice: <strong>INV-1001</strong></span>
-                  <span>Date: <strong>01 Oct 2026</strong></span>
+            {httpsRequired && (
+              <div className="p-4 rounded-2xl bg-[#FFF8E6] border border-[#F3E2B8] flex items-start gap-3">
+                <span className="text-lg shrink-0 mt-0.5">🔒</span>
+                <div className="flex-1 space-y-1.5">
+                  <p className="text-xs font-bold text-[#7A5C0A]">HTTPS Required for Meta Embedded Signup</p>
+                  <p className="text-[11px] text-[#8A6B1A] leading-relaxed">
+                    Meta enforces HTTPS for Facebook Login. This works automatically in production.
+                  </p>
                 </div>
-                <div className="space-y-1">
-                  <div className="flex justify-between">
-                    <span>Hair Styling</span>
-                    <span className="font-mono">₹1,500</span>
+                <button
+                  type="button"
+                  onClick={() => setHttpsRequired(false)}
+                  className="text-xs text-[#7A5C0A] font-bold hover:underline cursor-pointer shrink-0"
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
+
+            {errorMessage && (
+              <div className="p-4 rounded-2xl bg-[#FBEBEB] border border-[#F8D7D7] flex items-start gap-3">
+                <AlertCircle size={18} className="text-[#B55B5B] shrink-0 mt-0.5" />
+                <div className="flex-1 space-y-1">
+                  <p className="text-xs font-semibold text-[#8B3E3E]">Connection Notice</p>
+                  <div className="text-[11px] text-[#A44E4E] whitespace-pre-line leading-relaxed">
+                    {errorMessage}
                   </div>
                 </div>
-                <div className="pt-1 border-t border-[#E0E4DD] flex justify-between font-bold text-[#2F352F]">
-                  <span>Total:</span>
-                  <span className="font-mono text-xs">₹1,500</span>
+                <button
+                  type="button"
+                  onClick={() => setErrorMessage(null)}
+                  className="text-xs text-[#8B3E3E] font-bold hover:underline cursor-pointer"
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
+
+            {isCoexistenceConnected && coexistence && (
+              <div className="space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="p-4 rounded-2xl bg-[#F7F7F4] border border-[#E0E4DD] space-y-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-[#747A72] block">
+                      Business Number
+                    </span>
+                    <span className="font-mono text-xs font-bold text-[#2F352F]">
+                      {coexistence.businessPhoneNumber || "Verified WhatsApp Business"}
+                    </span>
+                  </div>
+
+                  <div className="p-4 rounded-2xl bg-[#F7F7F4] border border-[#E0E4DD] space-y-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-[#747A72] block">
+                      WABA ID
+                    </span>
+                    <span className="font-mono text-xs font-bold text-[#5F7A62] flex items-center gap-1.5">
+                      <CheckCircle2 size={13} className="text-[#5F7A62]" />
+                      Connected
+                    </span>
+                  </div>
+
+                  <div className="p-4 rounded-2xl bg-[#F7F7F4] border border-[#E0E4DD] space-y-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-[#747A72] block">
+                      Feature Type
+                    </span>
+                    <span className="font-mono text-[11px] font-semibold text-[#2F352F] truncate block">
+                      Coexistence Active
+                    </span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="p-4 rounded-2xl bg-[#F7F7F4] border border-[#E0E4DD] space-y-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-[#747A72] block">
+                      Meta Graph API Version
+                    </span>
+                    <span className="font-mono text-sm font-bold text-[#2F352F]">
+                      v21.0 (Cloud API)
+                    </span>
+                  </div>
+
+                  <div className="p-4 rounded-2xl bg-[#E8ECE5]/30 border border-[#CCD2C8] flex items-center gap-2">
+                    <ShieldCheck size={16} className="text-[#5F7A62]" />
+                    <span className="text-xs text-[#5F7A62] font-semibold">
+                      Secure Server-Side Meta Authentication Active
+                    </span>
+                  </div>
                 </div>
               </div>
-              <p className="text-[11px] text-[#747A72]">
-                We look forward to seeing you again! ✨
-              </p>
+            )}
+
+            <div className="pt-2 flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                disabled={coexistenceConnecting || coexistenceDisconnecting}
+                onClick={handleConnectCoexistence}
+                className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl text-xs font-bold transition-all shadow-xs cursor-pointer disabled:opacity-50 ${
+                  isCoexistenceConnected
+                    ? "bg-[#F7F7F4] text-[#2F352F] border border-[#CCD2C8] hover:bg-[#E8ECE5]"
+                    : "bg-[#5F7A62] text-white hover:bg-[#4E6651]"
+                }`}
+              >
+                {coexistenceConnecting ? (
+                  <>
+                    <Loader2 size={15} className="animate-spin" />
+                    <span>Connecting to Meta...</span>
+                  </>
+                ) : (
+                  <>
+                    <WhatsAppBrandIcon size={16} />
+                    <span>
+                      {isCoexistenceConnected
+                        ? "Reconnect WhatsApp Business App"
+                        : "Connect WhatsApp Business App"}
+                    </span>
+                    <ExternalLink size={13} className="opacity-70" />
+                  </>
+                )}
+              </button>
+
+              {isCoexistenceConnected && (
+                <button
+                  type="button"
+                  disabled={coexistenceDisconnecting}
+                  onClick={handleDisconnectCoexistence}
+                  className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-2xl text-xs font-bold text-[#B55B5B] hover:bg-[#FBEBEB] border border-transparent hover:border-[#F8D7D7] transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  {coexistenceDisconnecting ? (
+                    <Loader2 size={14} className="animate-spin" />
+                  ) : (
+                    <Unlink size={14} />
+                  )}
+                  <span>Disconnect</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={onRefresh}
+                className="text-xs font-bold text-[#5F7A62] hover:underline cursor-pointer ml-auto"
+              >
+                Check Status
+              </button>
             </div>
           </div>
-        )}
-      </div>
+
+          {/* Master Messaging Switch Card */}
+          <div className="p-6 rounded-3xl bg-[#FFFFFF] border border-[#E0E4DD] shadow-xs space-y-4">
+            <h3 className="font-serif text-base font-bold text-[#2F352F] border-b border-[#E0E4DD] pb-3">
+              Global Messaging Kill-Switch
+            </h3>
+
+            <div className="flex items-center justify-between p-4 rounded-2xl bg-[#F7F7F4] border border-[#E0E4DD]">
+              <div className="space-y-0.5">
+                <span className="text-xs font-bold text-[#2F352F] block">
+                  Master WhatsApp Switch
+                </span>
+                <p className="text-[11px] text-[#747A72]">
+                  Globally enables or pauses all outbound WhatsApp messages (invoices, campaigns, retries).
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={savingSettings}
+                onClick={() => onToggleMasterSwitch(!whatsappEnabled)}
+                className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full border-2 transition-colors cursor-pointer disabled:opacity-50 ${
+                  whatsappEnabled
+                    ? "border-[#5F7A62] bg-[#5F7A62]"
+                    : "border-[#CCD2C8] bg-[#CCD2C8]"
+                }`}
+              >
+                <span
+                  className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-xs transition-transform ${
+                    whatsappEnabled ? "translate-x-5" : "translate-x-0.5"
+                  }`}
+                />
+              </button>
+            </div>
+          </div>
+
+          {/* Expandable Account Overview & Insights Panel */}
+          <div className="p-6 rounded-3xl bg-[#FFFFFF] border border-[#E0E4DD] shadow-xs space-y-4">
+            <div className="flex items-center justify-between border-b border-[#E0E4DD] pb-3">
+              <div>
+                <h3 className="font-serif text-base font-bold text-[#2F352F]">
+                  Meta Account Details & System Health
+                </h3>
+                <p className="text-xs text-[#747A72]">
+                  WABA throughput tier, verification status, and webhook diagnostics.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowOverviewHealth(!showOverviewHealth)}
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border border-[#CCD2C8] bg-[#F7F7F4] hover:bg-[#E8ECE5] text-xs font-semibold text-[#2F352F] transition cursor-pointer"
+              >
+                <span>{showOverviewHealth ? "Hide Details" : "View Details"}</span>
+                {showOverviewHealth ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+              </button>
+            </div>
+
+            {showOverviewHealth && (
+              <div className="space-y-6 pt-2 animate-in fade-in">
+                <AccountOverviewView />
+                <InsightsHealthView />
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── 2. TEMPLATES SUB-SECTION ─────────────────────────────────────────── */}
+      {subSection === "TEMPLATES" && (
+        <div className="animate-in fade-in duration-150">
+          <TemplatesView whatsappEnabled={whatsappEnabled} />
+        </div>
+      )}
+
+      {/* ── 3. USAGE SUB-SECTION ─────────────────────────────────────────────── */}
+      {subSection === "USAGE" && (
+        <div className="animate-in fade-in duration-150">
+          <BillingUsageView />
+        </div>
+      )}
+
+      {/* ── 4. AUTOMATION PREFERENCES SUB-SECTION ─────────────────────────────── */}
+      {subSection === "AUTOMATION" && (
+        <div className="space-y-6 max-w-5xl animate-in fade-in duration-150">
+          <div className="p-6 rounded-3xl bg-[#FFFFFF] border border-[#E0E4DD] shadow-xs space-y-5">
+            <h3 className="font-serif text-base font-bold text-[#2F352F] border-b border-[#E0E4DD] pb-3">
+              Automation Rules & Triggers
+            </h3>
+
+            <div className="space-y-4">
+              <div className="flex items-center justify-between p-4 rounded-2xl bg-[#F7F7F4] border border-[#E0E4DD]">
+                <div className="space-y-0.5">
+                  <span className="text-xs font-bold text-[#2F352F] block">
+                    Automatic Invoice WhatsApp Receipts
+                  </span>
+                  <p className="text-[11px] text-[#747A72]">
+                    Automatically dispatches the official invoice template when saving an invoice in Billing.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  disabled={savingSettings}
+                  onClick={() => onToggleAutoSend(!autoSendInvoice)}
+                  className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full border-2 transition-colors cursor-pointer disabled:opacity-50 ${
+                    autoSendInvoice
+                      ? "border-[#5F7A62] bg-[#5F7A62]"
+                      : "border-[#CCD2C8] bg-[#CCD2C8]"
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-xs transition-transform ${
+                      autoSendInvoice ? "translate-x-5" : "translate-x-0.5"
+                    }`}
+                  />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Invoice Receipt Template Preview */}
+          <div className="p-6 rounded-3xl bg-[#FFFFFF] border border-[#E0E4DD] shadow-xs space-y-4">
+            <div className="flex items-center justify-between border-b border-[#E0E4DD] pb-3">
+              <h3 className="font-serif text-base font-bold text-[#2F352F] flex items-center gap-2">
+                <Receipt size={16} className="text-[#5F7A62]" />
+                Invoice Receipt Preview (Utility)
+              </h3>
+              <button
+                type="button"
+                onClick={() => setPreviewOpen(!previewOpen)}
+                className="text-xs font-bold text-[#5F7A62] hover:underline cursor-pointer"
+              >
+                {previewOpen ? "Hide Preview" : "Show Template Preview"}
+              </button>
+            </div>
+
+            {previewOpen && (
+              <div className="p-4 rounded-2xl bg-[#E8ECE5]/30 border border-[#CCD2C8] space-y-2 animate-in fade-in">
+                <div className="bg-[#FFFFFF] p-4 rounded-2xl border border-[#E0E4DD] text-xs space-y-2 text-[#292D29] max-w-md">
+                  <p className="font-semibold text-[#2F352F]">Hello Customer 👋</p>
+                  <p className="text-[11px] text-[#747A72]">
+                    Thank you for visiting <strong className="text-[#2F352F]">BLOW SALON</strong>.
+                  </p>
+                  <div className="text-[11px] bg-[#F7F7F4] p-3 rounded-xl border border-[#E0E4DD] space-y-2">
+                    <div className="flex justify-between font-mono text-[11px] pb-1 border-b border-[#E0E4DD]">
+                      <span>Invoice: <strong>INV-1001</strong></span>
+                      <span>Date: <strong>01 Oct 2026</strong></span>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="flex justify-between">
+                        <span>Hair Styling</span>
+                        <span className="font-mono">₹1,500</span>
+                      </div>
+                    </div>
+                    <div className="pt-1 border-t border-[#E0E4DD] flex justify-between font-bold text-[#2F352F]">
+                      <span>Total:</span>
+                      <span className="font-mono text-xs">₹1,500</span>
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-[#747A72]">
+                    We look forward to seeing you again! ✨
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

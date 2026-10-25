@@ -120,6 +120,14 @@ export async function POST(request: Request) {
 
                 const nowIso = new Date().toISOString();
 
+                const STATUS_RANK: Record<string, number> = {
+                  PENDING: 1,
+                  SENDING: 2,
+                  SENT: 3,
+                  DELIVERED: 4,
+                  READ: 5,
+                };
+
                 // 1. Update matching unified Firestore audit doc (whatsapp_messages)
                 try {
                   const qMsg = query(
@@ -131,27 +139,37 @@ export async function POST(request: Request) {
                   if (!msgSnap.empty) {
                     const docSnap = msgSnap.docs[0];
                     const msgData = docSnap.data();
-                    const updatePayload: Record<string, any> = {
-                      status: mappedStatus,
-                      updatedAt: nowIso,
-                    };
+                    const currentStatus = (msgData.status || "").toUpperCase();
+                    const currentRank = STATUS_RANK[currentStatus] || 0;
+                    const newRank = STATUS_RANK[mappedStatus] || 0;
 
-                    if (mappedStatus === "DELIVERED") {
-                      updatePayload.deliveredAt = nowIso;
-                    } else if (mappedStatus === "READ") {
-                      updatePayload.readAt = nowIso;
-                    } else if (mappedStatus === "FAILED") {
-                      const errorObj = statusObj.errors?.[0];
-                      updatePayload.errorMessage = errorObj?.message || errorObj?.title || "Message delivery failed";
-                      updatePayload.errorCode = "WHATSAPP_API_ERROR";
+                    // Idempotency: Do not downgrade READ to DELIVERED or SENT
+                    if (newRank > 0 && currentRank >= newRank && currentStatus !== mappedStatus) {
+                      // Skip status downgrade
+                    } else if (currentStatus === mappedStatus && (mappedStatus !== "FAILED")) {
+                      // Already in final status, idempotent no-op
+                    } else {
+                      const updatePayload: Record<string, any> = {
+                        status: mappedStatus,
+                        updatedAt: nowIso,
+                      };
+
+                      if (mappedStatus === "DELIVERED") {
+                        updatePayload.deliveredAt = msgData.deliveredAt || nowIso;
+                      } else if (mappedStatus === "READ") {
+                        updatePayload.deliveredAt = msgData.deliveredAt || nowIso;
+                        updatePayload.readAt = msgData.readAt || nowIso;
+                      } else if (mappedStatus === "FAILED") {
+                        const errorObj = statusObj.errors?.[0];
+                        updatePayload.errorMessage = errorObj?.message || errorObj?.title || "Message delivery failed";
+                        updatePayload.errorCode = "WHATSAPP_API_ERROR";
+                      }
+
+                      await updateDoc(
+                        doc(db, MESSAGES_COLLECTION, docSnap.id),
+                        sanitizeFirestoreDoc(updatePayload)
+                      );
                     }
-
-                    await updateDoc(
-                      doc(db, MESSAGES_COLLECTION, docSnap.id),
-                      sanitizeFirestoreDoc(updatePayload)
-                    );
-
-
                   }
                 } catch (msgErr) {
                   console.error(
@@ -172,28 +190,41 @@ export async function POST(request: Request) {
                     const recDoc = recSnap.docs[0];
                     const recData = recDoc.data();
                     const campaignId = recData.campaignId;
+                    const currentStatus = (recData.status || "").toUpperCase();
+                    const currentRank = STATUS_RANK[currentStatus] || 0;
+                    const newRank = STATUS_RANK[mappedStatus] || 0;
 
-                    const recUpdate: Record<string, any> = {
-                      status: mappedStatus,
-                      updatedAt: nowIso,
-                    };
+                    let shouldRecalculate = false;
 
-                    if (mappedStatus === "DELIVERED") {
-                      recUpdate.deliveredAt = nowIso;
-                    } else if (mappedStatus === "READ") {
-                      recUpdate.readAt = nowIso;
-                    } else if (mappedStatus === "FAILED") {
-                      const errorObj = statusObj.errors?.[0];
-                      recUpdate.errorMessage = errorObj?.message || errorObj?.title || "Delivery failed";
+                    if (newRank > 0 && currentRank >= newRank && currentStatus !== mappedStatus) {
+                      // Skip status downgrade
+                    } else if (currentStatus === mappedStatus && mappedStatus !== "FAILED") {
+                      // Idempotent duplicate event
+                    } else {
+                      shouldRecalculate = true;
+                      const recUpdate: Record<string, any> = {
+                        status: mappedStatus,
+                        updatedAt: nowIso,
+                      };
+
+                      if (mappedStatus === "DELIVERED") {
+                        recUpdate.deliveredAt = recData.deliveredAt || nowIso;
+                      } else if (mappedStatus === "READ") {
+                        recUpdate.deliveredAt = recData.deliveredAt || nowIso;
+                        recUpdate.readAt = recData.readAt || nowIso;
+                      } else if (mappedStatus === "FAILED") {
+                        const errorObj = statusObj.errors?.[0];
+                        recUpdate.errorMessage = errorObj?.message || errorObj?.title || "Delivery failed";
+                      }
+
+                      await updateDoc(
+                        doc(db, RECIPIENTS_COLLECTION, recDoc.id),
+                        sanitizeFirestoreDoc(recUpdate)
+                      );
                     }
 
-                    await updateDoc(
-                      doc(db, RECIPIENTS_COLLECTION, recDoc.id),
-                      sanitizeFirestoreDoc(recUpdate)
-                    );
-
                     // 3. Recalculate and Synchronize Campaign Counters from Recipient Records
-                    if (campaignId) {
+                    if (campaignId && shouldRecalculate) {
                       const allRecSnap = await getDocs(
                         query(collection(db, RECIPIENTS_COLLECTION), where("campaignId", "==", campaignId))
                       );

@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { X, User, Phone, CheckCircle2, AlertTriangle, ArrowUpRight, ChevronDown, ChevronUp, ShoppingBag, Receipt, Sparkles, CalendarDays } from "lucide-react";
+import { X, User, Phone, CheckCircle2, AlertTriangle, ArrowUpRight, ChevronDown, ChevronUp, ShoppingBag, Receipt, Sparkles, CalendarDays, MessageSquare, ShieldCheck, ShieldAlert } from "lucide-react";
+import { toast } from "react-hot-toast";
 import type { Customer } from "@/types/customer";
 import type { Invoice } from "@/types/invoice";
 import type { Appointment } from "@/types/appointment";
@@ -21,6 +22,33 @@ export default function CustomerDetailModal({ customer, onClose }: CustomerDetai
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [expandedInvoiceId, setExpandedInvoiceId] = useState<string | null>(null);
+  const [isOptedOut, setIsOptedOut] = useState<boolean>(customer.whatsappOptOut === true);
+  const [togglingOptOut, setTogglingOptOut] = useState(false);
+
+  const handleToggleOptOut = async (newVal: boolean) => {
+    if (!customer.id) return;
+    setTogglingOptOut(true);
+    try {
+      const res = await fetch("/api/whatsapp/customers/opt-out", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customerId: customer.id, optOut: newVal }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to update opt-out status");
+      setIsOptedOut(newVal);
+      toast.success(
+        newVal
+          ? "Customer opted out of WhatsApp marketing campaigns."
+          : "Customer opted into WhatsApp marketing campaigns."
+      );
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Error updating status";
+      toast.error(msg);
+    } finally {
+      setTogglingOptOut(false);
+    }
+  };
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -230,6 +258,55 @@ export default function CustomerDetailModal({ customer, onClose }: CustomerDetai
               </div>
             </div>
           )}
+
+          {/* WhatsApp Communication & Marketing Consent */}
+          <div className="rounded-2xl border border-[#E0E4DD] bg-[#F7F7F4] p-4 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className={`grid size-10 place-items-center rounded-2xl ${isOptedOut ? "bg-[#FBEBEB] text-[#B55B5B] border border-[#F8D7D7]" : "bg-[#E8ECE5] text-[#5F7A62] border border-[#5F7A62]/30"}`}>
+                <MessageSquare size={18} />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#747A72]">
+                    WhatsApp Marketing Consent
+                  </span>
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${isOptedOut ? "bg-[#FBEBEB] text-[#B55B5B] border-[#F8D7D7]" : "bg-[#E8ECE5] text-[#5F7A62] border-[#5F7A62]/30"}`}>
+                    {isOptedOut ? "Opted Out" : "Opted In (Eligible)"}
+                  </span>
+                </div>
+                <p className="text-xs text-[#747A72] mt-0.5">
+                  {isOptedOut
+                    ? "Client has opted out of promotional offers. Invoices and appointment reminders will still be delivered."
+                    : "Client receives promotional salon campaigns, festive discounts, and updates."}
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              disabled={togglingOptOut}
+              onClick={() => handleToggleOptOut(!isOptedOut)}
+              className={`px-3 py-1.5 rounded-xl border text-xs font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shrink-0 ${
+                isOptedOut
+                  ? "bg-[#5F7A62] hover:bg-[#4E6450] text-white border-transparent"
+                  : "bg-white hover:bg-[#FBEBEB] text-[#B55B5B] border-[#E0E4DD] hover:border-[#F8D7D7]"
+              }`}
+            >
+              {togglingOptOut ? (
+                <div className="size-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+              ) : isOptedOut ? (
+                <>
+                  <ShieldCheck size={14} />
+                  <span>Opt Back In</span>
+                </>
+              ) : (
+                <>
+                  <ShieldAlert size={14} />
+                  <span>Mark as Opted Out</span>
+                </>
+              )}
+            </button>
+          </div>
 
           {/* Appointments & Booking History Section */}
           <div className="space-y-3">

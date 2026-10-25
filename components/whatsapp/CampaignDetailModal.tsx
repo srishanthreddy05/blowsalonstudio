@@ -25,7 +25,10 @@ import { normalizeCount } from "@/lib/utils/firestore";
 import { calculateCampaignStats } from "@/lib/whatsapp/campaignStats";
 import { parseWhatsAppFailure } from "@/lib/whatsapp/errorClassifier";
 import { MessageDetailModal } from "./MessageDetailModal";
+import { CampaignRetryModal } from "./CampaignRetryModal";
 import { Info } from "lucide-react";
+
+
 
 interface CampaignDetailModalProps {
   campaign: WhatsAppCampaign;
@@ -96,6 +99,8 @@ export default function CampaignDetailModal({
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
   const [selectedRecipientForDetail, setSelectedRecipientForDetail] = useState<WhatsAppCampaignRecipient | null>(null);
+  const [retryModalOpen, setRetryModalOpen] = useState(false);
+
 
   // Calculate live stats directly from recipient delivery records (Single Source of Truth)
   const stats = useMemo(() => {
@@ -120,7 +125,13 @@ export default function CampaignDetailModal({
   const canCancel = currentStatus === "QUEUED" || currentStatus === "SENDING";
   const canRetry =
     stats.failedCount > 0 &&
-    (currentStatus === "COMPLETED_WITH_ERRORS" || currentStatus === "FAILED");
+    (currentStatus === "COMPLETED_WITH_ERRORS" || currentStatus === "FAILED" || currentStatus === "COMPLETED");
+
+  const pendingCount = recipients.filter((r) => r.status === "PENDING" || r.status === "SENDING").length;
+  const retryEligibleCount = recipients.filter(
+    (r) => r.status === "FAILED" && (r.retryCount || 0) < 2
+  ).length;
+  const totalRetryAttempts = recipients.reduce((acc, r) => acc + (r.retryCount || 0), 0);
 
   const filteredRecipients = recipients.filter((r) => {
     const matchesSearch =
@@ -194,11 +205,11 @@ export default function CampaignDetailModal({
                 type="button"
                 disabled={!whatsappEnabled}
                 title={!whatsappEnabled ? "WhatsApp messaging is currently disabled." : undefined}
-                onClick={() => whatsappEnabled && onRetryCampaign(campaign.id)}
+                onClick={() => whatsappEnabled && setRetryModalOpen(true)}
                 className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-[#FBD38D] bg-[#FFF4E5] hover:bg-[#FEEBC8] text-[#C05621] px-3.5 text-xs font-bold shadow-xs transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <RotateCcw size={13} />
-                <span>Retry {stats.failedCount}</span>
+                <span>Retry Failed ({stats.failedCount})</span>
               </button>
             )}
 
@@ -225,72 +236,96 @@ export default function CampaignDetailModal({
 
         {/* Modal Body */}
         <div className="p-6 overflow-y-auto space-y-6 flex-1">
-          {/* Metrics Overview Grid (Fractional Counts) */}
-          <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
+          {/* Metrics Overview Grid (Fractional Counts & Reporting Requirements) */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2.5">
             {/* Total Recipients */}
-            <div className="p-3.5 rounded-2xl border border-[#E0E4DD] bg-[#F7F7F4]">
+            <div className="p-3 rounded-2xl border border-[#E0E4DD] bg-[#F7F7F4]">
               <div className="text-[10px] font-bold uppercase tracking-wider text-[#747A72]">
                 Recipients
               </div>
-              <div className="text-xl font-bold text-[#2F352F] mt-1">
+              <div className="text-lg font-bold text-[#2F352F] mt-0.5">
                 {stats.totalRecipients}
               </div>
               <div className="text-[10px] text-[#8C9389]">Audience pool</div>
             </div>
 
             {/* Sent */}
-            <div className="p-3.5 rounded-2xl border border-[#EBF3FB] bg-[#EBF3FB]/50">
+            <div className="p-3 rounded-2xl border border-[#EBF3FB] bg-[#EBF3FB]/50">
               <div className="text-[10px] font-bold uppercase tracking-wider text-[#2B6CB0]">
                 Sent
               </div>
-              <div className="text-xl font-bold text-[#2B6CB0] mt-1">
+              <div className="text-lg font-bold text-[#2B6CB0] mt-0.5">
                 {stats.sentCount}/{stats.totalRecipients}
               </div>
-              <div className="text-[10px] text-[#2B6CB0]/80">Dispatched to Meta</div>
+              <div className="text-[10px] text-[#2B6CB0]/80">Dispatched</div>
             </div>
 
             {/* Delivered */}
-            <div className="p-3.5 rounded-2xl border border-[#E8ECE5] bg-[#E8ECE5]/50">
+            <div className="p-3 rounded-2xl border border-[#E8ECE5] bg-[#E8ECE5]/50">
               <div className="text-[10px] font-bold uppercase tracking-wider text-[#5F7A62]">
                 Delivered
               </div>
-              <div className="text-xl font-bold text-[#5F7A62] mt-1">
+              <div className="text-lg font-bold text-[#5F7A62] mt-0.5">
                 {stats.deliveredCount}/{stats.totalRecipients}
               </div>
-              <div className="text-[10px] text-[#5F7A62]/80">Delivered to device</div>
+              <div className="text-[10px] text-[#5F7A62]/80">Confirmed</div>
             </div>
 
             {/* Read */}
-            <div className="p-3.5 rounded-2xl border border-[#E8ECE5] bg-[#E8ECE5]/80">
+            <div className="p-3 rounded-2xl border border-[#E8ECE5] bg-[#E8ECE5]/80">
               <div className="text-[10px] font-bold uppercase tracking-wider text-[#38503B]">
                 Read
               </div>
-              <div className="text-xl font-bold text-[#38503B] mt-1">
+              <div className="text-lg font-bold text-[#38503B] mt-0.5">
                 {stats.readCount}/{stats.totalRecipients}
               </div>
-              <div className="text-[10px] text-[#38503B]/80">Opened by recipient</div>
+              <div className="text-[10px] text-[#38503B]/80">Opened</div>
             </div>
 
             {/* Failed */}
-            <div className="p-3.5 rounded-2xl border border-[#F8D7D7] bg-[#FBEBEB]/50">
+            <div className="p-3 rounded-2xl border border-[#F8D7D7] bg-[#FBEBEB]/50">
               <div className="text-[10px] font-bold uppercase tracking-wider text-[#B55B5B]">
                 Failed
               </div>
-              <div className="text-xl font-bold text-[#B55B5B] mt-1">
+              <div className="text-lg font-bold text-[#B55B5B] mt-0.5">
                 {stats.failedCount}/{stats.totalRecipients}
               </div>
-              <div className="text-[10px] text-[#B55B5B]/80">Delivery failures</div>
+              <div className="text-[10px] text-[#B55B5B]/80">Failures</div>
+            </div>
+
+            {/* Pending */}
+            <div className="p-3 rounded-2xl border border-[#E0E4DD] bg-[#F7F7F4]">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-[#747A72]">
+                Pending
+              </div>
+              <div className="text-lg font-bold text-[#747A72] mt-0.5">
+                {pendingCount}
+              </div>
+              <div className="text-[10px] text-[#8C9389]">In queue</div>
+            </div>
+
+            {/* Retry Eligible */}
+            <div className="p-3 rounded-2xl border border-[#FBD38D] bg-[#FFF8E6]">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-[#C05621]">
+                Retry Eligible
+              </div>
+              <div className="text-lg font-bold text-[#C05621] mt-0.5">
+                {retryEligibleCount}
+              </div>
+              <div className="text-[10px] text-[#C05621]/80">
+                {totalRetryAttempts > 0 ? `${totalRetryAttempts} attempt(s)` : "Ready"}
+              </div>
             </div>
 
             {/* Excluded */}
-            <div className="p-3.5 rounded-2xl border border-[#FAF4E8] bg-[#FAF4E8]">
+            <div className="p-3 rounded-2xl border border-[#FAF4E8] bg-[#FAF4E8]">
               <div className="text-[10px] font-bold uppercase tracking-wider text-[#B18A45]">
                 Excluded
               </div>
-              <div className="text-xl font-bold text-[#B18A45] mt-1">
+              <div className="text-lg font-bold text-[#B18A45] mt-0.5">
                 {stats.excludedCount}/{stats.totalRecipients}
               </div>
-              <div className="text-[10px] text-[#B18A45]/80">Opt-out / invalid</div>
+              <div className="text-[10px] text-[#B18A45]/80">Opt-out/invalid</div>
             </div>
           </div>
 
@@ -475,6 +510,18 @@ export default function CampaignDetailModal({
           onClose={() => setSelectedRecipientForDetail(null)}
         />
       )}
+
+      {/* Campaign Retry Modal */}
+      <CampaignRetryModal
+        isOpen={retryModalOpen}
+        campaign={campaign}
+        whatsappEnabled={whatsappEnabled}
+        onClose={() => setRetryModalOpen(false)}
+        onSuccess={() => {
+          setRetryModalOpen(false);
+          onRetryCampaign(campaign.id);
+        }}
+      />
     </div>
   );
 }

@@ -2,10 +2,6 @@
 
 import { useEffect, useState, useCallback } from "react";
 import {
-  Smartphone,
-  Sparkles,
-  CreditCard,
-  Activity,
   Megaphone,
   History,
   Settings as SettingsIcon,
@@ -22,10 +18,6 @@ import type {
 } from "@/types/whatsapp";
 import { toast } from "react-hot-toast";
 
-import { AccountOverviewView } from "@/components/whatsapp/AccountOverviewView";
-import { TemplatesView } from "@/components/whatsapp/TemplatesView";
-import { BillingUsageView } from "@/components/whatsapp/BillingUsageView";
-import { InsightsHealthView } from "@/components/whatsapp/InsightsHealthView";
 import CampaignsList from "@/components/whatsapp/CampaignsList";
 import { CreateCampaignModal } from "@/components/whatsapp/CreateCampaignModal";
 import CampaignDetailModal from "@/components/whatsapp/CampaignDetailModal";
@@ -47,17 +39,11 @@ function WhatsAppBrandIcon({ size = 24, className = "" }: { size?: number; class
   );
 }
 
-export type WhatsAppNavTab =
-  | "OVERVIEW"
-  | "TEMPLATES"
-  | "BILLING"
-  | "INSIGHTS"
-  | "CAMPAIGNS"
-  | "HISTORY"
-  | "SETTINGS";
+export type WhatsAppNavTab = "CAMPAIGNS" | "HISTORY" | "SETTINGS";
 
 export default function WhatsAppPage() {
-  const [activeTab, setActiveTab] = useState<WhatsAppNavTab>("OVERVIEW");
+  const [activeTab, setActiveTab] = useState<WhatsAppNavTab>("CAMPAIGNS");
+
 
   // Global WhatsApp state
   const [statusData, setStatusData] = useState<WhatsAppStatusResponse | null>(null);
@@ -382,69 +368,13 @@ export default function WhatsAppPage() {
         </button>
       </div>
 
-      {/* Navigation Tabs */}
+      {/* Navigation Tabs (3 Top-Level Sections) */}
       <div className="flex items-center gap-1 p-1 rounded-2xl bg-[#F7F7F4] border border-[#E0E4DD] w-full sm:w-fit overflow-x-auto">
-        {/* 1. Account Overview */}
-        <button
-          type="button"
-          onClick={() => setActiveTab("OVERVIEW")}
-          className={`flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition cursor-pointer ${
-            activeTab === "OVERVIEW"
-              ? "bg-[#FFFFFF] text-[#2F352F] shadow-xs border border-[#CCD2C8]"
-              : "text-[#747A72] hover:text-[#2F352F]"
-          }`}
-        >
-          <Smartphone size={14} className={activeTab === "OVERVIEW" ? "text-[#5F7A62]" : ""} />
-          <span>Overview</span>
-        </button>
-
-        {/* 2. Message Templates */}
-        <button
-          type="button"
-          onClick={() => setActiveTab("TEMPLATES")}
-          className={`flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition cursor-pointer ${
-            activeTab === "TEMPLATES"
-              ? "bg-[#FFFFFF] text-[#2F352F] shadow-xs border border-[#CCD2C8]"
-              : "text-[#747A72] hover:text-[#2F352F]"
-          }`}
-        >
-          <Sparkles size={14} className={activeTab === "TEMPLATES" ? "text-[#5F7A62]" : ""} />
-          <span>Templates</span>
-        </button>
-
-        {/* 3. Billing & Usage */}
-        <button
-          type="button"
-          onClick={() => setActiveTab("BILLING")}
-          className={`flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition cursor-pointer ${
-            activeTab === "BILLING"
-              ? "bg-[#FFFFFF] text-[#2F352F] shadow-xs border border-[#CCD2C8]"
-              : "text-[#747A72] hover:text-[#2F352F]"
-          }`}
-        >
-          <CreditCard size={14} className={activeTab === "BILLING" ? "text-[#5F7A62]" : ""} />
-          <span>Billing & Usage</span>
-        </button>
-
-        {/* 4. Insights & Health */}
-        <button
-          type="button"
-          onClick={() => setActiveTab("INSIGHTS")}
-          className={`flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition cursor-pointer ${
-            activeTab === "INSIGHTS"
-              ? "bg-[#FFFFFF] text-[#2F352F] shadow-xs border border-[#CCD2C8]"
-              : "text-[#747A72] hover:text-[#2F352F]"
-          }`}
-        >
-          <Activity size={14} className={activeTab === "INSIGHTS" ? "text-[#5F7A62]" : ""} />
-          <span>Insights</span>
-        </button>
-
-        {/* 5. Campaigns */}
+        {/* 1. Campaigns (Default) */}
         <button
           type="button"
           onClick={() => setActiveTab("CAMPAIGNS")}
-          className={`flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition cursor-pointer ${
+          className={`flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition cursor-pointer ${
             activeTab === "CAMPAIGNS"
               ? "bg-[#FFFFFF] text-[#2F352F] shadow-xs border border-[#CCD2C8]"
               : "text-[#747A72] hover:text-[#2F352F]"
@@ -459,11 +389,11 @@ export default function WhatsAppPage() {
           )}
         </button>
 
-        {/* 6. History */}
+        {/* 2. Message History */}
         <button
           type="button"
           onClick={() => setActiveTab("HISTORY")}
-          className={`flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition cursor-pointer ${
+          className={`flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition cursor-pointer ${
             activeTab === "HISTORY"
               ? "bg-[#FFFFFF] text-[#2F352F] shadow-xs border border-[#CCD2C8]"
               : "text-[#747A72] hover:text-[#2F352F]"
@@ -473,11 +403,11 @@ export default function WhatsAppPage() {
           <span>Message History</span>
         </button>
 
-        {/* 7. Connection & Settings */}
+        {/* 3. Settings */}
         <button
           type="button"
           onClick={() => setActiveTab("SETTINGS")}
-          className={`flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition cursor-pointer ${
+          className={`flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition cursor-pointer ${
             activeTab === "SETTINGS"
               ? "bg-[#FFFFFF] text-[#2F352F] shadow-xs border border-[#CCD2C8]"
               : "text-[#747A72] hover:text-[#2F352F]"
@@ -490,35 +420,7 @@ export default function WhatsAppPage() {
 
       {/* ── TAB CONTENT ──────────────────────────────────────────────────────── */}
 
-      {/* 1. OVERVIEW */}
-      {activeTab === "OVERVIEW" && (
-        <div className="animate-in fade-in duration-150">
-          <AccountOverviewView />
-        </div>
-      )}
-
-      {/* 2. TEMPLATES */}
-      {activeTab === "TEMPLATES" && (
-        <div className="animate-in fade-in duration-150">
-          <TemplatesView whatsappEnabled={whatsappEnabled} />
-        </div>
-      )}
-
-      {/* 3. BILLING & USAGE */}
-      {activeTab === "BILLING" && (
-        <div className="animate-in fade-in duration-150">
-          <BillingUsageView />
-        </div>
-      )}
-
-      {/* 4. INSIGHTS & HEALTH */}
-      {activeTab === "INSIGHTS" && (
-        <div className="animate-in fade-in duration-150">
-          <InsightsHealthView />
-        </div>
-      )}
-
-      {/* 5. CAMPAIGNS */}
+      {/* 1. CAMPAIGNS */}
       {activeTab === "CAMPAIGNS" && (
         <div className="animate-in fade-in duration-150">
           <CampaignsList
@@ -539,7 +441,7 @@ export default function WhatsAppPage() {
         </div>
       )}
 
-      {/* 6. MESSAGE HISTORY */}
+      {/* 2. MESSAGE HISTORY */}
       {activeTab === "HISTORY" && (
         <div className="animate-in fade-in duration-150">
           <MessageHistoryView
@@ -555,7 +457,7 @@ export default function WhatsAppPage() {
         </div>
       )}
 
-      {/* 7. SETTINGS */}
+      {/* 3. SETTINGS */}
       {activeTab === "SETTINGS" && (
         <div className="animate-in fade-in duration-150">
           <WhatsAppSettingsView

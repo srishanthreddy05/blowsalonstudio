@@ -229,11 +229,14 @@ export interface WhatsAppCampaignRecipient {
   updatedAt?: string;
 }
 
+export type WhatsAppMessageCategory = "UTILITY" | "MARKETING";
+
 export interface WhatsAppMessageRecord {
   id?: string;
   conversationId?: string | null;
   direction?: WhatsAppMessageDirection;
   messageType?: WhatsAppMessageType;
+  category?: WhatsAppMessageCategory;
   campaignId?: string | null;
   campaignName?: string | null;
   invoiceId?: string | null;
@@ -259,6 +262,10 @@ export interface WhatsAppMessageRecord {
   createdAt: string;
   updatedAt?: string;
   retryCount?: number;
+  isRetry?: boolean;
+  retryAttemptNumber?: number;
+  costPerMessage?: number;
+  estimatedCharge?: number;
 }
 
 export interface WhatsAppCoexistenceAccount {
@@ -298,4 +305,44 @@ export interface WhatsAppStatusResponse {
   metaCloudConfigured?: boolean;
   coexistence?: WhatsAppCoexistenceAccount | null;
 }
+
+export interface CategoryUsageMetric {
+  messagesSent: number;
+  uniqueRecipients: number;
+  rate: number;
+  estimatedCharges: number;
+  delivered: number;
+  read: number;
+  failed: number;
+  pending: number;
+}
+
+export interface MonthlyUsageSummary {
+  month: string; // YYYY-MM
+  monthLabel: string; // e.g. "October 2026"
+  timezone: string;
+  totalMessagesSent: number;
+  totalUniqueRecipients: number;
+  totalAttempts: number;
+  utilitySent: number;
+  marketingSent: number;
+  deliveredCount: number;
+  readCount: number;
+  failedCount: number;
+  pendingCount: number;
+  estimatedCharges: {
+    utilityRate: number;
+    marketingRate: number;
+    utilityCharges: number;
+    marketingCharges: number;
+    totalCharges: number;
+  };
+  breakdown: {
+    utility: CategoryUsageMetric;
+    marketing: CategoryUsageMetric;
+  };
+  availableMonths: Array<{ value: string; label: string }>;
+  lastUpdated: string;
+}
+
 

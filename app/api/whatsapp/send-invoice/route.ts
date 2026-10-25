@@ -155,6 +155,8 @@ export async function POST(request: Request) {
     // 6. Record Audit in Firestore (Guaranteed no undefined values)
     const nowIso = new Date().toISOString();
     const messageRecord: Omit<WhatsAppMessageRecord, "id"> = {
+      messageType: "INVOICE_RECEIPT",
+      category: "UTILITY",
       invoiceId,
       invoiceNumber: invoiceData.invoiceNumber || "INV",
       customerId: invoiceData.customerId || null,
@@ -168,6 +170,8 @@ export async function POST(request: Request) {
       errorCode: sendResult.errorCode || null,
       messageId: sendResult.messageId || null,
       sentAt: sendResult.status === "SENT" ? nowIso : null,
+      costPerMessage: 0.15,
+      estimatedCharge: sendResult.status === "SENT" ? 0.15 : 0,
       createdAt: nowIso,
       updatedAt: nowIso,
     };

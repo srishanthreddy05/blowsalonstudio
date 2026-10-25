@@ -21,6 +21,8 @@ import type { WhatsAppCampaign, WhatsAppCampaignStatus } from "@/types/whatsapp"
 import { formatDisplayDate } from "@/lib/utils/date";
 import { normalizeCount } from "@/lib/utils/firestore";
 import * as whatsappService from "@/services/whatsapp";
+import { CampaignRetryModal } from "./CampaignRetryModal";
+
 
 interface CampaignsListProps {
   campaigns: WhatsAppCampaign[];
@@ -113,11 +115,7 @@ export default function CampaignsList({
 }: CampaignsListProps) {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
-  const [checkingRetryId, setCheckingRetryId] = useState<string | null>(null);
-  const [restrictionConfirmModal, setRestrictionConfirmModal] = useState<{
-    campaignId: string;
-    count: number;
-  } | null>(null);
+  const [retryModalCampaign, setRetryModalCampaign] = useState<WhatsAppCampaign | null>(null);
 
   const filteredCampaigns = campaigns.filter((c) => {
     const matchesSearch =
@@ -126,42 +124,6 @@ export default function CampaignsList({
     const matchesStatus = statusFilter === "ALL" || c.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
-
-  const handleTriggerRetry = async (camp: WhatsAppCampaign) => {
-    const failedCount = normalizeCount(camp.failedCount);
-    if (failedCount <= 0) return;
-
-    setCheckingRetryId(camp.id);
-    try {
-      // Check if any failed recipient has a Meta 131049 / restriction error
-      const res = await whatsappService.getCampaignById(camp.id);
-      const failedRecs = (res.recipients || []).filter((r: any) => r.status === "FAILED");
-      const hasRestricted = failedRecs.some((r: any) => {
-        const msg = (r.errorMessage || "").toLowerCase();
-        const code = String(r.errorCode || "");
-        return (
-          code === "131049" ||
-          msg.includes("131049") ||
-          msg.includes("healthy ecosystem engagement") ||
-          msg.includes("ecosystem engagement") ||
-          msg.includes("marketing delivery restricted")
-        );
-      });
-
-      if (hasRestricted) {
-        setRestrictionConfirmModal({
-          campaignId: camp.id,
-          count: failedCount,
-        });
-      } else {
-        onRetryCampaign(camp.id);
-      }
-    } catch {
-      onRetryCampaign(camp.id);
-    } finally {
-      setCheckingRetryId(null);
-    }
-  };
 
   return (
     <div className="space-y-6">
@@ -374,17 +336,17 @@ export default function CampaignsList({
                       {/* Action */}
                       <td className="py-3.5 px-4 text-right whitespace-nowrap">
                         <div className="flex items-center justify-end gap-1.5">
-                          {/* Retry N Button (When Failed > 0) */}
+                          {/* Retry Failed (N) Button (When Failed > 0) */}
                           {failed > 0 && (
                             <button
                               type="button"
                               title={!whatsappEnabled ? "WhatsApp messaging is currently disabled." : `Retry ${failed} failed recipient${failed > 1 ? "s" : ""}`}
-                              disabled={checkingRetryId === camp.id || !whatsappEnabled}
-                              onClick={() => whatsappEnabled && handleTriggerRetry(camp)}
+                              disabled={!whatsappEnabled || camp.status === "SENDING"}
+                              onClick={() => whatsappEnabled && setRetryModalCampaign(camp)}
                               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[#FBD38D] bg-[#FFF4E5] hover:bg-[#FEEBC8] text-xs font-bold text-[#C05621] shadow-2xs transition cursor-pointer active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
                             >
-                              <RotateCcw size={12} className={checkingRetryId === camp.id ? "animate-spin" : ""} />
-                              <span>Retry {failed}</span>
+                              <RotateCcw size={12} />
+                              <span>Retry Failed ({failed})</span>
                             </button>
                           )}
 
@@ -461,52 +423,18 @@ export default function CampaignsList({
         )}
       </div>
 
-      {/* 131049 Delivery Restriction Confirmation Modal */}
-      {restrictionConfirmModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div
-            className="fixed inset-0 bg-[#292D29]/40 backdrop-blur-xs transition-opacity"
-            onClick={() => setRestrictionConfirmModal(null)}
-          />
-          <div className="relative w-full max-w-md rounded-3xl border border-[#E0E4DD] bg-[#FFFFFF] p-6 shadow-2xl text-[#292D29] z-10 animate-in zoom-in-95 duration-200 space-y-4">
-            <div className="flex items-center gap-3">
-              <div className="grid size-11 place-items-center rounded-2xl bg-[#FFF4E5] text-[#C05621] border border-[#FBD38D]">
-                <AlertTriangle size={20} />
-              </div>
-              <div>
-                <h3 className="font-serif text-lg font-bold text-[#2F352F]">
-                  WhatsApp Delivery Restriction
-                </h3>
-                <p className="text-xs text-[#747A72]">Marketing Ecosystem Notice</p>
-              </div>
-            </div>
-
-            <p className="text-xs text-[#2F352F] leading-relaxed bg-[#FAF4E8] p-3.5 rounded-2xl border border-[#FBD38D]/60 font-medium">
-              Some recipients were previously restricted by WhatsApp&apos;s marketing delivery system. Retrying may still fail.
-            </p>
-
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#E0E4DD]">
-              <button
-                type="button"
-                onClick={() => setRestrictionConfirmModal(null)}
-                className="rounded-xl border border-[#CCD2C8] px-4 py-2 text-xs font-bold text-[#747A72] hover:bg-[#F7F7F4] hover:text-[#2F352F] transition cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  const id = restrictionConfirmModal.campaignId;
-                  setRestrictionConfirmModal(null);
-                  onRetryCampaign(id);
-                }}
-                className="rounded-xl bg-[#C05621] hover:bg-[#9C4215] px-4 py-2 text-xs font-bold text-white shadow-xs transition cursor-pointer"
-              >
-                Retry Failed
-              </button>
-            </div>
-          </div>
-        </div>
+      {/* Retry Confirmation & Safe Execution Modal */}
+      {retryModalCampaign && (
+        <CampaignRetryModal
+          isOpen={Boolean(retryModalCampaign)}
+          campaign={retryModalCampaign}
+          whatsappEnabled={whatsappEnabled}
+          onClose={() => setRetryModalCampaign(null)}
+          onSuccess={() => {
+            const campId = retryModalCampaign.id;
+            onRetryCampaign(campId);
+          }}
+        />
       )}
     </div>
   );

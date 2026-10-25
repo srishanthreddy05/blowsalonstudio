@@ -183,6 +183,23 @@ export async function getBillingInfo(): Promise<import("@/types/whatsapp").Whats
   return data.billing;
 }
 
+export async function getMonthlyUsage(
+  month?: string,
+  timezone?: string
+): Promise<import("@/types/whatsapp").MonthlyUsageSummary> {
+  const params = new URLSearchParams();
+  if (month) params.set("month", month);
+  if (timezone) params.set("timezone", timezone);
+  const url = params.toString() ? `/api/whatsapp/usage?${params.toString()}` : "/api/whatsapp/usage";
+  const res = await fetch(url, { cache: "no-store" });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.error || "Failed to fetch WhatsApp usage data");
+  }
+  return data.usage;
+}
+
+
 export async function getInsights(): Promise<import("@/types/whatsapp").WhatsAppInsightsData> {
   const res = await fetch("/api/whatsapp/insights", { cache: "no-store" });
   const data = await res.json().catch(() => ({}));
@@ -329,10 +346,57 @@ export async function cancelCampaign(id: string): Promise<{ success: boolean; me
   return data;
 }
 
-export async function retryCampaign(id: string): Promise<{ success: boolean; message: string }> {
+export async function getCampaignRetryEligibility(id: string): Promise<{
+  campaignId: string;
+  campaignName: string;
+  isCurrentlySending: boolean;
+  totalFailed: number;
+  retryEligibleCount: number;
+  nonRetryableCount: number;
+  coolingCount: number;
+  maxCooldownRemainingMinutes: number;
+  defaultDelayMinutes: number;
+  rate: number;
+  estimatedCharge: number;
+  breakdown: Record<string, number>;
+  recipients: Array<{
+    id: string;
+    customerName: string;
+    phone: string;
+    retryCount: number;
+    eligible: boolean;
+    classification: string;
+    reason: string;
+    actionAdvice: string;
+    isCooling: boolean;
+    coolingMinutesRemaining: number;
+  }>;
+}> {
+  const res = await fetch(`/api/whatsapp/campaigns/${encodeURIComponent(id)}/retry`, {
+    cache: "no-store",
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.error || "Failed to check retry eligibility");
+  }
+  return data;
+}
+
+export async function retryCampaign(
+  id: string,
+  options?: { bypassDelay?: boolean; manualRecipientId?: string }
+): Promise<{
+  success: boolean;
+  message: string;
+  retriedCount?: number;
+  retriedSuccessCount?: number;
+  retriedFailedCount?: number;
+  applicationCharges?: number;
+}> {
   const res = await fetch(`/api/whatsapp/campaigns/${encodeURIComponent(id)}/retry`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(options || {}),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || data.success === false) {

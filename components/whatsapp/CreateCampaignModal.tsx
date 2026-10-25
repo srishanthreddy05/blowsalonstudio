@@ -15,6 +15,8 @@ import {
   Smartphone,
   ChevronRight,
   Info,
+  UserX,
+  UserCheck,
 } from "lucide-react";
 import { toast } from "react-hot-toast";
 import * as whatsappService from "@/services/whatsapp";
@@ -53,7 +55,11 @@ export function CreateCampaignModal({
   // UI Flow
   const [testModalOpen, setTestModalOpen] = useState(false);
   const [confirmModalOpen, setConfirmModalOpen] = useState(false);
+  const [excludedModalOpen, setExcludedModalOpen] = useState(false);
+  const [excludedFilter, setExcludedFilter] = useState<"ALL" | "OPTED_OUT" | "INVALID_PHONE">("ALL");
+  const [excludedSearch, setExcludedSearch] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [togglingOptInId, setTogglingOptInId] = useState<string | null>(null);
 
   // Load Customers and Campaign Templates
   useEffect(() => {
@@ -119,13 +125,30 @@ export function CreateCampaignModal({
     let eligible = 0;
     let optedOut = 0;
     let invalidPhone = 0;
+    const excludedCustomers: Array<{
+      customer: Customer;
+      reason: "OPTED_OUT" | "INVALID_PHONE";
+      detail: string;
+    }> = [];
 
     for (const c of segment) {
       const norm = normalizePhoneNumber(c.phone);
       if (c.whatsappOptOut === true) {
         optedOut++;
+        excludedCustomers.push({
+          customer: c,
+          reason: "OPTED_OUT",
+          detail: c.whatsappOptOutAt
+            ? `Opted out on ${new Date(c.whatsappOptOutAt).toLocaleDateString("en-IN")}`
+            : "Opted out of WhatsApp marketing",
+        });
       } else if (!norm.isValid) {
         invalidPhone++;
+        excludedCustomers.push({
+          customer: c,
+          reason: "INVALID_PHONE",
+          detail: !c.phone?.trim() ? "Missing phone number" : "Invalid phone format (must be 10-15 digits)",
+        });
       } else {
         eligible++;
       }
@@ -137,8 +160,43 @@ export function CreateCampaignModal({
       excluded: optedOut + invalidPhone,
       optedOut,
       invalidPhone,
+      excludedCustomers,
     };
   }, [customers, audienceType, selectedCustomerIds]);
+
+  const handleToggleOptIn = async (customer: Customer, newOptOut: boolean) => {
+    if (!customer.id) return;
+    setTogglingOptInId(customer.id);
+    try {
+      const res = await fetch("/api/whatsapp/customers/opt-out", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customerId: customer.id, optOut: newOptOut }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to update consent");
+
+      toast.success(
+        newOptOut
+          ? `${customer.name} marked as opted out.`
+          : `${customer.name} opted back into WhatsApp marketing!`
+      );
+
+      // Update local customers state
+      setCustomers((prev) =>
+        prev.map((c) =>
+          c.id === customer.id
+            ? { ...c, whatsappOptOut: newOptOut, whatsappOptIn: !newOptOut }
+            : c
+        )
+      );
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to update consent";
+      toast.error(msg);
+    } finally {
+      setTogglingOptInId(null);
+    }
+  };
 
   // Generate live preview text with {{1}} = Rahul Sharma and {{2}} = campaignMessageContent
   const previewText = useMemo(() => {
@@ -161,6 +219,26 @@ export function CreateCampaignModal({
         (c.phone && c.phone.includes(q))
     );
   }, [customers, customerSearch]);
+
+  // Filtered excluded customers for the excluded list view
+  const filteredExcluded = useMemo(() => {
+    let list = audienceStats.excludedCustomers;
+    if (excludedFilter === "OPTED_OUT") {
+      list = list.filter((item) => item.reason === "OPTED_OUT");
+    } else if (excludedFilter === "INVALID_PHONE") {
+      list = list.filter((item) => item.reason === "INVALID_PHONE");
+    }
+
+    if (excludedSearch.trim()) {
+      const q = excludedSearch.toLowerCase();
+      list = list.filter(
+        (item) =>
+          item.customer.name.toLowerCase().includes(q) ||
+          (item.customer.phone && item.customer.phone.includes(q))
+      );
+    }
+    return list;
+  }, [audienceStats.excludedCustomers, excludedFilter, excludedSearch]);
 
   const toggleSelectCustomer = (customerId: string) => {
     setSelectedCustomerIds((prev) =>
@@ -420,19 +498,29 @@ export function CreateCampaignModal({
                 </div>
               </div>
 
-              <div className="flex items-center gap-2.5">
-                <div className="grid size-8 place-items-center rounded-xl bg-white text-[#B55B5B] shadow-2xs shrink-0">
-                  <AlertCircle size={16} />
+              <button
+                type="button"
+                onClick={() => setExcludedModalOpen(true)}
+                className="flex items-center justify-between p-2 rounded-xl bg-white/80 border border-[#B55B5B]/30 hover:border-[#B55B5B] hover:bg-[#FBEBEB]/40 transition cursor-pointer text-left group"
+                title="Click to view all excluded and opted-out members"
+              >
+                <div className="flex items-center gap-2.5">
+                  <div className="grid size-8 place-items-center rounded-xl bg-[#FBEBEB] text-[#B55B5B] shadow-2xs shrink-0 group-hover:scale-105 transition-transform">
+                    <AlertCircle size={16} />
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-[#747A72] block">
+                      Excluded (Opt-out / Invalid)
+                    </span>
+                    <span className="font-mono text-sm font-extrabold text-[#B55B5B]">
+                      {audienceStats.excluded}
+                    </span>
+                  </div>
                 </div>
-                <div>
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-[#747A72] block">
-                    Excluded (Opt-out / Invalid)
-                  </span>
-                  <span className="font-mono text-sm font-extrabold text-[#B55B5B]">
-                    {audienceStats.excluded}
-                  </span>
-                </div>
-              </div>
+                <span className="text-[9px] font-bold text-[#B55B5B] bg-[#FBEBEB] px-2 py-0.5 rounded-full border border-[#F8D7D7] group-hover:bg-[#B55B5B] group-hover:text-white transition">
+                  View ({audienceStats.excluded}) ↗
+                </span>
+              </button>
 
               <div className="flex items-center gap-2.5">
                 <div className="grid size-8 place-items-center rounded-xl bg-white text-[#2F352F] shadow-2xs shrink-0">
@@ -637,6 +725,171 @@ export function CreateCampaignModal({
                       <span>Confirm & Send Now</span>
                     </>
                   )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Excluded Members Breakdown Modal */}
+        {excludedModalOpen && (
+          <div
+            className="fixed inset-0 z-60 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-200"
+            onClick={() => setExcludedModalOpen(false)}
+          >
+            <div
+              className="relative w-full max-w-xl max-h-[85vh] flex flex-col rounded-3xl border border-[#E0E4DD] bg-white shadow-2xl text-[#292D29] overflow-hidden animate-in zoom-in-95 duration-200"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between border-b border-[#E0E4DD] bg-[#FAF4E8]/60 px-6 py-4 shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="grid size-10 place-items-center rounded-2xl bg-[#FBEBEB] text-[#B55B5B] border border-[#F8D7D7]">
+                    <UserX size={18} />
+                  </div>
+                  <div>
+                    <h3 className="font-serif text-lg font-bold text-[#2F352F]">
+                      Excluded Audience Members ({audienceStats.excluded})
+                    </h3>
+                    <p className="text-xs text-[#747A72]">
+                      Clients excluded from this marketing campaign due to opt-out consent or invalid phone numbers.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setExcludedModalOpen(false)}
+                  className="grid size-8 place-items-center rounded-xl border border-[#E0E4DD] hover:border-[#6F776D] bg-white text-[#747A72] hover:text-[#2F352F] transition cursor-pointer"
+                >
+                  <X size={15} />
+                </button>
+              </div>
+
+              {/* Filters & Search */}
+              <div className="p-4 border-b border-[#E0E4DD] bg-[#F7F7F4] space-y-3 shrink-0">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5 p-1 rounded-xl bg-white border border-[#E0E4DD] text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setExcludedFilter("ALL")}
+                      className={`px-3 py-1 rounded-lg font-semibold transition cursor-pointer ${
+                        excludedFilter === "ALL"
+                          ? "bg-[#5F7A62] text-white shadow-2xs"
+                          : "text-[#747A72] hover:text-[#2F352F]"
+                      }`}
+                    >
+                      All ({audienceStats.excluded})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setExcludedFilter("OPTED_OUT")}
+                      className={`px-3 py-1 rounded-lg font-semibold transition cursor-pointer ${
+                        excludedFilter === "OPTED_OUT"
+                          ? "bg-[#B55B5B] text-white shadow-2xs"
+                          : "text-[#747A72] hover:text-[#2F352F]"
+                      }`}
+                    >
+                      Opted Out ({audienceStats.optedOut})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setExcludedFilter("INVALID_PHONE")}
+                      className={`px-3 py-1 rounded-lg font-semibold transition cursor-pointer ${
+                        excludedFilter === "INVALID_PHONE"
+                          ? "bg-[#B18A45] text-white shadow-2xs"
+                          : "text-[#747A72] hover:text-[#2F352F]"
+                      }`}
+                    >
+                      Invalid Phone ({audienceStats.invalidPhone})
+                    </button>
+                  </div>
+
+                  <div className="relative flex-1 min-w-[180px]">
+                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#747A72]" />
+                    <input
+                      type="text"
+                      placeholder="Search name or phone..."
+                      value={excludedSearch}
+                      onChange={(e) => setExcludedSearch(e.target.value)}
+                      className="w-full h-8 pl-8 pr-3 text-xs rounded-xl border border-[#E0E4DD] bg-white text-[#2F352F] placeholder:text-[#A0A69D] focus:outline-none focus:border-[#5F7A62]"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Members List */}
+              <div className="flex-1 overflow-y-auto p-4 divide-y divide-[#E0E4DD]/60">
+                {filteredExcluded.length === 0 ? (
+                  <div className="py-12 text-center text-xs text-[#747A72] italic">
+                    No excluded members match your current filter.
+                  </div>
+                ) : (
+                  filteredExcluded.map(({ customer, reason, detail }) => {
+                    const isToggling = togglingOptInId === customer.id;
+                    return (
+                      <div
+                        key={customer.id || customer.phone}
+                        className="py-3 flex items-center justify-between gap-3 first:pt-0 last:pb-0"
+                      >
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-xs text-[#2F352F] truncate">
+                              {customer.name}
+                            </span>
+                            {customer.customerType === "membership" && (
+                              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-[#FAF4E8] text-[#B18A45] border border-[#B18A45]/30">
+                                Member
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 mt-0.5 text-[11px] text-[#747A72]">
+                            <span className="font-mono">{customer.phone}</span>
+                            <span>•</span>
+                            <span className={reason === "OPTED_OUT" ? "text-[#B55B5B] font-medium" : "text-[#B18A45] font-medium"}>
+                              {detail}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="shrink-0 flex items-center gap-2">
+                          {reason === "OPTED_OUT" ? (
+                            <button
+                              type="button"
+                              disabled={isToggling}
+                              onClick={() => handleToggleOptIn(customer, false)}
+                              className="px-3 py-1 rounded-xl bg-[#E8ECE5] hover:bg-[#5F7A62] text-[#2F352F] hover:text-white border border-[#CCD2C8] text-[11px] font-bold transition flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                              title="Customer agreed to receive WhatsApp offers again"
+                            >
+                              {isToggling ? (
+                                <div className="size-3 border-2 border-[#5F7A62] border-t-transparent rounded-full animate-spin" />
+                              ) : (
+                                <UserCheck size={12} />
+                              )}
+                              <span>Opt In</span>
+                            </button>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#FAF4E8] text-[#B18A45] border border-[#B18A45]/30">
+                              Needs Phone Fix
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              {/* Footer */}
+              <div className="p-4 border-t border-[#E0E4DD] bg-[#F7F7F4] flex items-center justify-between text-xs text-[#747A72] shrink-0">
+                <span>
+                  Showing {filteredExcluded.length} of {audienceStats.excluded} excluded member{audienceStats.excluded !== 1 ? "s" : ""}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setExcludedModalOpen(false)}
+                  className="px-4 py-1.5 rounded-xl bg-white border border-[#CCD2C8] text-xs font-semibold text-[#2F352F] hover:bg-[#E8ECE5] transition cursor-pointer"
+                >
+                  Close
                 </button>
               </div>
             </div>

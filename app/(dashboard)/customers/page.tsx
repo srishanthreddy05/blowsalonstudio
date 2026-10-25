@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import * as customerService from "@/services/customers";
 import * as invoicesService from "@/services/invoices";
 import type { Customer } from "@/types/customer";
@@ -20,11 +20,17 @@ import {
 import { toTitleCase } from "@/lib/utils/text";
 import { toLocalDateString } from "@/lib/utils/date";
 
+const PAGE_SIZE = 25;
+
 export default function CustomersPage() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [searchLoading, setSearchLoading] = useState(false);
+
+  // Cached fallback lists for smooth client-side pagination while composite indexes build
+  const fallbackRegularDocsRef = useRef<Customer[] | null>(null);
+  const fallbackMembershipDocsRef = useRef<Customer[] | null>(null);
 
   // Stats
   const [stats, setStats] = useState({ regularCount: 0, membershipCount: 0 });
@@ -80,13 +86,12 @@ export default function CustomersPage() {
       setLoadingMoreRegular(true);
     }
     try {
-      let snap;
       try {
         let q = query(
           collection(db, "customers"),
           where("customerType", "==", "regular"),
           orderBy("name", "asc"),
-          limit(10)
+          limit(PAGE_SIZE)
         );
 
         if (isLoadMore && lastRegularDoc) {
@@ -95,36 +100,66 @@ export default function CustomersPage() {
             where("customerType", "==", "regular"),
             orderBy("name", "asc"),
             startAfter(lastRegularDoc),
-            limit(10)
+            limit(PAGE_SIZE)
           );
         }
-        snap = await getDocs(q);
-      } catch {
-        // In-code fallback while composite index is building on Firestore
-        const fallbackQuery = query(
-          collection(db, "customers"),
-          where("customerType", "==", "regular")
+        const snap = await getDocs(q);
+
+        // Server-side composite query succeeded
+        fallbackRegularDocsRef.current = null;
+        const docs = snap.docs.map(
+          (d) => ({ id: d.id, ...d.data() }) as Customer
         );
-        snap = await getDocs(fallbackQuery);
-      }
 
-      const docs = snap.docs.map(
-        (d) => ({ id: d.id, ...d.data() }) as Customer
-      );
-      docs.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+        if (isLoadMore) {
+          setRegularCustomers((prev) => {
+            const existingIds = new Set(prev.map((c) => c.id));
+            const newDocs = docs.filter((c) => c.id && !existingIds.has(c.id));
+            return [...prev, ...newDocs];
+          });
+        } else {
+          setRegularCustomers(docs);
+        }
 
-      if (isLoadMore) {
-        setRegularCustomers((prev) => [...prev, ...docs]);
-      } else {
-        setRegularCustomers(docs);
-      }
+        if (snap.docs.length > 0) {
+          setLastRegularDoc(snap.docs[snap.docs.length - 1]);
+        } else if (!isLoadMore) {
+          setLastRegularDoc(null);
+        }
+        setHasMoreRegular(snap.docs.length === PAGE_SIZE);
+      } catch {
+        // Fallback when composite index (customerType ASC, name ASC) is missing in Firestore.
+        // Fetch matching documents, sort alphabetically, and paginate cleanly in memory.
+        if (!fallbackRegularDocsRef.current || !isLoadMore) {
+          const fallbackQuery = query(
+            collection(db, "customers"),
+            where("customerType", "==", "regular")
+          );
+          const fallbackSnap = await getDocs(fallbackQuery);
+          const allDocs = fallbackSnap.docs.map(
+            (d) => ({ id: d.id, ...d.data() }) as Customer
+          );
+          allDocs.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+          fallbackRegularDocsRef.current = allDocs;
+        }
 
-      if (snap.docs.length > 0) {
-        setLastRegularDoc(snap.docs[snap.docs.length - 1]);
-      } else if (!isLoadMore) {
-        setLastRegularDoc(null);
+        const allDocs = fallbackRegularDocsRef.current || [];
+
+        if (isLoadMore) {
+          setRegularCustomers((prev) => {
+            const existingIds = new Set(prev.map((c) => c.id));
+            const nextBatch = allDocs.slice(prev.length, prev.length + PAGE_SIZE);
+            const newDocs = nextBatch.filter((c) => c.id && !existingIds.has(c.id));
+            const updated = [...prev, ...newDocs];
+            setHasMoreRegular(updated.length < allDocs.length);
+            return updated;
+          });
+        } else {
+          const initialBatch = allDocs.slice(0, PAGE_SIZE);
+          setRegularCustomers(initialBatch);
+          setHasMoreRegular(initialBatch.length < allDocs.length);
+        }
       }
-      setHasMoreRegular(snap.docs.length >= 10);
     } catch (error) {
       console.error("Error loading regular customers:", error);
     } finally {
@@ -139,13 +174,12 @@ export default function CustomersPage() {
       setLoadingMoreMembership(true);
     }
     try {
-      let snap;
       try {
         let q = query(
           collection(db, "customers"),
           where("customerType", "==", "membership"),
           orderBy("name", "asc"),
-          limit(10)
+          limit(PAGE_SIZE)
         );
 
         if (isLoadMore && lastMembershipDoc) {
@@ -154,36 +188,65 @@ export default function CustomersPage() {
             where("customerType", "==", "membership"),
             orderBy("name", "asc"),
             startAfter(lastMembershipDoc),
-            limit(10)
+            limit(PAGE_SIZE)
           );
         }
-        snap = await getDocs(q);
-      } catch {
-        // In-code fallback while composite index is building on Firestore
-        const fallbackQuery = query(
-          collection(db, "customers"),
-          where("customerType", "==", "membership")
+        const snap = await getDocs(q);
+
+        // Server-side composite query succeeded
+        fallbackMembershipDocsRef.current = null;
+        const docs = snap.docs.map(
+          (d) => ({ id: d.id, ...d.data() }) as Customer
         );
-        snap = await getDocs(fallbackQuery);
-      }
 
-      const docs = snap.docs.map(
-        (d) => ({ id: d.id, ...d.data() }) as Customer
-      );
-      docs.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+        if (isLoadMore) {
+          setMembershipCustomers((prev) => {
+            const existingIds = new Set(prev.map((c) => c.id));
+            const newDocs = docs.filter((c) => c.id && !existingIds.has(c.id));
+            return [...prev, ...newDocs];
+          });
+        } else {
+          setMembershipCustomers(docs);
+        }
 
-      if (isLoadMore) {
-        setMembershipCustomers((prev) => [...prev, ...docs]);
-      } else {
-        setMembershipCustomers(docs);
-      }
+        if (snap.docs.length > 0) {
+          setLastMembershipDoc(snap.docs[snap.docs.length - 1]);
+        } else if (!isLoadMore) {
+          setLastMembershipDoc(null);
+        }
+        setHasMoreMembership(snap.docs.length === PAGE_SIZE);
+      } catch {
+        // Fallback when composite index is missing in Firestore
+        if (!fallbackMembershipDocsRef.current || !isLoadMore) {
+          const fallbackQuery = query(
+            collection(db, "customers"),
+            where("customerType", "==", "membership")
+          );
+          const fallbackSnap = await getDocs(fallbackQuery);
+          const allDocs = fallbackSnap.docs.map(
+            (d) => ({ id: d.id, ...d.data() }) as Customer
+          );
+          allDocs.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+          fallbackMembershipDocsRef.current = allDocs;
+        }
 
-      if (snap.docs.length > 0) {
-        setLastMembershipDoc(snap.docs[snap.docs.length - 1]);
-      } else if (!isLoadMore) {
-        setLastMembershipDoc(null);
+        const allDocs = fallbackMembershipDocsRef.current || [];
+
+        if (isLoadMore) {
+          setMembershipCustomers((prev) => {
+            const existingIds = new Set(prev.map((c) => c.id));
+            const nextBatch = allDocs.slice(prev.length, prev.length + PAGE_SIZE);
+            const newDocs = nextBatch.filter((c) => c.id && !existingIds.has(c.id));
+            const updated = [...prev, ...newDocs];
+            setHasMoreMembership(updated.length < allDocs.length);
+            return updated;
+          });
+        } else {
+          const initialBatch = allDocs.slice(0, PAGE_SIZE);
+          setMembershipCustomers(initialBatch);
+          setHasMoreMembership(initialBatch.length < allDocs.length);
+        }
       }
-      setHasMoreMembership(snap.docs.length >= 10);
     } catch (error) {
       console.error("Error loading membership customers:", error);
     } finally {
@@ -263,6 +326,8 @@ export default function CustomersPage() {
   };
 
   const handleRefresh = async () => {
+    fallbackRegularDocsRef.current = null;
+    fallbackMembershipDocsRef.current = null;
     await initializeData();
     if (debouncedQuery.trim()) {
       runSearch(debouncedQuery);
