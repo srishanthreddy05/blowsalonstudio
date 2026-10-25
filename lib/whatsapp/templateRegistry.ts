@@ -2,12 +2,14 @@
  * Centralized WhatsApp Template Configuration Registry for Meta WhatsApp Cloud API.
  * 
  * Official BLOW SALON Approved Templates:
- * 1. blow_salon_invoice (Category: Utility, Language: "en", 8 Body Parameters)
- * 2. blow_salon_campaign (Category: Marketing, Language: "en", 2 Body Parameters)
- * 3. 3p_direct_integration_test_template (Category: Utility, Language: "en_US", 0 Body Parameters)
+ * 1. blow_salon_invoices (Category: Utility, Language: "en", 8 Body Parameters)
+ * 2. blow_salon_appointment_confirmation (Category: Utility, Language: "en", 1 Body Parameter)
+ * 3. blow_salon_appointment_reminder (Category: Utility, Language: "en", 1 Body Parameter)
+ * 4. blow_salon_campaign (Category: Marketing, Language: "en", 2 Body Parameters)
+ * 5. 3p_direct_integration_test_template (Category: Utility, Language: "en_US", 0 Body Parameters)
  * 
  * Unexposed / Test Templates:
- * 4. hello_world (Language: "en_US", NEVER exposed in BLOW SALON UI)
+ * 6. hello_world (Language: "en_US", NEVER exposed in BLOW SALON UI)
  */
 
 export interface TemplateDefinition {
@@ -16,19 +18,37 @@ export interface TemplateDefinition {
   category: "UTILITY" | "MARKETING" | "AUTHENTICATION";
   expectedParamCount: number;
   exposedInUI: boolean;
-  purpose?: "invoice" | "campaign" | "test";
+  purpose?: "invoice" | "campaign" | "appointment" | "test";
   description?: string;
 }
 
 export const META_WHATSAPP_TEMPLATES: Record<string, TemplateDefinition> = {
-  blow_salon_invoice: {
-    name: "blow_salon_invoice",
+  blow_salon_invoices: {
+    name: "blow_salon_invoices",
     language: "en",
     category: "UTILITY",
     expectedParamCount: 8,
     exposedInUI: true,
     purpose: "invoice",
     description: "BLOW SALON official invoice receipt template (8 parameters)",
+  },
+  blow_salon_appointment_confirmation: {
+    name: "blow_salon_appointment_confirmation",
+    language: "en",
+    category: "UTILITY",
+    expectedParamCount: 1,
+    exposedInUI: true,
+    purpose: "appointment",
+    description: "BLOW SALON appointment confirmation template (1 parameter)",
+  },
+  blow_salon_appointment_reminder: {
+    name: "blow_salon_appointment_reminder",
+    language: "en",
+    category: "UTILITY",
+    expectedParamCount: 1,
+    exposedInUI: true,
+    purpose: "appointment",
+    description: "BLOW SALON appointment reminder template (1 parameter)",
   },
   blow_salon_campaign: {
     name: "blow_salon_campaign",

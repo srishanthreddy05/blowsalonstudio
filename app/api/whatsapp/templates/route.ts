@@ -180,15 +180,23 @@ export async function GET(request: Request) {
       templates = templates.filter((t) => t.category === categoryFilter);
     }
 
-    // PURPOSE-BASED FILTERING FOR INVOICES & CAMPAIGNS
+    // PURPOSE-BASED FILTERING FOR INVOICES, CAMPAIGNS & APPOINTMENTS
     // Workflows can ONLY select approved templates in the correct category
     if (purpose === "invoice") {
       templates = templates.filter(
-        (t) => t.status === "APPROVED" && (t.name === "blow_salon_invoice" || t.category === "UTILITY")
+        (t) => t.status === "APPROVED" && (t.name === "blow_salon_invoices" || t.category === "UTILITY")
       );
     } else if (purpose === "campaign") {
       templates = templates.filter(
         (t) => t.status === "APPROVED" && (t.name === "blow_salon_campaign" || t.category === "MARKETING")
+      );
+    } else if (purpose === "appointment") {
+      templates = templates.filter(
+        (t) =>
+          t.status === "APPROVED" &&
+          (t.name === "blow_salon_appointment_confirmation" ||
+            t.name === "blow_salon_appointment_reminder" ||
+            t.category === "UTILITY")
       );
     }
 

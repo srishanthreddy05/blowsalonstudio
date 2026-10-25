@@ -75,6 +75,40 @@ export async function sendInvoiceWhatsApp(
   }
 }
 
+export async function sendAppointmentWhatsApp(
+  appointmentId: string,
+  type: "confirmation" | "reminder",
+  overridePhone?: string
+): Promise<{
+  success: boolean;
+  status: WhatsAppMessageStatus;
+  messageRecord?: WhatsAppMessageRecord;
+  error?: string;
+  disabled?: boolean;
+}> {
+  try {
+    const res = await fetch("/api/whatsapp/send-appointment", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        appointmentId,
+        type,
+        overridePhone,
+      }),
+    });
+
+    const data = await res.json();
+    return data;
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : `Network error sending WhatsApp appointment ${type}`;
+    return {
+      success: false,
+      status: "FAILED",
+      error: msg,
+    };
+  }
+}
+
 export async function getInvoiceMessages(invoiceId: string): Promise<WhatsAppMessageRecord[]> {
   try {
     const res = await fetch(`/api/whatsapp/messages?invoiceId=${encodeURIComponent(invoiceId)}`, {

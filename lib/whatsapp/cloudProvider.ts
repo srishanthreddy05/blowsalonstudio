@@ -4,6 +4,7 @@ import type {
   ProviderStatusResult,
   SendMessageResult,
   SendInvoiceResult,
+  SendAppointmentResult,
 } from "./types";
 import type { WhatsAppErrorCode, WhatsAppCoexistenceAccount } from "@/types/whatsapp";
 import { db } from "@/lib/firebase";
@@ -38,7 +39,7 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
   constructor() {
     this.apiVersion = (process.env.WHATSAPP_CLOUD_API_VERSION || "v21.0").trim().replace(/^v?/, "v");
     this.accessToken = process.env.WHATSAPP_ACCESS_TOKEN?.trim();
-    this.invoiceTemplateName = "blow_salon_invoice";
+    this.invoiceTemplateName = "blow_salon_invoices";
   }
 
   /**
@@ -383,12 +384,12 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
       }
       // Guarantee zero components sent for 3p_direct_integration_test_template
       components = undefined;
-    } else if (templateName === "blow_salon_invoice") {
+    } else if (templateName === "blow_salon_invoices") {
       if (bodyParamCount !== 8) {
         return {
           success: false,
           errorCode: "WHATSAPP_TEMPLATE_ERROR",
-          error: `Template parameter mismatch: blow_salon_invoice expects 8 parameters but received ${bodyParamCount}.`,
+          error: `Template parameter mismatch: blow_salon_invoices expects 8 parameters but received ${bodyParamCount}.`,
         };
       }
     } else if (templateName === "blow_salon_campaign") {
@@ -397,6 +398,22 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
           success: false,
           errorCode: "WHATSAPP_TEMPLATE_ERROR",
           error: `Template parameter mismatch: blow_salon_campaign expects 2 parameters but received ${bodyParamCount}.`,
+        };
+      }
+    } else if (templateName === "blow_salon_appointment_confirmation") {
+      if (bodyParamCount !== 1) {
+        return {
+          success: false,
+          errorCode: "WHATSAPP_TEMPLATE_ERROR",
+          error: `Template parameter mismatch: blow_salon_appointment_confirmation expects 1 parameter but received ${bodyParamCount}.`,
+        };
+      }
+    } else if (templateName === "blow_salon_appointment_reminder") {
+      if (bodyParamCount !== 1) {
+        return {
+          success: false,
+          errorCode: "WHATSAPP_TEMPLATE_ERROR",
+          error: `Template parameter mismatch: blow_salon_appointment_reminder expects 1 parameter but received ${bodyParamCount}.`,
         };
       }
     }
@@ -633,8 +650,8 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
       };
     }
 
-    // Automatic invoice receipt must ALWAYS use blow_salon_invoice
-    const templateNameToUse = this.invoiceTemplateName || "blow_salon_invoice";
+    // Automatic invoice receipt must ALWAYS use blow_salon_invoices
+    const templateNameToUse = this.invoiceTemplateName || "blow_salon_invoices";
     const templateLang = getTemplateLanguage(templateNameToUse); // Guaranteed "en"
 
     // Format {{1}} Customer name (sanitized, non-empty)
@@ -717,7 +734,7 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
       `Amount Paid: Rs. ${paid.toLocaleString("en-IN")}, Payment Method: ${paymentMethod}`
     );
 
-    // Exactly 8 parameters mapped for blow_salon_invoice
+    // Exactly 8 parameters mapped for blow_salon_invoices
     const bodyParameters = [
       { type: "text", text: customerName },
       { type: "text", text: invoiceNumber },
@@ -769,6 +786,106 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
       status: "FAILED",
       errorCode: templateResult.errorCode,
       error: templateResult.error || "Failed to deliver WhatsApp template receipt.",
+      recipientPhone: normalized.display,
+    };
+  }
+
+  /**
+   * Formats and delivers the official BLOW SALON appointment confirmation or reminder template.
+   * Templates:
+   * - blow_salon_appointment_confirmation: Category Utility, 1 variable (customer name)
+   * - blow_salon_appointment_reminder: Category Utility, 1 variable (customer name)
+   */
+  public async sendAppointmentMessage(
+    appointment: { id?: string; customerName?: string; customerPhone?: string },
+    type: "confirmation" | "reminder",
+    overridePhone?: string
+  ): Promise<SendAppointmentResult> {
+    const targetPhone = (overridePhone || appointment.customerPhone || "").trim();
+    const normalized = normalizePhoneNumber(targetPhone);
+
+    if (!normalized.isValid) {
+      return {
+        success: false,
+        status: "NOT_SENT",
+        errorCode: "WHATSAPP_API_ERROR",
+        error: "Customer does not have a valid WhatsApp phone number.",
+        recipientPhone: targetPhone,
+      };
+    }
+
+    const currentStatus = await this.getStatus();
+    if (currentStatus.status !== "CONNECTED") {
+      logWhatsAppAction({
+        provider: this.providerType,
+        action: `sendAppointmentMessage[${type}]`,
+        phone: normalized.digits,
+        result: "UNCONFIGURED",
+        errorCode: currentStatus.errorCode || "WHATSAPP_NOT_CONFIGURED",
+        error: currentStatus.errorMessage,
+      });
+
+      return {
+        success: false,
+        status: "NOT_SENT",
+        errorCode: currentStatus.errorCode || "WHATSAPP_NOT_CONFIGURED",
+        error: currentStatus.errorMessage || "WhatsApp Cloud API is not configured.",
+        recipientPhone: normalized.display,
+      };
+    }
+
+    const templateNameToUse =
+      type === "confirmation"
+        ? "blow_salon_appointment_confirmation"
+        : "blow_salon_appointment_reminder";
+    const templateLang = getTemplateLanguage(templateNameToUse); // Guaranteed "en"
+
+    // {{1}} Customer Name
+    const customerName = sanitizeTemplateVariable(
+      appointment.customerName || "Customer",
+      "Customer"
+    );
+
+    const bodyParameters = [{ type: "text", text: customerName }];
+
+    const templateResult = await this.sendTemplateMessage(
+      normalized.digits,
+      templateNameToUse,
+      templateLang,
+      [
+        {
+          type: "body",
+          parameters: bodyParameters,
+        },
+      ]
+    );
+
+    if (templateResult.success) {
+      logWhatsAppAction({
+        provider: this.providerType,
+        action: `sendAppointmentMessage[${type}]`,
+        phone: normalized.digits,
+        templateName: templateNameToUse,
+        templateLanguage: templateLang,
+        paramCount: 1,
+        messageId: templateResult.messageId,
+        result: "SUCCESS",
+      });
+
+      return {
+        success: true,
+        status: "SENT",
+        messageId: templateResult.messageId,
+        formattedMessage: `[Meta Template: ${templateNameToUse}]`,
+        recipientPhone: normalized.display,
+      };
+    }
+
+    return {
+      success: false,
+      status: "FAILED",
+      errorCode: templateResult.errorCode,
+      error: templateResult.error || `Failed to deliver WhatsApp ${type} message.`,
       recipientPhone: normalized.display,
     };
   }

@@ -16,10 +16,13 @@ import {
   FileText,
   Bell,
   Phone,
+  MessageSquare,
 } from "lucide-react";
 import type { Appointment, AppointmentStatus } from "@/types/appointment";
 import * as appointmentService from "@/services/appointments";
 import * as invoicesService from "@/services/invoices";
+import * as whatsappService from "@/services/whatsapp";
+import { normalizePhoneNumber } from "@/lib/utils/phone";
 import { formatCurrency } from "@/components/salon-dashboard/types";
 import { RescheduleModal } from "./RescheduleModal";
 import { formatDisplayDate } from "@/lib/utils/date";
@@ -52,6 +55,10 @@ export function AppointmentDetailModal({
   const [linkedInvoiceData, setLinkedInvoiceData] = useState<{ invoiceNumber?: string; grandTotal?: number } | null>(null);
   const [cancelReason, setCancelReason] = useState("");
   const [actionLoading, setActionLoading] = useState(false);
+  const [sendingConfirmation, setSendingConfirmation] = useState(false);
+  const [sendingReminder, setSendingReminder] = useState(false);
+  const [confirmationSuccess, setConfirmationSuccess] = useState(false);
+  const [reminderSuccess, setReminderSuccess] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -155,6 +162,66 @@ export function AppointmentDetailModal({
       if (appointment.id) params.set("appointmentId", appointment.id);
       router.push(`/billing?${params.toString()}`);
       onClose();
+    }
+  };
+
+  const handleSendConfirmationWhatsApp = async () => {
+    if (!appointment.id) return;
+    if (!appointment.customerPhone) {
+      toast.error("Customer does not have a phone number on file.");
+      return;
+    }
+    const normalized = normalizePhoneNumber(appointment.customerPhone);
+    if (!normalized.isValid) {
+      toast.error(`Invalid phone number format: "${appointment.customerPhone}".`);
+      return;
+    }
+
+    setSendingConfirmation(true);
+    try {
+      const res = await whatsappService.sendAppointmentWhatsApp(appointment.id, "confirmation");
+      if (res.disabled) {
+        toast.error("WhatsApp messaging is currently paused. Outgoing dispatches are temporarily halted.");
+      } else if (res.success) {
+        toast.success(`Confirmation WhatsApp sent to ${appointment.customerName || "Customer"}`);
+        setConfirmationSuccess(true);
+      } else {
+        toast.error(res.error || "Failed to send confirmation WhatsApp.");
+      }
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Error sending WhatsApp confirmation.");
+    } finally {
+      setSendingConfirmation(false);
+    }
+  };
+
+  const handleSendReminderWhatsApp = async () => {
+    if (!appointment.id) return;
+    if (!appointment.customerPhone) {
+      toast.error("Customer does not have a phone number on file.");
+      return;
+    }
+    const normalized = normalizePhoneNumber(appointment.customerPhone);
+    if (!normalized.isValid) {
+      toast.error(`Invalid phone number format: "${appointment.customerPhone}".`);
+      return;
+    }
+
+    setSendingReminder(true);
+    try {
+      const res = await whatsappService.sendAppointmentWhatsApp(appointment.id, "reminder");
+      if (res.disabled) {
+        toast.error("WhatsApp messaging is currently paused. Outgoing dispatches are temporarily halted.");
+      } else if (res.success) {
+        toast.success(`Reminder WhatsApp sent to ${appointment.customerName || "Customer"}`);
+        setReminderSuccess(true);
+      } else {
+        toast.error(res.error || "Failed to send reminder WhatsApp.");
+      }
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Error sending WhatsApp reminder.");
+    } finally {
+      setSendingReminder(false);
     }
   };
 
@@ -304,6 +371,74 @@ export function AppointmentDetailModal({
                 <span>This appointment was rescheduled from a previous booking.</span>
               </div>
             )}
+
+            {/* WhatsApp Messaging Actions */}
+            <div className="p-3.5 rounded-2xl border border-[#CCD2C8] bg-[#F7F7F4] space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-[#6F776D] flex items-center gap-1.5">
+                  <MessageSquare size={13} className="text-[#5F7A62]" />
+                  WhatsApp Communication
+                </span>
+                <span className="text-[11px] text-[#747A72] font-mono flex items-center gap-1">
+                  <Phone size={11} className="text-[#6F776D]" />
+                  {appointment.customerPhone || "No phone"}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  id="btn-detail-send-confirmation"
+                  disabled={sendingConfirmation || sendingReminder}
+                  onClick={handleSendConfirmationWhatsApp}
+                  className="h-9 px-2.5 rounded-xl border border-[#CCD2C8] bg-[#FFFFFF] hover:bg-[#E8ECE5] text-[#2F352F] text-[11px] font-bold flex items-center justify-center gap-1.5 shadow-2xs transition cursor-pointer disabled:opacity-50"
+                  title="Send Meta-approved appointment confirmation WhatsApp"
+                >
+                  {sendingConfirmation ? (
+                    <>
+                      <div className="size-3.5 animate-spin rounded-full border-2 border-[#2F352F] border-t-transparent" />
+                      <span>Sending...</span>
+                    </>
+                  ) : confirmationSuccess ? (
+                    <>
+                      <CheckCircle2 size={13} className="text-[#5F7A62]" />
+                      <span className="text-[#5F7A62]">Confirmation Sent!</span>
+                    </>
+                  ) : (
+                    <>
+                      <MessageSquare size={13} className="text-[#5F7A62]" />
+                      <span>Send Confirmation WhatsApp</span>
+                    </>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  id="btn-detail-send-reminder"
+                  disabled={sendingConfirmation || sendingReminder}
+                  onClick={handleSendReminderWhatsApp}
+                  className="h-9 px-2.5 rounded-xl border border-[#CCD2C8] bg-[#FFFFFF] hover:bg-[#E8ECE5] text-[#2F352F] text-[11px] font-bold flex items-center justify-center gap-1.5 shadow-2xs transition cursor-pointer disabled:opacity-50"
+                  title="Send Meta-approved appointment reminder WhatsApp"
+                >
+                  {sendingReminder ? (
+                    <>
+                      <div className="size-3.5 animate-spin rounded-full border-2 border-[#2F352F] border-t-transparent" />
+                      <span>Sending...</span>
+                    </>
+                  ) : reminderSuccess ? (
+                    <>
+                      <CheckCircle2 size={13} className="text-[#5F7A62]" />
+                      <span className="text-[#5F7A62]">Reminder Sent!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Bell size={13} className="text-[#B18A45]" />
+                      <span>Send Reminder WhatsApp</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
 
             {/* Action Buttons Section */}
             <div className="space-y-2 pt-3 border-t border-[#E0E4DD]">

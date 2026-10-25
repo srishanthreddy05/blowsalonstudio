@@ -24,6 +24,16 @@ export interface SendInvoiceResult {
   recipientPhone?: string;
 }
 
+export interface SendAppointmentResult {
+  success: boolean;
+  status: WhatsAppMessageStatus;
+  messageId?: string | null;
+  error?: string | null;
+  errorCode?: WhatsAppErrorCode | null;
+  formattedMessage?: string;
+  recipientPhone?: string;
+}
+
 export interface ProviderStatusResult {
   status: WhatsAppConnectionStatus;
   provider: WhatsAppProviderType;
@@ -75,6 +85,15 @@ export interface IWhatsAppProvider {
    * Formats and sends an invoice receipt message for a given Invoice.
    */
   sendInvoiceReceipt(invoice: Invoice, customerPhone?: string): Promise<SendInvoiceResult>;
+
+  /**
+   * Sends an approved Meta appointment confirmation or reminder template.
+   */
+  sendAppointmentMessage?(
+    appointment: { id?: string; customerName?: string; customerPhone?: string },
+    type: "confirmation" | "reminder",
+    overridePhone?: string
+  ): Promise<SendAppointmentResult>;
 }
 
 export type WhatsAppProvider = IWhatsAppProvider;

@@ -100,6 +100,12 @@ const typeBadges: Record<
     bg: "bg-[#FAF4E8]",
     text: "text-[#B18A45]",
   },
+  APPOINTMENT_CONFIRMATION: {
+    label: "Confirmation",
+    icon: CheckCircle2,
+    bg: "bg-[#E8ECE5]",
+    text: "text-[#5F7A62]",
+  },
   APPOINTMENT_REMINDER: {
     label: "Reminder",
     icon: Clock,
@@ -202,6 +208,8 @@ export default function MessageHistoryView({
             >
               <option value="ALL">All Types</option>
               <option value="INVOICE_RECEIPT">Invoice Receipts</option>
+              <option value="APPOINTMENT_CONFIRMATION">Appointment Confirmations</option>
+              <option value="APPOINTMENT_REMINDER">Appointment Reminders</option>
               <option value="MARKETING_CAMPAIGN">Campaigns</option>
               <option value="TEST_MESSAGE">Test Dispatches</option>
             </select>

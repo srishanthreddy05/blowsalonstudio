@@ -29,7 +29,11 @@ export const WHATSAPP_CATEGORY_CONFIG: Record<WhatsAppMessageCategory, CategoryP
     ratePerMessage: WHATSAPP_APPLICATION_RATES.UTILITY,
     label: "Utility",
     description: "Transactional communications, invoice receipts, appointment reminders, and account alerts.",
-    examples: ["blow_salon_invoice", "appointment_reminder", "appointment_confirmation"],
+    examples: [
+      "blow_salon_invoices",
+      "blow_salon_appointment_confirmation",
+      "blow_salon_appointment_reminder",
+    ],
   },
   MARKETING: {
     category: "MARKETING",
@@ -60,10 +64,13 @@ export function getMessageCategory(
   if (
     mType === "INVOICE_RECEIPT" ||
     mType === "APPOINTMENT_REMINDER" ||
+    mType === "APPOINTMENT_CONFIRMATION" ||
     tName.includes("invoice") ||
     tName.includes("reminder") ||
     tName.includes("confirmation") ||
-    tName === "blow_salon_invoice"
+    tName === "blow_salon_invoices" ||
+    tName === "blow_salon_appointment_confirmation" ||
+    tName === "blow_salon_appointment_reminder"
   ) {
     return "UTILITY";
   }

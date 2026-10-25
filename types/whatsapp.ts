@@ -49,7 +49,8 @@ export type WhatsAppMessageType =
   | "INVOICE_RECEIPT"
   | "MARKETING_CAMPAIGN"
   | "TEST_MESSAGE"
-  | "APPOINTMENT_REMINDER";
+  | "APPOINTMENT_REMINDER"
+  | "APPOINTMENT_CONFIRMATION";
 
 
 
@@ -241,6 +242,7 @@ export interface WhatsAppMessageRecord {
   campaignName?: string | null;
   invoiceId?: string | null;
   invoiceNumber?: string | null;
+  appointmentId?: string | null;
   customerId?: string | null;
   customerName: string;
   phoneNumber: string;

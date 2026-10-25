@@ -883,7 +883,7 @@ test("WhatsApp Coexistence Test Suite", async (t) => {
     const rawMetaTemplates = [
       {
         id: "tmpl_1",
-        name: "blow_salon_invoice",
+        name: "blow_salon_invoices",
         status: "IN_REVIEW",
         category: "UTILITY",
         language: "en",
@@ -924,7 +924,7 @@ test("WhatsApp Coexistence Test Suite", async (t) => {
   // Case 34: Template validation enforces lowercase snake_case and sequential variables
   await t.test("Case 34: Template validation enforces lowercase snake_case and sequential variables", () => {
     const isValidName = (str) => /^[a-z0-9_]+$/.test(str);
-    assert.strictEqual(isValidName("blow_salon_invoice"), true);
+    assert.strictEqual(isValidName("blow_salon_invoices"), true);
     assert.strictEqual(isValidName("Blow Salon Invoice"), false);
     assert.strictEqual(isValidName("blow-salon-invoice"), false);
     assert.strictEqual(isValidName("blow_salon_123"), true);

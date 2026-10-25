@@ -487,8 +487,8 @@ export function UsageView() {
               <span className="font-mono font-bold text-sm text-[#5F7A62]">₹0.15</span>
             </div>
             <p className="text-[11px] text-[#747A72] leading-relaxed">
-              Dispatched automatically for digital invoice receipts, booking confirmations, and appointment reminders.
-              (e.g., <code className="font-mono text-[#2F352F]">blow_salon_invoice</code>)
+              Dispatched for digital invoice receipts, booking confirmations, and appointment reminders.
+              (e.g., <code className="font-mono text-[#2F352F]">blow_salon_invoices</code>, <code className="font-mono text-[#2F352F]">blow_salon_appointment_confirmation</code>)
             </p>
           </div>
 

@@ -81,7 +81,7 @@ test("BLOW SALON — WhatsApp Simplification, Usage & Retry Test Suite", async (
     assert.strictEqual(WHATSAPP_APPLICATION_RATES.UTILITY, 0.15, "Utility rate must be ₹0.15");
 
     assert.strictEqual(
-      getMessageCategory("INVOICE_RECEIPT", "blow_salon_invoice"),
+      getMessageCategory("INVOICE_RECEIPT", "blow_salon_invoices"),
       "UTILITY",
       "Invoice receipts must be classified as UTILITY"
     );
@@ -297,7 +297,7 @@ test("BLOW SALON — WhatsApp Simplification, Usage & Retry Test Suite", async (
   });
 
   // Scenario 12: Existing invoice and appointment notifications continue working
-  await t.test("Scenario 12: Invoice receipts preserve template blow_salon_invoice and coexistence", () => {
+  await t.test("Scenario 12: Invoice receipts preserve template blow_salon_invoices and coexistence", () => {
     const cloudProviderContent = fs.readFileSync(
       path.join(process.cwd(), "lib/whatsapp/cloudProvider.ts"),
       "utf8"
@@ -305,8 +305,8 @@ test("BLOW SALON — WhatsApp Simplification, Usage & Retry Test Suite", async (
 
     assert.match(
       cloudProviderContent,
-      /blow_salon_invoice/,
-      "Cloud provider must preserve blow_salon_invoice template"
+      /blow_salon_invoices/,
+      "Cloud provider must preserve blow_salon_invoices template"
     );
 
     assert.match(

@@ -1,11 +1,13 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef } from "react";
-import { X, Search, Calendar, Clock, User, Plus, Sparkles, Check } from "lucide-react";
+import { X, Search, Calendar, Clock, User, Plus, Sparkles, Check, MessageSquare, Bell, CheckCircle2, Phone } from "lucide-react";
 import * as appointmentService from "@/services/appointments";
 import * as customerService from "@/services/customers";
+import * as whatsappService from "@/services/whatsapp";
 import type { Customer } from "@/types/customer";
-import { toLocalDateString } from "@/lib/utils/date";
+import { toLocalDateString, formatDisplayDate } from "@/lib/utils/date";
+import { normalizePhoneNumber } from "@/lib/utils/phone";
 import { toast } from "react-hot-toast";
 import { AddCustomerModal } from "@/components/customers/AddCustomerModal";
 
@@ -63,6 +65,29 @@ export function AddAppointmentModal({
   const [reminder30Min, setReminder30Min] = useState<boolean>(true);
 
   const [saving, setSaving] = useState(false);
+
+  // Post-save state for sending WhatsApp confirmation / reminder
+  const [savedAppointment, setSavedAppointment] = useState<{
+    id: string;
+    customerName: string;
+    customerPhone?: string;
+    date: string;
+    visitTime: string;
+  } | null>(null);
+  const [sendingConfirmation, setSendingConfirmation] = useState(false);
+  const [sendingReminder, setSendingReminder] = useState(false);
+  const [confirmationSuccess, setConfirmationSuccess] = useState(false);
+  const [reminderSuccess, setReminderSuccess] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setSavedAppointment(null);
+      setSendingConfirmation(false);
+      setSendingReminder(false);
+      setConfirmationSuccess(false);
+      setReminderSuccess(false);
+    }
+  }, [isOpen]);
 
   // Load all customers for search
   useEffect(() => {
@@ -198,7 +223,13 @@ export function AddAppointmentModal({
       if (onSuccess) {
         onSuccess(appointmentId);
       }
-      onClose();
+      setSavedAppointment({
+        id: appointmentId,
+        customerName: selectedCustomer.name,
+        customerPhone: selectedCustomer.phone,
+        date,
+        visitTime,
+      });
     } catch (err: unknown) {
       const errorMsg = err instanceof Error ? err.message : "Failed to create appointment";
       toast.error(errorMsg);
@@ -207,11 +238,76 @@ export function AddAppointmentModal({
     }
   };
 
+  const handleSendConfirmation = async () => {
+    if (!savedAppointment) return;
+    if (!savedAppointment.customerPhone) {
+      toast.error("Customer does not have a phone number on file.");
+      return;
+    }
+    const normalized = normalizePhoneNumber(savedAppointment.customerPhone);
+    if (!normalized.isValid) {
+      toast.error(`Invalid phone number format: "${savedAppointment.customerPhone}".`);
+      return;
+    }
+
+    setSendingConfirmation(true);
+    try {
+      const res = await whatsappService.sendAppointmentWhatsApp(savedAppointment.id, "confirmation");
+      if (res.disabled) {
+        toast.error("WhatsApp messaging is currently paused. Outgoing dispatches are temporarily halted.");
+      } else if (res.success) {
+        toast.success(`Confirmation WhatsApp sent to ${savedAppointment.customerName}`);
+        setConfirmationSuccess(true);
+      } else {
+        toast.error(res.error || "Failed to send confirmation WhatsApp.");
+      }
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Error sending WhatsApp confirmation.");
+    } finally {
+      setSendingConfirmation(false);
+    }
+  };
+
+  const handleSendReminder = async () => {
+    if (!savedAppointment) return;
+    if (!savedAppointment.customerPhone) {
+      toast.error("Customer does not have a phone number on file.");
+      return;
+    }
+    const normalized = normalizePhoneNumber(savedAppointment.customerPhone);
+    if (!normalized.isValid) {
+      toast.error(`Invalid phone number format: "${savedAppointment.customerPhone}".`);
+      return;
+    }
+
+    setSendingReminder(true);
+    try {
+      const res = await whatsappService.sendAppointmentWhatsApp(savedAppointment.id, "reminder");
+      if (res.disabled) {
+        toast.error("WhatsApp messaging is currently paused. Outgoing dispatches are temporarily halted.");
+      } else if (res.success) {
+        toast.success(`Reminder WhatsApp sent to ${savedAppointment.customerName}`);
+        setReminderSuccess(true);
+      } else {
+        toast.error(res.error || "Failed to send reminder WhatsApp.");
+      }
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Error sending WhatsApp reminder.");
+    } finally {
+      setSendingReminder(false);
+    }
+  };
+
+  const handleModalClose = () => {
+    setSavedAppointment(null);
+    onClose();
+  };
+
   return (
     <>
       <div 
         className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#292D29]/40 backdrop-blur-xs animate-in fade-in duration-150"
-        onClick={onClose}
+        onClick={handleModalClose}
       >
         <div 
           className="relative w-full max-w-lg rounded-3xl border border-[#E0E4DD] bg-[#FFFFFF] shadow-2xl text-[#292D29] overflow-hidden flex flex-col max-h-[92vh] animate-in zoom-in-95 duration-150"
@@ -224,20 +320,139 @@ export function AddAppointmentModal({
                 <Calendar className="w-5 h-5" />
               </div>
               <div>
-                <h2 className="font-serif text-lg font-bold text-[#2F352F]">Book Appointment</h2>
-                <p className="text-xs text-[#747A72]">Manual customer visit booking & reminder</p>
+                <h2 className="font-serif text-lg font-bold text-[#2F352F]">
+                  {savedAppointment ? "Appointment Saved" : "Book Appointment"}
+                </h2>
+                <p className="text-xs text-[#747A72]">
+                  {savedAppointment
+                    ? "Appointment confirmed — dispatch WhatsApp updates"
+                    : "Manual customer visit booking & reminder"}
+                </p>
               </div>
             </div>
             <button
-              onClick={onClose}
+              onClick={handleModalClose}
               className="grid size-8 place-items-center rounded-xl border border-[#E0E4DD] text-[#747A72] hover:bg-[#F7F7F4] hover:text-[#2F352F] transition cursor-pointer"
             >
               <X className="w-4 h-4" />
             </button>
           </div>
 
-          {/* Form Body */}
-          <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-5">
+          {/* Form Body or Post-Save WhatsApp Confirmation View */}
+          {savedAppointment ? (
+            <div className="flex-1 overflow-y-auto p-6 space-y-5">
+              {/* Success Badge */}
+              <div className="text-center space-y-1.5 py-1">
+                <div className="size-12 mx-auto rounded-2xl bg-[#E8ECE5] text-[#5F7A62] grid place-items-center border border-[#CCD2C8]">
+                  <CheckCircle2 className="w-6 h-6" />
+                </div>
+                <h3 className="font-serif text-base font-bold text-[#2F352F]">
+                  Appointment Booked Successfully
+                </h3>
+                <p className="text-xs text-[#747A72]">
+                  The appointment has been scheduled and recorded in the system.
+                </p>
+              </div>
+
+              {/* Summary Card */}
+              <div className="p-4 rounded-2xl border border-[#E0E4DD] bg-[#F7F7F4] space-y-2 text-xs">
+                <div className="flex items-center justify-between pb-2 border-b border-[#E0E4DD]">
+                  <span className="text-[#747A72]">Customer</span>
+                  <span className="font-bold text-[#2F352F]">{savedAppointment.customerName}</span>
+                </div>
+                <div className="flex items-center justify-between pb-2 border-b border-[#E0E4DD]">
+                  <span className="text-[#747A72]">WhatsApp Mobile</span>
+                  <span className="font-mono font-medium text-[#2F352F] flex items-center gap-1">
+                    <Phone size={11} className="text-[#6F776D]" />
+                    {savedAppointment.customerPhone || "Not provided"}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[#747A72]">Scheduled Date & Time</span>
+                  <span className="font-bold text-[#2F352F]">
+                    {formatDisplayDate(savedAppointment.date)} at {savedAppointment.visitTime}
+                  </span>
+                </div>
+              </div>
+
+              {/* WhatsApp Action Buttons */}
+              <div className="p-4 rounded-2xl border border-[#CCD2C8] bg-[#FFFFFF] space-y-3">
+                <div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-[#6F776D] flex items-center gap-1.5">
+                    <MessageSquare size={13} className="text-[#5F7A62]" />
+                    Customer WhatsApp Communication
+                  </span>
+                  <p className="text-[11px] text-[#747A72] mt-0.5">
+                    Messages are sent only when explicitly clicked. Saving does not automatically send messages.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <button
+                    type="button"
+                    id="btn-add-modal-send-confirmation"
+                    disabled={sendingConfirmation || sendingReminder}
+                    onClick={handleSendConfirmation}
+                    className="h-11 px-3 rounded-xl border border-[#CCD2C8] bg-[#FFFFFF] hover:bg-[#E8ECE5] text-[#2F352F] text-xs font-bold flex items-center justify-center gap-2 shadow-2xs transition cursor-pointer disabled:opacity-50"
+                  >
+                    {sendingConfirmation ? (
+                      <>
+                        <div className="size-4 animate-spin rounded-full border-2 border-[#2F352F] border-t-transparent" />
+                        <span>Sending...</span>
+                      </>
+                    ) : confirmationSuccess ? (
+                      <>
+                        <CheckCircle2 size={15} className="text-[#5F7A62]" />
+                        <span className="text-[#5F7A62]">Confirmation Sent!</span>
+                      </>
+                    ) : (
+                      <>
+                        <MessageSquare size={15} className="text-[#5F7A62]" />
+                        <span>Send Confirmation WhatsApp</span>
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    id="btn-add-modal-send-reminder"
+                    disabled={sendingConfirmation || sendingReminder}
+                    onClick={handleSendReminder}
+                    className="h-11 px-3 rounded-xl border border-[#CCD2C8] bg-[#FFFFFF] hover:bg-[#E8ECE5] text-[#2F352F] text-xs font-bold flex items-center justify-center gap-2 shadow-2xs transition cursor-pointer disabled:opacity-50"
+                  >
+                    {sendingReminder ? (
+                      <>
+                        <div className="size-4 animate-spin rounded-full border-2 border-[#2F352F] border-t-transparent" />
+                        <span>Sending...</span>
+                      </>
+                    ) : reminderSuccess ? (
+                      <>
+                        <CheckCircle2 size={15} className="text-[#5F7A62]" />
+                        <span className="text-[#5F7A62]">Reminder Sent!</span>
+                      </>
+                    ) : (
+                      <>
+                        <Bell size={15} className="text-[#B18A45]" />
+                        <span>Send Reminder WhatsApp</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* Done button */}
+              <div className="pt-2 flex justify-end">
+                <button
+                  type="button"
+                  onClick={handleModalClose}
+                  className="h-10 px-6 text-xs font-bold text-white bg-[#2F352F] hover:bg-[#1C201C] rounded-xl transition shadow-xs cursor-pointer"
+                >
+                  Done
+                </button>
+              </div>
+            </div>
+          ) : (
+            <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-5">
             {/* 1. CUSTOMER SELECTION */}
             <div className="space-y-2">
               <label className="text-xs font-semibold text-[#747A72] flex items-center justify-between">
@@ -504,6 +719,7 @@ export function AddAppointmentModal({
               </button>
             </div>
           </form>
+        )}
         </div>
       </div>
 
