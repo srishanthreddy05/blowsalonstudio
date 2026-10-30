@@ -86,6 +86,11 @@ export function normalizeCampaignData(raw: Record<string, any>, id: string): Wha
       raw.templateVariables && typeof raw.templateVariables === "object" && !Array.isArray(raw.templateVariables)
         ? raw.templateVariables
         : {},
+    headerImageUrl: raw.headerImageUrl ? parseStr(raw.headerImageUrl) : null,
+    headerImageMetadata:
+      raw.headerImageMetadata && typeof raw.headerImageMetadata === "object" && !Array.isArray(raw.headerImageMetadata)
+        ? raw.headerImageMetadata
+        : null,
     createdAt: parseStr(raw.createdAt, new Date().toISOString()),
     startedAt: raw.startedAt ? parseStr(raw.startedAt) : null,
     completedAt: raw.completedAt ? parseStr(raw.completedAt) : null,

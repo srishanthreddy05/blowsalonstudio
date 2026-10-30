@@ -17,6 +17,10 @@ import {
   Info,
   UserX,
   UserCheck,
+  UploadCloud,
+  Image as ImageIcon,
+  Trash2,
+  RefreshCw,
 } from "lucide-react";
 import { toast } from "react-hot-toast";
 import * as whatsappService from "@/services/whatsapp";
@@ -25,6 +29,8 @@ import type { Customer } from "@/types/customer";
 import type { WhatsAppTemplate, WhatsAppAudienceType, WhatsAppCampaign } from "@/types/whatsapp";
 import { normalizePhoneNumber } from "@/lib/utils/phone";
 import { SendTestModal } from "./SendTestModal";
+import { auth } from "@/lib/firebase";
+import { DEFAULT_TEMPLATE_HEADER_IMAGE_URL } from "@/lib/whatsapp/templateRegistry";
 
 interface CreateCampaignModalProps {
   isOpen: boolean;
@@ -43,6 +49,14 @@ export function CreateCampaignModal({
   const [customerSearch, setCustomerSearch] = useState("");
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loadingCustomers, setLoadingCustomers] = useState(true);
+
+  // Campaign Header Image (Cloudinary)
+  const [headerImageFile, setHeaderImageFile] = useState<File | null>(null);
+  const [headerImageUrl, setHeaderImageUrl] = useState<string | null>(null);
+  const [headerImageMetadata, setHeaderImageMetadata] = useState<any | null>(null);
+  const [imageUploadStatus, setImageUploadStatus] = useState<"IDLE" | "UPLOADING" | "SUCCESS" | "ERROR">("IDLE");
+  const [imageUploadError, setImageUploadError] = useState<string | null>(null);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
 
   // Templates - strictly blow_salon_campaign
   const [templates, setTemplates] = useState<WhatsAppTemplate[]>([]);
@@ -257,6 +271,66 @@ export function CreateCampaignModal({
     setSelectedCustomerIds([]);
   };
 
+  const handleImageSelect = async (file: File) => {
+    const allowed = ["image/jpeg", "image/png", "image/webp", "image/jpg"];
+    if (!allowed.includes(file.type.toLowerCase())) {
+      const err = `Invalid file format "${file.type}". Please upload a JPEG, PNG, or WebP image.`;
+      setImageUploadStatus("ERROR");
+      setImageUploadError(err);
+      toast.error(err);
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      const err = `File size (${(file.size / (1024 * 1024)).toFixed(2)} MB) exceeds 5 MB limit.`;
+      setImageUploadStatus("ERROR");
+      setImageUploadError(err);
+      toast.error(err);
+      return;
+    }
+
+    setHeaderImageFile(file);
+    const localUrl = URL.createObjectURL(file);
+    setImagePreviewUrl(localUrl);
+    setImageUploadStatus("UPLOADING");
+    setImageUploadError(null);
+
+    try {
+      let idToken: string | undefined;
+      try {
+        idToken = await auth.currentUser?.getIdToken();
+      } catch {
+        // Fallback
+      }
+
+      const res = await whatsappService.uploadCampaignImage(file, idToken);
+      if (res.success && res.secure_url) {
+        setHeaderImageUrl(res.secure_url);
+        setHeaderImageMetadata(res.metadata || null);
+        setImageUploadStatus("SUCCESS");
+        toast.success("Campaign image uploaded to Cloudinary!");
+      } else {
+        throw new Error(res.error || "Failed to upload image");
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Image upload failed";
+      setImageUploadStatus("ERROR");
+      setImageUploadError(msg);
+      setHeaderImageUrl(null);
+      setHeaderImageMetadata(null);
+      toast.error(msg);
+    }
+  };
+
+  const handleRemoveImage = () => {
+    setHeaderImageFile(null);
+    setHeaderImageUrl(null);
+    setHeaderImageMetadata(null);
+    setImagePreviewUrl(null);
+    setImageUploadStatus("IDLE");
+    setImageUploadError(null);
+  };
+
   // Validation before confirmation
   const handleProceedToConfirmation = (e: React.FormEvent) => {
     e.preventDefault();
@@ -276,6 +350,19 @@ export function CreateCampaignModal({
       return;
     }
 
+    if (imageUploadStatus === "UPLOADING") {
+      toast.error("Please wait for the campaign image to finish uploading.");
+      return;
+    }
+
+    if (imageUploadStatus === "ERROR") {
+      toast.error(
+        imageUploadError ||
+          "Selected campaign image failed to upload. Please fix or remove it before proceeding."
+      );
+      return;
+    }
+
     if (!campaignMessageContent.trim()) {
       toast.error("Please enter your campaign message/content.");
       return;
@@ -286,6 +373,14 @@ export function CreateCampaignModal({
 
   // Submit and Create Campaign Record
   const handleConfirmAndCreate = async (sendImmediately: boolean) => {
+    if (imageUploadStatus === "ERROR") {
+      toast.error(
+        imageUploadError ||
+          "Selected campaign image failed to upload. Please fix or remove it before creating."
+      );
+      return;
+    }
+
     setSubmitting(true);
     try {
       // Exactly 2 parameters mapped for blow_salon_campaign
@@ -302,6 +397,8 @@ export function CreateCampaignModal({
         audienceType,
         customCustomerIds: audienceType === "CUSTOM" ? selectedCustomerIds : undefined,
         templateVariables: templateVariablesPayload,
+        headerImageUrl: headerImageUrl || null,
+        headerImageMetadata: headerImageMetadata || null,
       });
 
       if (!res.success || !res.campaign) {
@@ -558,16 +655,163 @@ export function CreateCampaignModal({
                   </span>
                 </div>
                 <p className="text-[11px] text-[#747A72] mt-1">
-                  Official BLOW SALON marketing template. Requires exactly 2 parameters: customer name {"{{1}}"} and campaign message {"{{2}}"}.
+                  Official BLOW SALON marketing template. Requires an IMAGE header and exactly 2 parameters: customer name {"{{1}}"} and campaign message {"{{2}}"}.
                 </p>
               </div>
             </div>
           </div>
 
-          {/* 4. Campaign Message / Content Mapping */}
+          {/* 4. Campaign Header Image (Cloudinary) */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="block font-bold text-[#2F352F] text-xs">
+                4. Campaign Header Image (Cloudinary)
+              </label>
+              <span className="text-[10px] text-[#747A72]">
+                Max 5 MB • JPEG, PNG, or WebP
+              </span>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-[#F7F7F4] border border-[#E0E4DD] space-y-3">
+              {imageUploadStatus === "IDLE" && !headerImageUrl && (
+                <div>
+                  <label
+                    htmlFor="campaign-image-input"
+                    className="flex flex-col items-center justify-center border-2 border-dashed border-[#CCD2C8] hover:border-[#5F7A62] bg-white rounded-2xl p-5 cursor-pointer transition group"
+                  >
+                    <div className="grid size-10 place-items-center rounded-xl bg-[#E8ECE5] text-[#5F7A62] group-hover:scale-105 transition-transform mb-2">
+                      <UploadCloud size={20} />
+                    </div>
+                    <span className="text-xs font-bold text-[#2F352F]">
+                      Click or drag an image to upload to Cloudinary
+                    </span>
+                    <span className="text-[11px] text-[#747A72] mt-0.5">
+                      Optional: Leave blank to use official BLOW SALON default header image
+                    </span>
+                    <input
+                      id="campaign-image-input"
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp,image/jpg"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) handleImageSelect(file);
+                        e.target.value = "";
+                      }}
+                    />
+                  </label>
+                </div>
+              )}
+
+              {imageUploadStatus === "UPLOADING" && (
+                <div className="flex items-center gap-3 p-4 rounded-2xl bg-white border border-[#E0E4DD]">
+                  <div className="size-5 border-2 border-[#5F7A62] border-t-transparent rounded-full animate-spin shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <span className="text-xs font-bold text-[#2F352F] block truncate">
+                      Uploading {headerImageFile?.name || "image"} to Cloudinary...
+                    </span>
+                    <span className="text-[10px] text-[#747A72]">
+                      Validating file format and optimizing asset
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {imageUploadStatus === "SUCCESS" && headerImageUrl && (
+                <div className="p-3.5 rounded-2xl bg-white border border-[#5F7A62]/30 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="size-12 rounded-xl overflow-hidden border border-[#E0E4DD] shrink-0 bg-[#F7F7F4]">
+                      <img
+                        src={headerImageUrl}
+                        alt="Uploaded preview"
+                        className="size-full object-cover"
+                      />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-bold text-[#2F352F] truncate block">
+                          {headerImageMetadata?.originalFilename || headerImageFile?.name || "Campaign Image"}
+                        </span>
+                        <span className="px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-[#E8ECE5] text-[#5F7A62] border border-[#5F7A62]/30 shrink-0">
+                          Uploaded
+                        </span>
+                      </div>
+                      <span className="text-[10px] text-[#747A72] block">
+                        Cloudinary secure URL saved • {headerImageMetadata?.bytes ? `${(headerImageMetadata.bytes / 1024).toFixed(0)} KB` : "Ready"}
+                      </span>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleRemoveImage}
+                    className="p-2 rounded-xl text-[#B55B5B] hover:bg-[#FBEBEB] transition cursor-pointer shrink-0"
+                    title="Remove custom image and revert to default"
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                </div>
+              )}
+
+              {imageUploadStatus === "ERROR" && (
+                <div className="p-3.5 rounded-2xl bg-[#FBEBEB] border border-[#F8D7D7] flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5">
+                    <AlertCircle size={16} className="text-[#B55B5B] shrink-0" />
+                    <div>
+                      <span className="text-xs font-bold text-[#B55B5B] block">
+                        Upload Failed
+                      </span>
+                      <span className="text-[11px] text-[#B55B5B]/90 block">
+                        {imageUploadError || "An error occurred during Cloudinary upload."}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <label
+                      htmlFor="campaign-image-retry"
+                      className="px-2.5 py-1 rounded-xl bg-white border border-[#CCD2C8] text-xs font-semibold text-[#2F352F] hover:bg-[#F7F7F4] cursor-pointer transition flex items-center gap-1"
+                    >
+                      <RefreshCw size={12} />
+                      <span>Retry</span>
+                      <input
+                        id="campaign-image-retry"
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp,image/jpg"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleImageSelect(file);
+                          e.target.value = "";
+                        }}
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      onClick={handleRemoveImage}
+                      className="p-1 rounded-lg text-[#747A72] hover:text-[#2F352F] transition cursor-pointer"
+                      title="Clear error and use default image"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div className="text-[11px] text-[#747A72] flex items-center gap-1.5">
+                <Info size={13} className="text-[#5F7A62] shrink-0" />
+                <span>
+                  {headerImageUrl
+                    ? "Custom image selected. This image will be sent in the WhatsApp IMAGE header."
+                    : "No custom image selected. WhatsApp Cloud API will use official BLOW SALON default header image."}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* 5. Campaign Message / Content Mapping */}
           <div className="space-y-3">
             <label className="block font-bold text-[#2F352F] text-xs">
-              4. Campaign Content & Offer Message {"{{2}}"} *
+              5. Campaign Content & Offer Message {"{{2}}"} *
             </label>
 
             <div className="p-4 rounded-2xl bg-[#F7F7F4] border border-[#E0E4DD] space-y-3">
@@ -599,11 +843,11 @@ export function CreateCampaignModal({
             </div>
           </div>
 
-          {/* 5. Live WhatsApp Preview */}
+          {/* 6. Live WhatsApp Preview */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <label className="block font-bold text-[#2F352F] text-xs">
-                5. WhatsApp Customer Message Preview
+                6. WhatsApp Customer Message Preview
               </label>
               <span className="text-[10px] uppercase font-bold text-[#5F7A62]">
                 Live Dynamic Preview
@@ -619,6 +863,26 @@ export function CreateCampaignModal({
                   <div>
                     <span className="font-bold text-[11px] text-[#2F352F] block">BLOW SALON</span>
                     <span className="text-[9px] text-[#747A72]">Official Business Account</span>
+                  </div>
+                </div>
+
+                {/* WhatsApp Image Header Preview */}
+                <div className="rounded-xl overflow-hidden border border-[#E0E4DD] bg-[#F7F7F4] relative my-1">
+                  <img
+                    src={headerImageUrl || imagePreviewUrl || DEFAULT_TEMPLATE_HEADER_IMAGE_URL}
+                    alt="WhatsApp Header Preview"
+                    className="w-full h-32 object-cover"
+                  />
+                  <div className="absolute top-2 right-2">
+                    {headerImageUrl ? (
+                      <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-[#E8ECE5]/95 text-[#5F7A62] border border-[#5F7A62]/30 backdrop-blur-xs">
+                        Custom Image
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-white/95 text-[#747A72] border border-[#CCD2C8] backdrop-blur-xs">
+                        Default Header
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -644,7 +908,12 @@ export function CreateCampaignModal({
             </button>
             <button
               type="submit"
-              disabled={audienceStats.eligible === 0 || !name.trim() || !campaignMessageContent.trim()}
+              disabled={
+                audienceStats.eligible === 0 ||
+                !name.trim() ||
+                !campaignMessageContent.trim() ||
+                imageUploadStatus === "UPLOADING"
+              }
               className="h-10 px-5 rounded-xl bg-[#2F352F] hover:bg-[#1E221E] text-[#FAF4E8] text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer disabled:opacity-50"
             >
               <span>Review & Confirm</span>
@@ -679,6 +948,22 @@ export function CreateCampaignModal({
                   <span className="text-[#747A72]">Template:</span>
                   <span className="font-mono font-semibold text-[#5F7A62]">
                     blow_salon_campaign (2 vars)
+                  </span>
+                </div>
+                <div className="flex justify-between py-1 border-b border-[#E0E4DD]">
+                  <span className="text-[#747A72]">Header Image:</span>
+                  <span className="font-semibold text-[#2F352F] flex items-center gap-1.5">
+                    {headerImageUrl ? (
+                      <>
+                        <span className="size-1.5 rounded-full bg-[#5F7A62]" />
+                        <span>Custom (Cloudinary)</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="size-1.5 rounded-full bg-[#8C9389]" />
+                        <span>Default Template Image</span>
+                      </>
+                    )}
                   </span>
                 </div>
                 <div className="flex justify-between py-1 border-b border-[#E0E4DD]">

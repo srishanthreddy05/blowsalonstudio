@@ -62,7 +62,22 @@ export async function POST(request: Request) {
       audienceType = "ALL",
       customCustomerIds = [],
       templateVariables = {},
+      headerImageUrl,
+      headerImageMetadata,
+      uploadFailed,
+      uploadError,
     } = body;
+
+    if (uploadFailed) {
+      return NextResponse.json(
+        {
+          error:
+            uploadError ||
+            "Selected campaign image failed to upload. Please fix or remove the image before creating the campaign.",
+        },
+        { status: 400 }
+      );
+    }
 
     if (!name || !templateName) {
       return NextResponse.json(
@@ -143,6 +158,11 @@ export async function POST(request: Request) {
     const campaignTemplateName = String(templateName).trim();
     const resolvedLanguage = getTemplateLanguage(campaignTemplateName, templateLanguage);
 
+    const resolvedHeaderImageUrl =
+      typeof headerImageUrl === "string" && headerImageUrl.trim().length > 0
+        ? headerImageUrl.trim()
+        : null;
+
     // 4. Create Campaign Document
     const campaignData: Omit<WhatsAppCampaign, "id"> = {
       name: String(name).trim(),
@@ -160,6 +180,8 @@ export async function POST(request: Request) {
       readCount: 0,
       failedCount: 0,
       templateVariables: templateVariables || {},
+      headerImageUrl: resolvedHeaderImageUrl,
+      headerImageMetadata: resolvedHeaderImageUrl && headerImageMetadata ? headerImageMetadata : null,
       createdAt: nowIso,
       startedAt: null,
       completedAt: null,

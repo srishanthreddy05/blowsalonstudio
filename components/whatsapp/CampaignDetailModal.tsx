@@ -181,7 +181,7 @@ export default function CampaignDetailModal({
                 </span>
               </div>
               <p className="text-xs text-[#747A72]">
-                Template: <span className="font-mono text-[#5F7A62]">{campaign.templateName}</span> ({campaign.templateLanguage}) • Created {formatDisplayDate(campaign.createdAt)}
+                Template: <span className="font-mono text-[#5F7A62]">{campaign.templateName}</span> ({campaign.templateLanguage}) • Header: <span className="font-semibold text-[#2F352F]">{campaign.headerImageUrl ? "Custom (Cloudinary)" : "Default"}</span> • Created {formatDisplayDate(campaign.createdAt)}
               </p>
             </div>
           </div>

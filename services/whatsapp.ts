@@ -330,6 +330,46 @@ export async function getCampaignById(
   return await res.json();
 }
 
+export async function uploadCampaignImage(
+  file: File,
+  idToken?: string
+): Promise<{
+  success: boolean;
+  secure_url?: string;
+  metadata?: {
+    publicId?: string | null;
+    format?: string | null;
+    bytes?: number | null;
+    width?: number | null;
+    height?: number | null;
+    resourceType?: string | null;
+    originalFilename?: string | null;
+    uploadedAt?: string | null;
+  };
+  error?: string;
+}> {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const headers: Record<string, string> = {};
+  if (idToken) {
+    headers["Authorization"] = `Bearer ${idToken}`;
+  }
+
+  const res = await fetch("/api/whatsapp/campaigns/upload", {
+    method: "POST",
+    headers,
+    body: formData,
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.success === false) {
+    throw new Error(data.error || "Failed to upload image to Cloudinary");
+  }
+
+  return data;
+}
+
 export async function createCampaign(payload: {
   name: string;
   templateName: string;
@@ -338,6 +378,10 @@ export async function createCampaign(payload: {
   audienceType: WhatsAppAudienceType;
   customCustomerIds?: string[];
   templateVariables?: Record<string, string>;
+  headerImageUrl?: string | null;
+  headerImageMetadata?: Record<string, unknown> | null;
+  uploadFailed?: boolean;
+  uploadError?: string | null;
 }): Promise<{ success: boolean; campaign: WhatsAppCampaign }> {
   const res = await fetch("/api/whatsapp/campaigns", {
     method: "POST",

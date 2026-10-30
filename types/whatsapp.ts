@@ -176,6 +176,17 @@ export interface WhatsAppInsightsData {
   lastSync: string;
 }
 
+export interface WhatsAppCampaignImageMetadata {
+  publicId?: string | null;
+  format?: string | null;
+  bytes?: number | null;
+  width?: number | null;
+  height?: number | null;
+  resourceType?: string | null;
+  originalFilename?: string | null;
+  uploadedAt?: string | null;
+}
+
 export interface WhatsAppCampaign {
   id: string;
   name: string;
@@ -193,6 +204,8 @@ export interface WhatsAppCampaign {
   readCount: number;
   failedCount: number;
   templateVariables: Record<string, string>; // e.g. { "1": "customer_name", "2": "20% OFF" }
+  headerImageUrl?: string | null;
+  headerImageMetadata?: WhatsAppCampaignImageMetadata | null;
   createdAt: string;
   startedAt?: string | null;
   completedAt?: string | null;

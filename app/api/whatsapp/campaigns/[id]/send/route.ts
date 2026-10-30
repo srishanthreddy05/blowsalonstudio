@@ -184,7 +184,8 @@ export async function POST(
           rec.normalizedPhone || rec.phone,
           campaign.templateName,
           templateLang,
-          components
+          components,
+          campaign.headerImageUrl || undefined
         );
 
         if (sendResult.success) {

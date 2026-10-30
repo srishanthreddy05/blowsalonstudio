@@ -172,7 +172,8 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
    */
   public async buildTemplateComponents(
     templateName: string,
-    components?: Array<Record<string, unknown>>
+    components?: Array<Record<string, unknown>>,
+    imageUrl?: string
   ): Promise<Array<Record<string, unknown>>> {
     const list: Array<Record<string, unknown>> = components && Array.isArray(components)
       ? components.map((c) => ({ ...c }))
@@ -184,13 +185,14 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
         (c) => (c.type || "").toString().toLowerCase() === "header"
       );
       if (!hasHeader) {
+        const headerUrl = (imageUrl && imageUrl.trim()) || this.getHeaderImageUrl();
         list.unshift({
           type: "header",
           parameters: [
             {
               type: "image",
               image: {
-                link: this.getHeaderImageUrl(),
+                link: headerUrl,
               },
             },
           ],
@@ -502,7 +504,8 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
     phoneNumber: string,
     templateName: string,
     languageCode?: string,
-    components?: Array<Record<string, unknown>>
+    components?: Array<Record<string, unknown>>,
+    headerImageUrl?: string
   ): Promise<SendMessageResult> {
     const status = await this.getStatus();
     if (status.status !== "CONNECTED" || !this.accessToken || !this.phoneNumberId) {
@@ -542,7 +545,7 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
     const bodyParamCount = bodyParameters.length;
 
     // Prepend IMAGE header component if required by template definition or Meta Graph API
-    let finalComponents = await this.buildTemplateComponents(templateName, components);
+    let finalComponents = await this.buildTemplateComponents(templateName, components, headerImageUrl);
 
     if (templateName === "3p_direct_integration_test_template") {
       if (bodyParamCount !== 0) {

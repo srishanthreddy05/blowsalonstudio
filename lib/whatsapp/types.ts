@@ -73,7 +73,8 @@ export interface IWhatsAppProvider {
     phoneNumber: string,
     templateName: string,
     languageCode?: string,
-    components?: Array<Record<string, unknown>>
+    components?: Array<Record<string, unknown>>,
+    headerImageUrl?: string
   ): Promise<SendMessageResult>;
 
   /**

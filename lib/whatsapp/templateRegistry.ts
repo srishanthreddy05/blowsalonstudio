@@ -111,7 +111,7 @@ export function templateRequiresImageHeader(templateName: string): boolean {
 export function prependTemplateImageHeader(
   templateName: string,
   components?: Array<Record<string, unknown>>,
-  imageUrl: string = DEFAULT_TEMPLATE_HEADER_IMAGE_URL
+  imageUrl?: string
 ): Array<Record<string, unknown>> {
   const list: Array<Record<string, unknown>> = components && Array.isArray(components)
     ? components.map((c) => ({ ...c }))
@@ -122,13 +122,18 @@ export function prependTemplateImageHeader(
       (c) => (c.type || "").toString().toLowerCase() === "header"
     );
     if (!hasHeader) {
+      const resolvedUrl =
+        (imageUrl && imageUrl.trim()) ||
+        process.env.WHATSAPP_TEMPLATE_HEADER_IMAGE_URL?.trim() ||
+        DEFAULT_TEMPLATE_HEADER_IMAGE_URL;
+
       list.unshift({
         type: "header",
         parameters: [
           {
             type: "image",
             image: {
-              link: imageUrl,
+              link: resolvedUrl,
             },
           },
         ],
