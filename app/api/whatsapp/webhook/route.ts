@@ -19,6 +19,7 @@ export const runtime = "nodejs";
 
 import { sanitizeFirestoreDoc } from "@/lib/utils/firestore";
 import { calculateCampaignStats } from "@/lib/whatsapp/campaignStats";
+import { syncCampaignStats } from "@/lib/whatsapp/queue/queueManager";
 import { parseWhatsAppFailure } from "@/lib/whatsapp/errorClassifier";
 import type { WhatsAppDeliveryAttempt } from "@/types/whatsapp";
 import {
@@ -396,18 +397,27 @@ export async function POST(request: Request) {
                         recUpdate.errorSource = "WEBHOOK";
                       }
 
-                      // Append to attempts history array
+                      // Append to attempts history array cleanly without undefined properties
                       const existingAttempts: WhatsAppDeliveryAttempt[] = Array.isArray(recData.attempts) ? [...recData.attempts] : [];
-                      existingAttempts.push({
+                      const newAttempt: WhatsAppDeliveryAttempt = {
                         attempt: recData.attemptCount || recData.retryCount || 1,
                         status: mappedStatus,
                         sentAt: recData.sentAt || nowIso,
-                        deliveredAt: mappedStatus === "DELIVERED" || mappedStatus === "READ" ? (recData.deliveredAt || nowIso) : undefined,
-                        readAt: mappedStatus === "READ" ? (recData.readAt || nowIso) : undefined,
                         metaMessageId: messageId,
-                        errorMessage: mappedStatus === "FAILED" ? (failureClass?.details || failureClass?.shortReason || errorObj?.message) : undefined,
-                        errorCode: mappedStatus === "FAILED" ? (errorObj?.code ? String(errorObj.code) : undefined) : undefined,
-                      });
+                      };
+                      if (mappedStatus === "DELIVERED" || mappedStatus === "READ") {
+                        newAttempt.deliveredAt = recData.deliveredAt || nowIso;
+                      }
+                      if (mappedStatus === "READ") {
+                        newAttempt.readAt = recData.readAt || nowIso;
+                      }
+                      if (mappedStatus === "FAILED") {
+                        newAttempt.errorMessage = failureClass?.details || failureClass?.shortReason || errorObj?.message || errorObj?.title || "Delivery failed";
+                        if (errorObj?.code) {
+                          newAttempt.errorCode = String(errorObj.code);
+                        }
+                      }
+                      existingAttempts.push(newAttempt);
                       recUpdate.attempts = existingAttempts;
 
                       await updateDoc(
@@ -416,28 +426,13 @@ export async function POST(request: Request) {
                       );
                     }
 
-                    // 4. Recalculate and Synchronize Campaign Counters from Recipient Records
+                    // 4. Recalculate and Synchronize Campaign Counters using authoritative queue job statuses
                     if (campaignId && shouldRecalculate) {
-                      const allRecSnap = await getDocs(
-                        query(collection(db, RECIPIENTS_COLLECTION), where("campaignId", "==", campaignId))
-                      );
-                      const allRecs = allRecSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-                      const stats = calculateCampaignStats(allRecs);
-
-                      await updateDoc(
-                        doc(db, CAMPAIGNS_COLLECTION, campaignId),
-                        sanitizeFirestoreDoc({
-                          totalRecipients: stats.totalRecipients,
-                          sentCount: stats.sentCount,
-                          deliveredCount: stats.deliveredCount,
-                          readCount: stats.readCount,
-                          failedCount: stats.failedCount,
-                          excludedCount: stats.excludedCount,
-                          ...(stats.status ? { status: stats.status } : {}),
-                          updatedAt: nowIso,
-                        })
-                      );
+                      await syncCampaignStats(campaignId);
                     }
+                  } else if (jobDocs.length > 0 && jobDocs[0]?.data()?.campaignId) {
+                    // Fallback: If recipient doc was not found, still reconcile campaign counters from authoritative queue jobs
+                    await syncCampaignStats(jobDocs[0].data().campaignId);
                   }
                 } catch (recErr) {
                   console.error(

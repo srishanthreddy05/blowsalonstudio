@@ -2,38 +2,56 @@ import type { WhatsAppCampaign } from "@/types/whatsapp";
 
 /**
  * Defensive utility to recursively strip any 'undefined' properties before passing to Firestore.
- * Correctly preserves Firebase FieldValue sentinel objects (increment, serverTimestamp, etc.)
+ * Recursively sanitizes arrays and plain objects at all nesting levels.
+ * Correctly preserves Firebase FieldValue sentinel objects (increment, serverTimestamp, etc.), Dates, and nulls.
  */
+export function sanitizeFirestoreValue(value: unknown): unknown {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === null || typeof value !== "object") {
+    return value;
+  }
+  if (value instanceof Date) {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    const sanitizedArr: unknown[] = [];
+    for (const item of value) {
+      if (item !== undefined) {
+        const sanitizedItem = sanitizeFirestoreValue(item);
+        if (sanitizedItem !== undefined) {
+          sanitizedArr.push(sanitizedItem);
+        }
+      }
+    }
+    return sanitizedArr;
+  }
+
+  // Preserve non-plain objects (e.g. FieldValue, Timestamp, Date)
+  const proto = Object.getPrototypeOf(value);
+  if (proto !== null && proto !== Object.prototype) {
+    return value;
+  }
+
+  const result: Record<string, any> = {};
+  for (const [key, val] of Object.entries(value)) {
+    if (val === undefined) {
+      continue;
+    }
+    const sanitizedVal = sanitizeFirestoreValue(val);
+    if (sanitizedVal !== undefined) {
+      result[key] = sanitizedVal;
+    }
+  }
+  return result;
+}
+
 export function sanitizeFirestoreDoc<T extends Record<string, any>>(obj: T): T {
   if (obj === null || typeof obj !== "object") {
     return obj;
   }
-
-  // Preserve non-plain objects (e.g. FieldValue, Timestamp, Date)
-  const proto = Object.getPrototypeOf(obj);
-  if (proto !== null && proto !== Object.prototype) {
-    return obj;
-  }
-
-  const result: Record<string, any> = {};
-  for (const [key, value] of Object.entries(obj)) {
-    if (value === undefined) {
-      continue;
-    }
-    if (value !== null && typeof value === "object" && !Array.isArray(value) && !(value instanceof Date)) {
-      const valProto = Object.getPrototypeOf(value);
-      if (valProto === null || valProto === Object.prototype) {
-        // Plain JS object - recurse
-        result[key] = sanitizeFirestoreDoc(value);
-      } else {
-        // FieldValue (increment, serverTimestamp, etc.) - keep as-is
-        result[key] = value;
-      }
-    } else {
-      result[key] = value;
-    }
-  }
-  return result as T;
+  return sanitizeFirestoreValue(obj) as T;
 }
 
 /**

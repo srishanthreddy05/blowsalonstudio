@@ -1012,20 +1012,25 @@ export async function syncCampaignStats(campaignId: string): Promise<void> {
     query(collection(db, RECIPIENTS_COLLECTION), where("campaignId", "==", campaignId))
   );
   const allRecs = recSnap.docs.map((d) => ({ id: d.id, ...d.data() } as WhatsAppCampaignRecipient));
-  const stats = calculateCampaignStats(allRecs);
 
   // Fetch live queue job counts for campaign dashboard reporting
   let pendingJobsCount = 0;
   let processingJobsCount = 0;
   let retryWaitJobsCount = 0;
   let ambiguousJobsCount = 0;
+  const jobsByRecipientId = new Map<string, WhatsAppCampaignJob>();
 
   try {
     const jobSnap = await getDocs(
       query(collection(db, QUEUE_JOBS_COLLECTION), where("campaignId", "==", campaignId))
     );
     for (const d of jobSnap.docs) {
-      const s = d.data().status;
+      const job = d.data() as WhatsAppCampaignJob;
+      const recId = job.recipientId || (job.id.includes("_") ? job.id.split("_")[1] : null);
+      if (recId) {
+        jobsByRecipientId.set(recId, job);
+      }
+      const s = job.status;
       if (s === "PENDING" || s === "QUEUED") pendingJobsCount++;
       else if (s === "PROCESSING") processingJobsCount++;
       else if (s === "RETRY_WAIT") retryWaitJobsCount++;
@@ -1036,6 +1041,43 @@ export async function syncCampaignStats(campaignId: string): Promise<void> {
     pendingJobsCount = allRecs.filter((r) => r.status === "PENDING" || (r as any).status === "QUEUED").length;
     ambiguousJobsCount = allRecs.filter((r) => r.status === "AMBIGUOUS").length;
   }
+
+  // Reconcile recipient delivery statuses using authoritative queue jobs
+  // Never downgrade status: READ cannot be downgraded to DELIVERED or SENT
+  const nowIso = new Date().toISOString();
+  const reconciledRecs = allRecs.map((rec) => {
+    const job = jobsByRecipientId.get(rec.id);
+    if (!job) return rec;
+
+    const recRank = STATUS_RANK[(rec.status || "").toUpperCase()] || 0;
+    const jobRank = STATUS_RANK[(job.status || "").toUpperCase()] || 0;
+
+    if (jobRank > recRank) {
+      // Reconcile recipient doc in Firestore if out of sync with authoritative job
+      updateDoc(
+        doc(db, RECIPIENTS_COLLECTION, rec.id),
+        sanitizeFirestoreDoc({
+          status: job.status,
+          deliveredAt: job.deliveredAt || rec.deliveredAt || null,
+          readAt: job.readAt || rec.readAt || null,
+          metaMessageId: job.whatsappMessageId || rec.metaMessageId || null,
+          updatedAt: nowIso,
+        })
+      ).catch((err) => {
+        console.warn(`[QueueManager] Non-blocking recipient sync error for ${rec.id}:`, err);
+      });
+
+      return {
+        ...rec,
+        status: job.status as any,
+        deliveredAt: job.deliveredAt || rec.deliveredAt,
+        readAt: job.readAt || rec.readAt,
+      };
+    }
+    return rec;
+  });
+
+  const stats = calculateCampaignStats(reconciledRecs);
 
   const remainingJobs = pendingJobsCount + processingJobsCount + retryWaitJobsCount;
   const currentDelayMs = getCurrentSendDelayMs();
@@ -1059,7 +1101,6 @@ export async function syncCampaignStats(campaignId: string): Promise<void> {
     newStatus = "SENDING";
   }
 
-  const nowIso = new Date().toISOString();
   await updateDoc(campRef, sanitizeFirestoreDoc({
     status: newStatus,
     totalRecipients: stats.totalRecipients,
