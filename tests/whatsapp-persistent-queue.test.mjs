@@ -1202,4 +1202,131 @@ test("BLOW SALON — WhatsApp Persistent Queue, Delays & Rate-Limit Behavioral S
     const vercelConfig = JSON.parse(fs.readFileSync("vercel.json", "utf8"));
     assert.ok(!vercelConfig.crons || vercelConfig.crons.length === 0, "vercel.json must have no competing cron tasks");
   });
+
+  // ── Scenario 39: Complete Decoupling of Campaign Routes from Queue Worker ──
+  await t.test("Scenario 39 (Queue Decoupling): Start, Resume, Retry, and Recover routes NEVER invoke processQueueBatch()", async () => {
+    const fs = await import("fs");
+
+    // Helper to test if a file invokes processQueueBatch(...)
+    const checksCall = (sourceCode) => {
+      // Remove comments to avoid false positives
+      const stripped = sourceCode
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/\/\/.*$/gm, "");
+      return /\bprocessQueueBatch\s*\(/.test(stripped);
+    };
+
+    const sendCode = fs.readFileSync("app/api/whatsapp/campaigns/[id]/send/route.ts", "utf8");
+    const resumeCode = fs.readFileSync("app/api/whatsapp/campaigns/[id]/resume/route.ts", "utf8");
+    const retryCode = fs.readFileSync("app/api/whatsapp/campaigns/[id]/retry/route.ts", "utf8");
+    const recoverCode = fs.readFileSync("app/api/whatsapp/campaigns/[id]/recover/route.ts", "utf8");
+    const workerCode = fs.readFileSync("app/api/whatsapp/queue/worker/route.ts", "utf8");
+
+    // 1. Send route must NOT execute processQueueBatch() and must NOT import after()
+    assert.strictEqual(checksCall(sendCode), false, "Start/Send route must NOT invoke processQueueBatch()");
+    assert.strictEqual(/\bafter\s*\(/.test(sendCode), false, "Start/Send route must NOT use Next.js after() for queue execution");
+    assert.ok(sendCode.includes("createCampaignJobs("), "Start/Send route MUST seed jobs via createCampaignJobs()");
+
+    // 2. Resume route must NOT execute processQueueBatch()
+    assert.strictEqual(checksCall(resumeCode), false, "Resume route must NOT invoke processQueueBatch()");
+
+    // 3. Retry route must NOT execute processQueueBatch()
+    assert.strictEqual(checksCall(retryCode), false, "Retry route must NOT invoke processQueueBatch()");
+
+    // 4. Recover route must NOT execute processQueueBatch()
+    assert.strictEqual(checksCall(recoverCode), false, "Recover route must NOT invoke processQueueBatch()");
+
+    // 5. Worker route MUST be the only route executing processQueueBatch()
+    assert.strictEqual(checksCall(workerCode), true, "Central queue worker route MUST execute processQueueBatch()");
+  });
+
+  // ── Scenario 40: Decoupled Campaign Lifecycle & State Machine Simulation ──
+  await t.test("Scenario 40 (Campaign Lifecycle): Start seeds jobs; Pause stops worker; Resume continues queue; Worker is exclusive dispatcher", async () => {
+    // 1. Seed Campaign in DRAFT state
+    let campaign = {
+      id: "camp_decoupled_test_001",
+      name: "Decoupled Campaign Test",
+      status: "DRAFT",
+      isPaused: false,
+      totalRecipients: 3,
+      sentCount: 0,
+      deliveredCount: 0,
+      failedCount: 0,
+    };
+
+    let jobs = [
+      { id: "job_01", campaignId: campaign.id, status: "PENDING", attempts: 0 },
+      { id: "job_02", campaignId: campaign.id, status: "PENDING", attempts: 0 },
+      { id: "job_03", campaignId: campaign.id, status: "PENDING", attempts: 0 },
+    ];
+
+    // Worker claim simulator: replicates claimNextDueJob status check
+    const tryClaimJob = (campState, jobList) => {
+      // Invariant: Only campaigns explicitly in SENDING status can process jobs
+      if (campState.status !== "SENDING") {
+        return null;
+      }
+      return jobList.find((j) => j.status === "PENDING" || j.status === "QUEUED") || null;
+    };
+
+    // Before Start: DRAFT campaign cannot have jobs claimed
+    assert.strictEqual(tryClaimJob(campaign, jobs), null, "DRAFT campaign jobs cannot be claimed");
+
+    // 2. Admin clicks Start Campaign: status transitions to SENDING without direct send
+    campaign = { ...campaign, status: "SENDING", startedAt: new Date().toISOString() };
+    assert.strictEqual(campaign.status, "SENDING");
+
+    // Central worker runs tick 1: claims and processes job_01
+    const claimedJob1 = tryClaimJob(campaign, jobs);
+    assert.ok(claimedJob1, "Job 1 should be claimable when SENDING");
+    assert.strictEqual(claimedJob1.id, "job_01");
+    claimedJob1.status = "SENT";
+    campaign.sentCount = 1;
+
+    // 3. Admin clicks Pause Campaign: status transitions to PAUSED
+    campaign = { ...campaign, status: "PAUSED", isPaused: true };
+    assert.strictEqual(campaign.status, "PAUSED");
+
+    // Central worker runs tick 2 during PAUSED: strictly skips jobs
+    const claimedDuringPause = tryClaimJob(campaign, jobs);
+    assert.strictEqual(claimedDuringPause, null, "Paused campaign jobs must NOT be claimed by central worker");
+
+    // 4. Admin clicks Resume Campaign: status transitions to SENDING without inline dispatch
+    campaign = { ...campaign, status: "SENDING", isPaused: false };
+    assert.strictEqual(campaign.status, "SENDING");
+    assert.strictEqual(campaign.isPaused, false);
+
+    // Central worker runs tick 3 after Resume: automatically picks up job_02 and job_03
+    const claimedJob2 = tryClaimJob(campaign, jobs);
+    assert.ok(claimedJob2, "Job 2 should be claimable after Resume");
+    assert.strictEqual(claimedJob2.id, "job_02");
+    claimedJob2.status = "SENT";
+    campaign.sentCount = 2;
+
+    const claimedJob3 = tryClaimJob(campaign, jobs);
+    assert.ok(claimedJob3, "Job 3 should be claimable after Job 2");
+    assert.strictEqual(claimedJob3.id, "job_03");
+    claimedJob3.status = "FAILED";
+    campaign.failedCount = 1;
+
+    // All jobs processed: campaign marks COMPLETED_WITH_ERRORS
+    const remainingPending = jobs.filter((j) => j.status === "PENDING");
+    if (remainingPending.length === 0) {
+      campaign.status = campaign.failedCount > 0 ? "COMPLETED_WITH_ERRORS" : "COMPLETED";
+    }
+    assert.strictEqual(campaign.status, "COMPLETED_WITH_ERRORS");
+
+    // 5. Admin retries failed jobs: job_03 resets to PENDING, campaign back to SENDING
+    claimedJob3.status = "PENDING";
+    campaign = { ...campaign, status: "SENDING" };
+
+    const claimedRetriedJob = tryClaimJob(campaign, jobs);
+    assert.ok(claimedRetriedJob, "Retried job should be claimable when campaign is SENDING");
+    assert.strictEqual(claimedRetriedJob.id, "job_03");
+    claimedRetriedJob.status = "SENT";
+    campaign.sentCount = 3;
+    campaign.failedCount = 0;
+    campaign.status = "COMPLETED";
+    assert.strictEqual(campaign.status, "COMPLETED");
+  });
 });

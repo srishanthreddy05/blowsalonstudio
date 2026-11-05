@@ -1,8 +1,7 @@
-import { NextResponse, after } from "next/server";
+import { NextResponse } from "next/server";
 import {
   adminDb as db,
   doc,
-  getDoc,
   updateDoc,
   collection,
   query,
@@ -15,14 +14,11 @@ import type {
   WhatsAppCampaignRecipient,
 } from "@/types/whatsapp";
 import { getWhatsAppProvider } from "@/lib/whatsapp/providerFactory";
-import { calculateCampaignStats } from "@/lib/whatsapp/campaignStats";
 import { assertWhatsAppEnabled } from "@/lib/whatsapp/enabledGuard";
 import { verifyWhatsAppCampaignAuth } from "@/lib/whatsapp/auth";
 import { sanitizeFirestoreDoc } from "@/lib/utils/firestore";
 import {
   createCampaignJobs,
-  processQueueBatch,
-  syncCampaignStats,
 } from "@/lib/whatsapp/queue/queueManager";
 
 export const dynamic = "force-dynamic";
@@ -140,19 +136,9 @@ export async function POST(
     // 4. Create Persistent Queue Jobs in Firestore (Before Processing Begins)
     await createCampaignJobs(campaign, recipients);
 
-    // 5. Schedule background batch processing via Next.js after() to keep HTTP response under 500ms
-    after(async () => {
-      try {
-        await processQueueBatch({
-          maxJobs: 5,
-          timeBudgetMs: 20000,
-        });
-        await syncCampaignStats(id);
-      } catch (bgErr) {
-        console.error("[Campaign Send API] Background batch error:", bgErr);
-      }
-    });
-
+    // 5. Decoupled Architecture: Jobs seeded into whatsappCampaignJobs with status "PENDING".
+    // Campaign status is locked to "SENDING". Central queue worker (scheduled exclusively by
+    // Cloudflare Workers Cron) dispatches jobs sequentially. Start API does NOT call processQueueBatch().
     return NextResponse.json({
       success: true,
       message: "Campaign queued successfully for persistent background dispatch.",

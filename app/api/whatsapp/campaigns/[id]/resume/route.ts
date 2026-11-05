@@ -4,7 +4,6 @@ import type { WhatsAppCampaign } from "@/types/whatsapp";
 import { assertWhatsAppEnabled } from "@/lib/whatsapp/enabledGuard";
 import { verifyWhatsAppCampaignAuth } from "@/lib/whatsapp/auth";
 import { sanitizeFirestoreDoc } from "@/lib/utils/firestore";
-import { processQueueBatch, syncCampaignStats } from "@/lib/whatsapp/queue/queueManager";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -56,14 +55,9 @@ export async function POST(
       })
     );
 
-    // Trigger worker immediately to continue queue
-    await processQueueBatch({
-      maxJobs: 2,
-      timeBudgetMs: 5000,
-    });
-
-    await syncCampaignStats(id);
-
+    // Decoupled Architecture: Campaign state is updated to SENDING and unpaused.
+    // The central queue worker (scheduled by Cloudflare Workers Cron) will pick up
+    // remaining jobs on the next tick. Resume API does NOT call processQueueBatch().
     return NextResponse.json({
       success: true,
       message: "Campaign resumed successfully. Background dispatch has restarted.",

@@ -16,7 +16,7 @@ import { assertWhatsAppEnabled } from "@/lib/whatsapp/enabledGuard";
 import { verifyWhatsAppCampaignAuth } from "@/lib/whatsapp/auth";
 import { classifyRetryEligibility } from "@/lib/whatsapp/errorClassifier";
 import { sanitizeFirestoreDoc } from "@/lib/utils/firestore";
-import { processQueueBatch, syncCampaignStats } from "@/lib/whatsapp/queue/queueManager";
+import { syncCampaignStats } from "@/lib/whatsapp/queue/queueManager";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -329,12 +329,9 @@ export async function POST(
         })
       );
 
-      // Process initial batch
-      await processQueueBatch({
-        maxJobs: 2,
-        timeBudgetMs: 5000,
-      });
-
+      // Decoupled Architecture: Campaign status updated to SENDING and jobs enqueued.
+      // Queue worker (scheduled exclusively by Cloudflare Cron) will process them.
+      // Recover API does NOT call processQueueBatch().
       await syncCampaignStats(id);
     }
 

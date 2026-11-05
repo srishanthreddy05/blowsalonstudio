@@ -327,9 +327,6 @@ export async function POST(
       })
     );
 
-    let retriedSuccessCount = 0;
-    let retriedFailedCount = 0;
-
     try {
       // 7. Enqueue Eligible Failed Recipients into Persistent Queue
       const nowIso = new Date().toISOString();
@@ -442,15 +439,10 @@ export async function POST(
         );
       }
 
-      // Trigger queue worker for immediate execution of first batch
-      const { processQueueBatch } = await import("@/lib/whatsapp/queue/queueManager");
-      const workerRes = await processQueueBatch({
-        maxJobs: 2,
-        timeBudgetMs: 5000,
-      });
-
-      retriedSuccessCount = workerRes.acceptedCount;
-      retriedFailedCount = workerRes.failedCount;
+      // Decoupled Architecture: Jobs are queued with status "PENDING".
+      // Campaign status is transitioned to "SENDING" so the central queue worker
+      // (scheduled exclusively by Cloudflare Cron) processes them.
+      // Retry API does NOT invoke processQueueBatch().
     } finally {
       // 8. Always release lock and recalculate campaign statistics
       const allRecSnap = await getDocs(
@@ -460,6 +452,10 @@ export async function POST(
       const stats = calculateCampaignStats(allRecs);
 
       const nowIso = new Date().toISOString();
+      const campaignStatus = stats.pendingCount > 0
+        ? "SENDING"
+        : (stats.status || (stats.failedCount === 0 ? "COMPLETED" : "COMPLETED_WITH_ERRORS"));
+
       await updateDoc(
         campaignRef,
         sanitizeFirestoreDoc({
@@ -471,23 +467,22 @@ export async function POST(
           readCount: stats.readCount,
           failedCount: stats.failedCount,
           excludedCount: stats.excludedCount,
-          status: stats.status || (stats.failedCount === 0 ? "COMPLETED" : "COMPLETED_WITH_ERRORS"),
+          pendingCount: stats.pendingCount,
+          status: campaignStatus,
           updatedAt: nowIso,
         })
       );
     }
 
-    const applicationCharges = Math.round(retriedSuccessCount * WHATSAPP_APPLICATION_RATES.MARKETING * 100) / 100;
-
     return NextResponse.json({
       success: true,
-      message: `Retried ${eligibleRecipients.length} recipient(s): ${retriedSuccessCount} accepted, ${retriedFailedCount} failed.`,
+      message: `Enqueued ${eligibleRecipients.length} recipient(s) for retry. Persistent queue worker will dispatch them.`,
       retriedCount: eligibleRecipients.length,
-      retriedSuccessCount,
-      retriedFailedCount,
+      retriedSuccessCount: 0,
+      retriedFailedCount: 0,
       skippedCount: skippedDetails.length,
       skippedDetails,
-      applicationCharges,
+      applicationCharges: 0,
     });
   } catch (error: unknown) {
     // Release lock in error eventuality
