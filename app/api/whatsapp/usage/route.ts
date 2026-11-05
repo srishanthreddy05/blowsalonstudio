@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/firebase";
-import { collection, getDocs } from "firebase/firestore";
+import { adminDb as db, collection, getDocs } from "@/lib/firebaseAdmin";
 import type {
   WhatsAppMessageRecord,
   MonthlyUsageSummary,

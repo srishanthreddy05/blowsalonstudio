@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/firebase";
 import {
+  adminDb as db,
   collection,
   query,
   where,
   orderBy,
   getDocs,
   limit as firestoreLimit,
-} from "firebase/firestore";
+} from "@/lib/firebaseAdmin";
 import type { WhatsAppMessageRecord } from "@/types/whatsapp";
 
 export const dynamic = "force-dynamic";

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/firebase";
 import {
+  adminDb as db,
   doc,
   getDoc,
   collection,
@@ -9,7 +9,7 @@ import {
   getDocs,
   deleteDoc,
   writeBatch,
-} from "firebase/firestore";
+} from "@/lib/firebaseAdmin";
 import type { WhatsAppCampaign, WhatsAppCampaignRecipient } from "@/types/whatsapp";
 import { normalizeCampaignData } from "@/lib/utils/firestore";
 
@@ -53,7 +53,48 @@ export async function GET(
 
     // Dynamically calculate accurate stats from the recipient delivery records
     const stats = calculateCampaignStats(recipients);
-    const campaign = applyStatsToCampaign(initialCampaign, stats);
+    let campaign = applyStatsToCampaign(initialCampaign, stats);
+
+    // Fetch live queue job breakdown for real-time monitoring
+    let pendingJobsCount = 0;
+    let processingJobsCount = 0;
+    let retryWaitJobsCount = 0;
+    let acceptedJobsCount = 0;
+
+    try {
+      const qJobs = query(
+        collection(db, "whatsappCampaignJobs"),
+        where("campaignId", "==", id)
+      );
+      const jobSnap = await getDocs(qJobs);
+      for (const d of jobSnap.docs) {
+        const s = d.data().status;
+        if (s === "PENDING") pendingJobsCount++;
+        else if (s === "PROCESSING") processingJobsCount++;
+        else if (s === "RETRY_WAIT") retryWaitJobsCount++;
+        else if (s === "ACCEPTED") acceptedJobsCount++;
+      }
+    } catch {
+      pendingJobsCount = recipients.filter((r) => r.status === "PENDING").length;
+    }
+
+    const { getCurrentSendDelayMs } = await import("@/lib/whatsapp/queue/throttleController");
+    const currentDelayMs = getCurrentSendDelayMs();
+    const remainingJobs = pendingJobsCount + processingJobsCount + retryWaitJobsCount;
+    const estimatedCompletionMinutes = remainingJobs > 0
+      ? Math.max(1, Math.ceil((remainingJobs * currentDelayMs) / 60000))
+      : 0;
+
+    campaign = {
+      ...campaign,
+      pendingCount: pendingJobsCount,
+      processingCount: processingJobsCount,
+      retryWaitingCount: retryWaitJobsCount,
+      acceptedCount: acceptedJobsCount,
+      currentDelayMs,
+      estimatedCompletionMinutes,
+      isPaused: campaign.status === "PAUSED",
+    };
 
     return NextResponse.json({
       campaign,
@@ -94,6 +135,25 @@ export async function DELETE(
         batch.delete(d.ref);
       }
       await batch.commit();
+    }
+
+    // Delete Queue Jobs
+    try {
+      const qJobs = query(
+        collection(db, "whatsappCampaignJobs"),
+        where("campaignId", "==", id)
+      );
+      const jobSnap = await getDocs(qJobs);
+      for (let i = 0; i < jobSnap.docs.length; i += BATCH_SIZE) {
+        const chunk = jobSnap.docs.slice(i, i + BATCH_SIZE);
+        const batch = writeBatch(db);
+        for (const d of chunk) {
+          batch.delete(d.ref);
+        }
+        await batch.commit();
+      }
+    } catch {
+      // Ignore if collection not yet created
     }
 
     return NextResponse.json({ success: true, message: "Campaign deleted successfully." });

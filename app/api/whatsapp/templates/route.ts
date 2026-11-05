@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/firebase";
-import { doc, getDoc } from "firebase/firestore";
+import { adminDb as db, doc, getDoc } from "@/lib/firebaseAdmin";
 import type {
   WhatsAppTemplate,
   WhatsAppTemplateComponent,

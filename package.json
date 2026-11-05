@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --test tests/whatsapp-coexistence.test.mjs tests/staff-dropdown.test.mjs tests/whatsapp-simplification-usage.test.mjs tests/whatsapp-approved-templates.test.mjs tests/campaign-cloudinary-images.test.mjs",
+    "test": "node --test tests/whatsapp-coexistence.test.mjs tests/staff-dropdown.test.mjs tests/whatsapp-simplification-usage.test.mjs tests/whatsapp-approved-templates.test.mjs tests/campaign-cloudinary-images.test.mjs tests/whatsapp-persistent-queue.test.mjs tests/cloudflare-queue-scheduler.test.mjs",
     "whatsapp:server": "node whatsapp-server/index.js"
   },
   "dependencies": {
@@ -23,7 +23,8 @@
     "react-dom": "19.2.4",
     "react-hot-toast": "^2.6.0",
     "react-icons": "^5.6.0",
-    "recharts": "^3.8.1"
+    "recharts": "^3.8.1",
+    "firebase-admin": "^14.1.0"
   },
   "devDependencies": {
     "@opentelemetry/api": "^1.9.1",
@@ -34,7 +35,6 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.2.7",
-    "firebase-admin": "^14.1.0",
     "tailwindcss": "^4",
     "typescript": "^5"
   }

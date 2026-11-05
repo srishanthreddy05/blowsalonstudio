@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 import { getWhatsAppProvider } from "@/lib/whatsapp/providerFactory";
-import { db } from "@/lib/firebase";
 import {
+  adminDb as db,
   doc,
   getDoc,
   collection,
   addDoc,
-} from "firebase/firestore";
+} from "@/lib/firebaseAdmin";
 import type { Appointment } from "@/types/appointment";
 import type { WhatsAppMessageRecord } from "@/types/whatsapp";
 import { normalizePhoneNumber } from "@/lib/utils/phone";

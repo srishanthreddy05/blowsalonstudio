@@ -7,8 +7,7 @@ import type {
   SendAppointmentResult,
 } from "./types";
 import type { WhatsAppErrorCode, WhatsAppCoexistenceAccount } from "@/types/whatsapp";
-import { db } from "@/lib/firebase";
-import { doc, getDoc } from "firebase/firestore";
+import { adminDb as db, doc, getDoc } from "@/lib/firebaseAdmin";
 import { normalizePhoneNumber } from "@/lib/utils/phone";
 import { formatDisplayDate, toLocalDateString } from "@/lib/utils/date";
 import { logWhatsAppAction, maskPhoneNumber } from "./logger";
@@ -283,7 +282,14 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
       };
     }
 
-    if (code === 131030 || code === 131042 || code === 131000 || code === 131026 || code === 131005) {
+    if (code === 131026) {
+      return {
+        errorCode: "WHATSAPP_API_ERROR",
+        cleanMessage: `Message undeliverable to recipient (#131026): ${msg}${detailsSuffix}`,
+      };
+    }
+
+    if (code === 131030 || code === 131042 || code === 131000 || code === 131005) {
       return {
         errorCode: "WHATSAPP_PHONE_NOT_REGISTERED",
         cleanMessage: `The WhatsApp phone number is not registered or active with Meta: ${msg}${detailsSuffix}`,
@@ -378,7 +384,9 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
     const timeoutId = setTimeout(() => controller.abort(), 10000);
 
     try {
-      await this.logAuthDebugInfo();
+      if (process.env.WHATSAPP_DEBUG_AUTH === "true") {
+        await this.logAuthDebugInfo();
+      }
       const url = `https://graph.facebook.com/${this.apiVersion}/${this.phoneNumberId}/messages`;
 
       const response = await fetch(url, {
@@ -598,7 +606,9 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
     const timeoutId = setTimeout(() => controller.abort(), 10000);
 
     try {
-      await this.logAuthDebugInfo();
+      if (process.env.WHATSAPP_DEBUG_AUTH === "true") {
+        await this.logAuthDebugInfo();
+      }
       const url = `https://graph.facebook.com/${this.apiVersion}/${this.phoneNumberId}/messages`;
 
       const payload: Record<string, unknown> = {
@@ -629,6 +639,26 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
         const errorInfo = data.error || {};
         const { errorCode, cleanMessage } = this.classifyMetaError(errorInfo.code, errorInfo.message, errorInfo);
 
+        // Parse Retry-After header (seconds or HTTP date)
+        let retryAfterSeconds: number | null = null;
+        const retryAfterHeader = response.headers?.get ? response.headers.get("retry-after") : null;
+        if (retryAfterHeader) {
+          const parsedSec = parseInt(retryAfterHeader, 10);
+          if (!isNaN(parsedSec)) {
+            retryAfterSeconds = parsedSec;
+          } else {
+            const parsedDate = new Date(retryAfterHeader).getTime();
+            if (!isNaN(parsedDate)) {
+              retryAfterSeconds = Math.max(0, Math.ceil((parsedDate - Date.now()) / 1000));
+            }
+          }
+        }
+
+        const errorData = errorInfo.error_data;
+        const metaErrorDetails =
+          errorData?.details || errorInfo.error_user_msg || errorInfo.error_user_title || errorInfo.message || null;
+        const metaErrorTitle = errorInfo.title || errorInfo.error_user_title || null;
+
         logWhatsAppAction({
           provider: this.providerType,
           action: "sendTemplateMessage",
@@ -645,6 +675,13 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
           success: false,
           errorCode,
           error: cleanMessage,
+          httpStatus: response.status,
+          retryAfterSeconds,
+          metaErrorCode: errorInfo.code ?? null,
+          metaErrorTitle,
+          metaErrorDetails,
+          fbtraceId: errorInfo.fbtrace_id || null,
+          rawError: errorInfo,
         };
       }
 
@@ -667,6 +704,16 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
       };
     } catch (err: unknown) {
       const errorMsg = err instanceof Error ? err.message : "Failed to dispatch template message";
+      const isTimeout =
+        (err instanceof Error &&
+          (err.name === "AbortError" ||
+            err.message.toLowerCase().includes("abort") ||
+            err.message.toLowerCase().includes("timeout")));
+
+      const errorCode = isTimeout ? "WHATSAPP_API_ERROR" : "WHATSAPP_TEMPLATE_ERROR";
+      const cleanError = isTimeout
+        ? `Request timed out or connection aborted during message dispatch: ${errorMsg}`
+        : errorMsg;
 
       logWhatsAppAction({
         provider: this.providerType,
@@ -676,14 +723,17 @@ export class CloudWhatsAppProvider implements IWhatsAppProvider {
         templateLanguage: lang,
         paramCount: bodyParamCount,
         result: "FAILED",
-        errorCode: "WHATSAPP_TEMPLATE_ERROR",
-        error: errorMsg,
+        errorCode,
+        error: cleanError,
       });
 
       return {
         success: false,
-        errorCode: "WHATSAPP_TEMPLATE_ERROR",
-        error: errorMsg,
+        errorCode,
+        error: cleanError,
+        httpStatus: isTimeout ? 408 : 500,
+        isAmbiguous: isTimeout,
+        rawError: { message: errorMsg },
       };
     } finally {
       clearTimeout(timeoutId);

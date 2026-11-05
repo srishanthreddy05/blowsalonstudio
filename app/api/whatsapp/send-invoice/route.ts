@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getWhatsAppProvider } from "@/lib/whatsapp/providerFactory";
-import { db } from "@/lib/firebase";
 import {
+  adminDb as db,
   doc,
   getDoc,
   collection,
@@ -9,7 +9,7 @@ import {
   query,
   where,
   getDocs,
-} from "firebase/firestore";
+} from "@/lib/firebaseAdmin";
 import type { Invoice } from "@/types/invoice";
 import type { WhatsAppMessageRecord, WhatsAppSettings } from "@/types/whatsapp";
 import { normalizePhoneNumber } from "@/lib/utils/phone";

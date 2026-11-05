@@ -10,8 +10,7 @@
  *   if (!check.enabled) return check.response;
  */
 
-import { db } from "@/lib/firebase";
-import { doc, getDoc } from "firebase/firestore";
+import { adminDb as db, doc, getDoc } from "@/lib/firebaseAdmin";
 import { NextResponse } from "next/server";
 import type { WhatsAppSettings } from "@/types/whatsapp";
 

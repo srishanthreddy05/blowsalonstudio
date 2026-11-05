@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/firebase";
-import { doc, getDoc, setDoc } from "firebase/firestore";
+import { adminDb as db, doc, getDoc, setDoc } from "@/lib/firebaseAdmin";
 import type { WhatsAppSettings } from "@/types/whatsapp";
 
 export const dynamic = "force-dynamic";

@@ -1,5 +1,5 @@
-import { db } from "@/lib/firebase";
 import {
+  adminDb as db,
   collection,
   doc,
   getDoc,
@@ -8,8 +8,9 @@ import {
   query,
   where,
   getDocs,
-} from "firebase/firestore";
+} from "@/lib/firebaseAdmin";
 import { normalizePhoneNumber } from "@/lib/utils/phone";
+import { maskPhoneNumber } from "@/lib/whatsapp/logger";
 import type {
   CallingPermissionStatus,
   CallStatus,
@@ -232,7 +233,7 @@ export async function requestCallingPermission(
 
       // Special case: code 138017 indicates that customer already granted permanent permission
       if (errInfo.code === 138017) {
-        console.log(`[WhatsApp Calling Diagnostics] Customer ${normalized.digits} already has permanent calling permission.`);
+        console.log(`[WhatsApp Calling Diagnostics] Customer ${maskPhoneNumber(normalized.digits)} already has permanent calling permission.`);
         memoryCustomerPermissions.set(normalized.digits, "PERMANENT");
         return {
           success: true,
@@ -434,7 +435,7 @@ export async function initiateWhatsAppCall(
   };
 
   try {
-    console.log(`[WhatsApp Calling Diagnostics] Initiating call to ${normalized.digits} via ${url}`);
+    console.log(`[WhatsApp Calling Diagnostics] Initiating call to ${maskPhoneNumber(normalized.digits)} via ${url}`);
     const response = await fetch(url, {
       method: "POST",
       headers: {

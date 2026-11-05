@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/firebase";
 import {
+  adminDb as db,
   doc,
   getDoc,
   updateDoc,
@@ -9,8 +9,9 @@ import {
   where,
   getDocs,
   writeBatch,
-} from "firebase/firestore";
+} from "@/lib/firebaseAdmin";
 import type { WhatsAppCampaign } from "@/types/whatsapp";
+import { verifyWhatsAppCampaignAuth } from "@/lib/whatsapp/auth";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -23,6 +24,11 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const auth = await verifyWhatsAppCampaignAuth(request);
+    if (!auth.authorized) {
+      return NextResponse.json({ error: auth.error || "Unauthorized campaign access." }, { status: 401 });
+    }
+
     const { id } = await params;
     if (!id) {
       return NextResponse.json({ error: "Missing campaign ID." }, { status: 400 });
@@ -73,6 +79,32 @@ export async function POST(
         });
       }
       await batch.commit();
+    }
+
+    // Mark all PENDING/RETRY_WAIT/PROCESSING queue jobs as CANCELLED
+    try {
+      const qJobs = query(
+        collection(db, "whatsappCampaignJobs"),
+        where("campaignId", "==", id)
+      );
+      const jobSnap = await getDocs(qJobs);
+      const cancellableStatuses = new Set(["PENDING", "QUEUED", "RETRY_WAIT", "PROCESSING"]);
+      for (let i = 0; i < jobSnap.docs.length; i += BATCH_SIZE) {
+        const chunk = jobSnap.docs.slice(i, i + BATCH_SIZE);
+        const batch = writeBatch(db);
+        for (const d of chunk) {
+          if (cancellableStatuses.has(d.data().status)) {
+            batch.update(d.ref, {
+              status: "CANCELLED",
+              lastError: "Campaign was cancelled",
+              updatedAt: nowIso,
+            });
+          }
+        }
+        await batch.commit();
+      }
+    } catch (jobErr) {
+      console.warn("[Cancel Campaign] Error cancelling queue jobs:", jobErr);
     }
 
     return NextResponse.json({

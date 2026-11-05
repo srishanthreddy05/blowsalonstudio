@@ -18,7 +18,7 @@ import {
   Info,
 } from "lucide-react";
 import type { WhatsAppMessageRecord, WhatsAppCampaignRecipient } from "@/types/whatsapp";
-import { parseWhatsAppFailure } from "@/lib/whatsapp/errorClassifier";
+import { parseWhatsAppFailure, classifyRetryEligibility } from "@/lib/whatsapp/errorClassifier";
 import { formatDisplayDate } from "@/lib/utils/date";
 import Link from "next/link";
 
@@ -58,6 +58,11 @@ export function MessageDetailModal({
 
   const isFailed = status === "FAILED";
   const failureInfo = isFailed ? parseWhatsAppFailure(errorMessage, errorCode) : null;
+  const errorSource = (recipient as any)?.errorSource || (message as any)?.errorSource || (isFailed ? "API_RESPONSE" : null);
+  const nextAttemptAt = recipient?.nextAttemptAt || (message as any)?.nextAttemptAt || null;
+  const retryEligibility = isFailed
+    ? classifyRetryEligibility(errorMessage, errorCode || failureInfo?.metaErrorCode, recipient?.retryCount || 0)
+    : null;
 
   const handleCopyMetaId = () => {
     if (!metaMessageId) return;
@@ -162,6 +167,43 @@ export function MessageDetailModal({
                   {failureInfo.details}
                 </p>
               </div>
+
+              {/* Error Source & Retry Eligibility */}
+              <div className="grid grid-cols-2 gap-2 pt-2 border-t border-[#F8D7D7]/60">
+                <div>
+                  <span className="text-[9px] uppercase font-bold text-[#747A72] tracking-wider block">
+                    Error Source
+                  </span>
+                  <span className="inline-block mt-0.5 px-2 py-0.5 rounded-md bg-[#FFFFFF] border border-[#F8D7D7] font-mono text-[10px] font-bold text-[#B55B5B]">
+                    {errorSource === "WEBHOOK" ? "Webhook Status" : errorSource === "API_RESPONSE" ? "API Response" : "Internal App"}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[9px] uppercase font-bold text-[#747A72] tracking-wider block">
+                    Retry Eligibility
+                  </span>
+                  <span
+                    className={`inline-block mt-0.5 px-2 py-0.5 rounded-md font-semibold text-[10px] border ${
+                      retryEligibility?.eligible
+                        ? "bg-[#E8ECE5] text-[#5F7A62] border-[#CCD2C8]"
+                        : "bg-[#FFFFFF] text-[#747A72] border-[#E0E4DD]"
+                    }`}
+                  >
+                    {retryEligibility?.eligible ? "Eligible" : "Non-retryable"}
+                  </span>
+                </div>
+              </div>
+
+              {nextAttemptAt && (
+                <div className="pt-2 border-t border-[#F8D7D7]/60">
+                  <span className="text-[9px] uppercase font-bold text-[#747A72] tracking-wider block">
+                    Scheduled Retry
+                  </span>
+                  <p className="font-mono text-[10px] font-bold text-[#C05621] mt-0.5">
+                    {formatDisplayDate(nextAttemptAt)}
+                  </p>
+                </div>
+              )}
 
               {failureInfo.rawErrorMessage && failureInfo.rawErrorMessage !== failureInfo.details && (
                 <div className="pt-2 border-t border-[#F8D7D7]/60">

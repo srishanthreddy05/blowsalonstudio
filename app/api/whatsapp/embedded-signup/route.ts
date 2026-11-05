@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/firebase";
-import { doc, getDoc, setDoc } from "firebase/firestore";
+import { adminDb as db, doc, getDoc, setDoc } from "@/lib/firebaseAdmin";
 import type { WhatsAppCoexistenceAccount } from "@/types/whatsapp";
 import { sanitizeFirestoreDoc } from "@/lib/utils/firestore";
 

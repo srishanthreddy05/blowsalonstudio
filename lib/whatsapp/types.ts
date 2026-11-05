@@ -12,6 +12,14 @@ export interface SendMessageResult {
   messageId?: string | null;
   error?: string | null;
   errorCode?: WhatsAppErrorCode | null;
+  metaErrorCode?: number | string | null;
+  metaErrorTitle?: string | null;
+  metaErrorDetails?: string | null;
+  httpStatus?: number | null;
+  retryAfterSeconds?: number | null;
+  fbtraceId?: string | null;
+  isAmbiguous?: boolean;
+  rawError?: Record<string, any> | null;
 }
 
 export interface SendInvoiceResult {

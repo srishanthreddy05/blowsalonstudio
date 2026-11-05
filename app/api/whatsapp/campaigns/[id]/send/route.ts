@@ -1,6 +1,6 @@
-import { NextResponse } from "next/server";
-import { db } from "@/lib/firebase";
+import { NextResponse, after } from "next/server";
 import {
+  adminDb as db,
   doc,
   getDoc,
   updateDoc,
@@ -8,60 +8,87 @@ import {
   query,
   where,
   getDocs,
-  addDoc,
-} from "firebase/firestore";
+  runTransaction,
+} from "@/lib/firebaseAdmin";
 import type {
   WhatsAppCampaign,
   WhatsAppCampaignRecipient,
-  WhatsAppMessageRecord,
 } from "@/types/whatsapp";
 import { getWhatsAppProvider } from "@/lib/whatsapp/providerFactory";
-import { getTemplateLanguage } from "@/lib/whatsapp/templateRegistry";
 import { calculateCampaignStats } from "@/lib/whatsapp/campaignStats";
 import { assertWhatsAppEnabled } from "@/lib/whatsapp/enabledGuard";
+import { verifyWhatsAppCampaignAuth } from "@/lib/whatsapp/auth";
+import { sanitizeFirestoreDoc } from "@/lib/utils/firestore";
+import {
+  createCampaignJobs,
+  processQueueBatch,
+  syncCampaignStats,
+} from "@/lib/whatsapp/queue/queueManager";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 const CAMPAIGNS_COLLECTION = "whatsapp_campaigns";
 const RECIPIENTS_COLLECTION = "whatsapp_campaign_recipients";
-const MESSAGES_COLLECTION = "whatsapp_messages";
-
-import { sanitizeFirestoreDoc } from "@/lib/utils/firestore";
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const auth = await verifyWhatsAppCampaignAuth(request);
+    if (!auth.authorized) {
+      return NextResponse.json({ error: auth.error || "Unauthorized campaign access." }, { status: 401 });
+    }
+
     const { id } = await params;
     if (!id) {
       return NextResponse.json({ error: "Missing campaign ID." }, { status: 400 });
     }
 
-    // 1. Fetch Campaign
     const campaignRef = doc(db, CAMPAIGNS_COLLECTION, id);
-    const campaignSnap = await getDoc(campaignRef);
-
-    if (!campaignSnap.exists()) {
-      return NextResponse.json({ error: "Campaign not found." }, { status: 404 });
-    }
-
-    const campaign = { id: campaignSnap.id, ...campaignSnap.data() } as WhatsAppCampaign;
-
-    if (campaign.status === "SENDING") {
-      return NextResponse.json(
-        { error: "Campaign is already in progress." },
-        { status: 400 }
-      );
-    }
 
     // ── Master kill-switch ──────────────────────────────────────────────────
     const enabledCheck = await assertWhatsAppEnabled();
     if (!enabledCheck.enabled) return enabledCheck.response;
     // ───────────────────────────────────────────────────────────────────────
+
+    // 1. Atomically Claim/Lock Campaign to "SENDING" status to prevent duplicate start race condition
+    const lockResult = await runTransaction(db, async (txn) => {
+      const snap = await txn.get(campaignRef);
+      if (!snap.exists()) {
+        return { ok: false, error: "Campaign not found.", status: 404 };
+      }
+      const data = snap.data() as WhatsAppCampaign;
+      if (data.status === "SENDING") {
+        // Guard against duplicate start: campaign.status === "SENDING"
+        return { ok: false, error: "Campaign is already in progress.", status: 400 };
+      }
+      if (data.status === "CANCELLED") {
+        return { ok: false, error: "Cannot send a cancelled campaign.", status: 400 };
+      }
+
+      const nowIso = new Date().toISOString();
+      txn.update(campaignRef, sanitizeFirestoreDoc({
+        status: "SENDING",
+        startedAt: data.startedAt || nowIso,
+        errorMessage: null,
+        updatedAt: nowIso,
+      }));
+
+      return { ok: true, campaign: { ...data, id: snap.id } as WhatsAppCampaign };
+    });
+
+    if (!lockResult.ok || !lockResult.campaign) {
+      return NextResponse.json({ error: lockResult.error }, { status: lockResult.status || 400 });
+    }
+
+    const campaign = lockResult.campaign;
+
+    // Verify template compliance and header image configuration
+    const isBlowSalonCampaign = campaign.templateName === "blow_salon_campaign";
+    const headerImageUrl = campaign.headerImageUrl || null;
 
     // 2. Check Provider Connection / Configuration
     const provider = getWhatsAppProvider();
@@ -83,18 +110,7 @@ export async function POST(
       );
     }
 
-    // 3. Mark Campaign as SENDING
-    const startedAt = new Date().toISOString();
-    await updateDoc(
-      campaignRef,
-      sanitizeFirestoreDoc({
-        status: "SENDING",
-        startedAt,
-        errorMessage: null,
-      })
-    );
-
-    // 4. Fetch Pending Recipients for this campaign
+    // 3. Fetch Pending Recipients for this campaign
     const q = query(
       collection(db, RECIPIENTS_COLLECTION),
       where("campaignId", "==", id),
@@ -121,200 +137,32 @@ export async function POST(
       });
     }
 
-    // 5. Send Campaign Messages in Controlled Batches with Rate Limiting
-    let sentCount = campaign.sentCount || 0;
-    let failedCount = campaign.failedCount || 0;
+    // 4. Create Persistent Queue Jobs in Firestore (Before Processing Begins)
+    await createCampaignJobs(campaign, recipients);
 
-    for (let i = 0; i < recipients.length; i++) {
-      const rec = recipients[i];
-      const nowIso = new Date().toISOString();
-
+    // 5. Schedule background batch processing via Next.js after() to keep HTTP response under 500ms
+    after(async () => {
       try {
-        // Build template component parameters dynamically
-        let components: Array<Record<string, unknown>> | undefined = undefined;
-
-        if (campaign.templateName === "blow_salon_campaign") {
-          const customerName = (rec.customerName || "Customer").trim();
-          const campaignContent = (
-            campaign.templateVariables?.["2"] ||
-            campaign.templateVariables?.["content"] ||
-            campaign.templateVariables?.["message"] ||
-            "Welcome to BLOW SALON"
-          ).trim();
-
-          components = [
-            {
-              type: "body",
-              parameters: [
-                { type: "text", text: customerName },
-                { type: "text", text: campaignContent },
-              ],
-            },
-          ];
-        } else {
-          const bodyParameters: Array<{ type: string; text: string }> = [];
-          const varKeys = Object.keys(campaign.templateVariables || {}).sort((a, b) => Number(a) - Number(b));
-
-          for (const k of varKeys) {
-            const varTypeOrVal = (campaign.templateVariables[k] ?? "").toString().trim();
-            let resolvedText = varTypeOrVal;
-
-            if (varTypeOrVal === "customer_name" || varTypeOrVal === "{{customer_name}}") {
-              resolvedText = (rec.customerName || "Customer").trim();
-            } else if (varTypeOrVal === "salon_name" || varTypeOrVal === "{{salon_name}}") {
-              resolvedText = "BLOW SALON";
-            }
-
-            if (resolvedText) {
-              bodyParameters.push({
-                type: "text",
-                text: resolvedText,
-              });
-            }
-          }
-
-          if (bodyParameters.length > 0) {
-            components = [{ type: "body", parameters: bodyParameters }];
-          }
-        }
-
-        // Dispatch via Provider using exact registered language code
-        const templateLang = getTemplateLanguage(campaign.templateName, campaign.templateLanguage);
-        const sendResult = await provider.sendTemplateMessage(
-          rec.normalizedPhone || rec.phone,
-          campaign.templateName,
-          templateLang,
-          components,
-          campaign.headerImageUrl || undefined
-        );
-
-        if (sendResult.success) {
-          sentCount++;
-          // Update recipient doc in Firestore
-          await updateDoc(
-            doc(db, RECIPIENTS_COLLECTION, rec.id!),
-            sanitizeFirestoreDoc({
-              status: "SENT",
-              metaMessageId: sendResult.messageId || null,
-              sentAt: nowIso,
-              updatedAt: nowIso,
-              errorMessage: null,
-            })
-          );
-
-          // Add record to unified whatsapp_messages audit collection
-          const auditRecord: Omit<WhatsAppMessageRecord, "id"> = {
-            messageType: "MARKETING_CAMPAIGN",
-            category: "MARKETING",
-            campaignId: id,
-            campaignName: campaign.name,
-            customerId: rec.customerId || null,
-            customerName: rec.customerName,
-            phoneNumber: rec.phone,
-            normalizedPhone: rec.normalizedPhone,
-            templateName: campaign.templateName,
-            message: `[Campaign Template: ${campaign.templateName}]`,
-            status: "SENT",
-            provider: provider.providerType,
-            messageId: sendResult.messageId || null,
-            costPerMessage: 0.90,
-            estimatedCharge: 0.90,
-            sentAt: nowIso,
-            createdAt: nowIso,
-            updatedAt: nowIso,
-          };
-          await addDoc(collection(db, MESSAGES_COLLECTION), sanitizeFirestoreDoc(auditRecord));
-        } else {
-          failedCount++;
-          await updateDoc(
-            doc(db, RECIPIENTS_COLLECTION, rec.id!),
-            sanitizeFirestoreDoc({
-              status: "FAILED",
-              errorMessage: sendResult.error || "Failed to dispatch WhatsApp message",
-              errorCode: sendResult.errorCode || null,
-              updatedAt: nowIso,
-            })
-          );
-
-          const auditRecord: Omit<WhatsAppMessageRecord, "id"> = {
-            messageType: "MARKETING_CAMPAIGN",
-            category: "MARKETING",
-            campaignId: id,
-            campaignName: campaign.name,
-            customerId: rec.customerId || null,
-            customerName: rec.customerName,
-            phoneNumber: rec.phone,
-            normalizedPhone: rec.normalizedPhone,
-            templateName: campaign.templateName,
-            message: `[Campaign Template: ${campaign.templateName}]`,
-            status: "FAILED",
-            provider: provider.providerType,
-            errorMessage: sendResult.error || "Message delivery failed",
-            errorCode: sendResult.errorCode || null,
-            costPerMessage: 0.90,
-            estimatedCharge: 0,
-            createdAt: nowIso,
-            updatedAt: nowIso,
-          };
-          await addDoc(collection(db, MESSAGES_COLLECTION), sanitizeFirestoreDoc(auditRecord));
-        }
-      } catch (sendErr: unknown) {
-        failedCount++;
-        const errorMsg = sendErr instanceof Error ? sendErr.message : "Error sending message";
-        await updateDoc(
-          doc(db, RECIPIENTS_COLLECTION, rec.id!),
-          sanitizeFirestoreDoc({
-            status: "FAILED",
-            errorMessage: errorMsg,
-            updatedAt: nowIso,
-          })
-        );
+        await processQueueBatch({
+          maxJobs: 5,
+          timeBudgetMs: 20000,
+        });
+        await syncCampaignStats(id);
+      } catch (bgErr) {
+        console.error("[Campaign Send API] Background batch error:", bgErr);
       }
-
-      // Safe rate-limiting pause between messages (60ms)
-      if (i < recipients.length - 1) {
-        await sleep(60);
-      }
-    }
-
-    // 6. Update Final Campaign Status and stats from Single Source of Truth
-    const completedAt = new Date().toISOString();
-    const allRecSnap = await getDocs(
-      query(collection(db, RECIPIENTS_COLLECTION), where("campaignId", "==", id))
-    );
-    const allRecs = allRecSnap.docs.map((d) => ({ id: d.id, ...d.data() } as WhatsAppCampaignRecipient));
-    const stats = calculateCampaignStats(allRecs);
-
-    let finalStatus: WhatsAppCampaign["status"] = stats.status || "COMPLETED";
-    if (failedCount > 0 && sentCount === 0) {
-      finalStatus = "FAILED";
-    } else if (failedCount > 0) {
-      finalStatus = "COMPLETED_WITH_ERRORS";
-    }
-
-    await updateDoc(
-      campaignRef,
-      sanitizeFirestoreDoc({
-        status: finalStatus,
-        totalRecipients: stats.totalRecipients,
-        sentCount: stats.sentCount,
-        deliveredCount: stats.deliveredCount,
-        readCount: stats.readCount,
-        failedCount: stats.failedCount,
-        excludedCount: stats.excludedCount,
-        completedAt,
-        updatedAt: completedAt,
-      })
-    );
+    });
 
     return NextResponse.json({
       success: true,
-      status: finalStatus,
-      sentCount: stats.sentCount,
-      deliveredCount: stats.deliveredCount,
-      readCount: stats.readCount,
-      failedCount: stats.failedCount,
+      message: "Campaign queued successfully for persistent background dispatch.",
+      status: "SENDING",
+      sentCount: campaign.sentCount || 0,
+      deliveredCount: campaign.deliveredCount || 0,
+      readCount: campaign.readCount || 0,
+      failedCount: campaign.failedCount || 0,
       totalProcessed: recipients.length,
+      totalRecipients: campaign.totalRecipients || recipients.length,
     });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : "Internal error executing campaign send";

@@ -226,6 +226,40 @@ export default function WhatsAppPage() {
     }
   };
 
+  const handlePauseCampaign = async (campaignId: string) => {
+    toast.loading("Pausing campaign queue...", { id: "pause-camp" });
+    try {
+      await whatsappService.pauseCampaign(campaignId);
+      toast.success("Campaign paused. Messages will hold until resumed.", { id: "pause-camp" });
+      fetchCampaigns();
+      if (selectedCampaignForDetail?.id === campaignId) {
+        const res = await whatsappService.getCampaignById(campaignId);
+        setSelectedCampaignForDetail(res.campaign);
+        setDetailRecipients(res.recipients || []);
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to pause campaign";
+      toast.error(msg, { id: "pause-camp" });
+    }
+  };
+
+  const handleResumeCampaign = async (campaignId: string) => {
+    toast.loading("Resuming campaign queue...", { id: "resume-camp" });
+    try {
+      await whatsappService.resumeCampaign(campaignId);
+      toast.success("Campaign resumed. Queue worker dispatched.", { id: "resume-camp" });
+      fetchCampaigns();
+      if (selectedCampaignForDetail?.id === campaignId) {
+        const res = await whatsappService.getCampaignById(campaignId);
+        setSelectedCampaignForDetail(res.campaign);
+        setDetailRecipients(res.recipients || []);
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to resume campaign";
+      toast.error(msg, { id: "resume-camp" });
+    }
+  };
+
   const handleRetryCampaign = async (campaignId: string) => {
     toast.loading("Retrying failed recipients...", { id: "retry-camp" });
     try {
@@ -432,6 +466,8 @@ export default function WhatsAppPage() {
             onViewCampaign={handleViewCampaign}
             onSendCampaign={handleSendCampaign}
             onCancelCampaign={handleCancelCampaign}
+            onPauseCampaign={handlePauseCampaign}
+            onResumeCampaign={handleResumeCampaign}
             onRetryCampaign={handleRetryCampaign}
             onDeleteCampaign={handleDeleteCampaign}
             onDuplicateCampaign={() => {
@@ -499,6 +535,8 @@ export default function WhatsAppPage() {
           onClose={() => setSelectedCampaignForDetail(null)}
           onSendCampaign={handleSendCampaign}
           onCancelCampaign={handleCancelCampaign}
+          onPauseCampaign={handlePauseCampaign}
+          onResumeCampaign={handleResumeCampaign}
           onRetryCampaign={handleRetryCampaign}
           onToggleCustomerOptOut={handleToggleCustomerOptOut}
         />

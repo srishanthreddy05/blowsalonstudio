@@ -74,9 +74,27 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
-    // Catch-all rule for other sub-collections or documents
+    // WhatsApp persistent queue and campaign management — Server-Only Collections
+    // Accessible strictly via server-side Firebase Admin SDK; direct client access prohibited.
+    match /whatsappCampaignJobs/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /whatsapp_campaigns/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /whatsapp_campaign_recipients/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /whatsapp_messages/{document=**} {
+      allow read, write: if false;
+    }
+
+    // Default deny-all for unlisted or internal collections
     match /{document=**} {
-      allow read, write: if true;
+      allow read, write: if false;
     }
   }
 }

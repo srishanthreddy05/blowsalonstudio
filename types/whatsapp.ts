@@ -7,11 +7,13 @@ export type WhatsAppConnectionStatus =
 
 export type WhatsAppMessageStatus =
   | "PENDING"
+  | "QUEUED"
   | "SENDING"
   | "SENT"
   | "DELIVERED"
   | "READ"
   | "FAILED"
+  | "AMBIGUOUS"
   | "NOT_SENT"
   | "EXCLUDED";
 
@@ -32,6 +34,7 @@ export type WhatsAppCampaignStatus =
   | "DRAFT"
   | "QUEUED"
   | "SENDING"
+  | "PAUSED"
   | "COMPLETED"
   | "COMPLETED_WITH_ERRORS"
   | "FAILED"
@@ -203,6 +206,14 @@ export interface WhatsAppCampaign {
   deliveredCount: number;
   readCount: number;
   failedCount: number;
+  ambiguousCount?: number;
+  pendingCount?: number;
+  processingCount?: number;
+  acceptedCount?: number;
+  retryWaitingCount?: number;
+  currentDelayMs?: number;
+  estimatedCompletionMinutes?: number | null;
+  isPaused?: boolean;
   templateVariables: Record<string, string>; // e.g. { "1": "customer_name", "2": "20% OFF" }
   headerImageUrl?: string | null;
   headerImageMetadata?: WhatsAppCampaignImageMetadata | null;
@@ -210,6 +221,62 @@ export interface WhatsAppCampaign {
   startedAt?: string | null;
   completedAt?: string | null;
   errorMessage?: string | null;
+}
+
+export type WhatsAppQueueJobStatus =
+  | "PENDING"
+  | "QUEUED" // backwards-compatible alias for PENDING
+  | "PROCESSING"
+  | "ACCEPTED"
+  | "SENT"
+  | "DELIVERED"
+  | "READ"
+  | "RETRY_WAIT"
+  | "AMBIGUOUS"
+  | "FAILED"
+  | "CANCELLED";
+
+export type WhatsAppErrorSource = "API_RESPONSE" | "WEBHOOK" | "INTERNAL";
+
+export interface WhatsAppCampaignJob {
+  id: string;
+  campaignId: string;
+  recipientId: string;
+  customerId?: string | null;
+  phoneNumber: string;
+  customerName: string;
+  templateName: string;
+  templateLanguage?: string;
+  templateParameters?: Array<Record<string, unknown>>;
+  imageUrl?: string | null;
+  status: WhatsAppQueueJobStatus;
+  attemptCount: number; // integer count of attempts on this job
+  attempts?: number; // backwards-compatible alias
+  maxAttempts: number;
+  nextAttemptAt: string;
+  createdAt: string;
+  updatedAt: string;
+  lastAttemptAt?: string | null;
+  processingLeaseExpiresAt?: string | null;
+  workerId?: string | null;
+  sentAt?: string | null;
+  deliveredAt?: string | null;
+  readAt?: string | null;
+  failedAt?: string | null;
+  whatsappMessageId?: string | null; // latest wamid
+  messageIds?: string[]; // history of all wamids assigned to this job
+  lastError?: string | null;
+  metaErrorCode?: string | number | null;
+  metaErrorDetails?: string | null;
+  httpStatus?: number | null;
+  fbtraceId?: string | null;
+  classification?: string | null;
+  isAmbiguous?: boolean | null;
+  dispatchStartedAt?: string | null;
+  dispatchAttemptId?: string | null;
+  reconciledViaWebhook?: boolean | null;
+  errorSource?: WhatsAppErrorSource;
+  idempotencyKey: string;
 }
 
 export interface WhatsAppDeliveryAttempt {
@@ -231,14 +298,21 @@ export interface WhatsAppCampaignRecipient {
   phone: string;
   normalizedPhone: string;
   status: WhatsAppMessageStatus;
-  metaMessageId?: string | null;
+  metaMessageId?: string | null; // latest wamid
+  messageIds?: string[]; // all wamids ever issued
   errorMessage?: string | null;
   errorCode?: string | null;
+  metaErrorDetails?: string | null;
+  errorSource?: WhatsAppErrorSource;
+  classification?: string | null;
+  jobId?: string | null;
+  nextAttemptAt?: string | null;
   sentAt?: string | null;
   deliveredAt?: string | null;
   readAt?: string | null;
   retryCount?: number;
-  attempts?: WhatsAppDeliveryAttempt[];
+  attemptCount?: number;
+  attempts?: WhatsAppDeliveryAttempt[]; // history array
   createdAt: string;
   updatedAt?: string;
 }

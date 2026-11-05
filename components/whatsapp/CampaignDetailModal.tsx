@@ -12,6 +12,7 @@ import {
   RotateCcw,
   XCircle,
   Play,
+  Pause,
   Eye,
   ShieldCheck,
   ShieldAlert,
@@ -38,6 +39,8 @@ interface CampaignDetailModalProps {
   onClose: () => void;
   onSendCampaign: (campaign: WhatsAppCampaign) => void;
   onCancelCampaign: (campaignId: string) => void;
+  onPauseCampaign?: (campaignId: string) => void;
+  onResumeCampaign?: (campaignId: string) => void;
   onRetryCampaign: (campaignId: string) => void;
   onToggleCustomerOptOut: (customerId: string, optOut: boolean) => Promise<void>;
 }
@@ -92,6 +95,8 @@ export default function CampaignDetailModal({
   onClose,
   onSendCampaign,
   onCancelCampaign,
+  onPauseCampaign,
+  onResumeCampaign,
   onRetryCampaign,
   onToggleCustomerOptOut,
 }: CampaignDetailModalProps) {
@@ -122,7 +127,9 @@ export default function CampaignDetailModal({
   const currentStatus = stats.status || campaign.status;
   const pill = statusConfig[currentStatus] || statusConfig.DRAFT;
   const canSend = currentStatus === "DRAFT" || currentStatus === "QUEUED";
-  const canCancel = currentStatus === "QUEUED" || currentStatus === "SENDING";
+  const canCancel = currentStatus === "QUEUED" || currentStatus === "SENDING" || currentStatus === "PAUSED";
+  const canPause = currentStatus === "SENDING";
+  const canResume = currentStatus === "PAUSED";
   const canRetry =
     stats.failedCount > 0 &&
     (currentStatus === "COMPLETED_WITH_ERRORS" || currentStatus === "FAILED" || currentStatus === "COMPLETED");
@@ -200,6 +207,29 @@ export default function CampaignDetailModal({
               </button>
             )}
 
+            {canPause && onPauseCampaign && (
+              <button
+                type="button"
+                onClick={() => onPauseCampaign(campaign.id)}
+                className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-[#FBD38D] bg-[#FFF8E6] hover:bg-[#FEEBC8] text-[#C05621] px-3.5 text-xs font-bold shadow-xs transition cursor-pointer"
+              >
+                <Pause size={13} />
+                <span>Pause</span>
+              </button>
+            )}
+
+            {canResume && onResumeCampaign && (
+              <button
+                type="button"
+                disabled={!whatsappEnabled}
+                onClick={() => onResumeCampaign(campaign.id)}
+                className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-[#5F7A62] hover:bg-[#4E6651] text-[#FAF4E8] px-3.5 text-xs font-bold shadow-xs transition cursor-pointer disabled:opacity-40"
+              >
+                <Play size={13} />
+                <span>Resume</span>
+              </button>
+            )}
+
             {canRetry && (
               <button
                 type="button"
@@ -236,6 +266,37 @@ export default function CampaignDetailModal({
 
         {/* Modal Body */}
         <div className="p-6 overflow-y-auto space-y-6 flex-1">
+          {/* Queue Pacing & Controller Info Bar */}
+          <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-2xl border border-[#E0E4DD] bg-[#FAF4E8]/40 text-xs">
+            <div className="flex items-center gap-4 flex-wrap">
+              <div className="flex items-center gap-1.5">
+                <Clock size={13} className="text-[#5F7A62]" />
+                <span className="font-semibold text-[#2F352F]">Sending Delay:</span>
+                <span className="font-mono text-[#5F7A62] font-bold">
+                  {(campaign.currentDelayMs ? campaign.currentDelayMs / 1000 : 3.0).toFixed(1)}s / msg
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[#8C9389]">•</span>
+                <span className="font-semibold text-[#2F352F]">Concurrency:</span>
+                <span className="font-mono text-[#2F352F] font-bold">1 at a time</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[#8C9389]">•</span>
+                <span className="font-semibold text-[#2F352F]">Meta 24h Safety Budget:</span>
+                <span className="font-mono text-[#5F7A62] font-bold">1,800 max / 24h</span>
+              </div>
+            </div>
+            {pendingCount > 0 && (
+              <div className="text-[11px] font-semibold text-[#747A72]">
+                Est. Completion:{" "}
+                <span className="font-bold text-[#2F352F]">
+                  ~{campaign.estimatedCompletionMinutes || Math.max(1, Math.ceil((pendingCount * 3) / 60))} min
+                </span>
+              </div>
+            )}
+          </div>
+
           {/* Metrics Overview Grid (Fractional Counts & Reporting Requirements) */}
           <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2.5">
             {/* Total Recipients */}

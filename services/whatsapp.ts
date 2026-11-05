@@ -395,15 +395,35 @@ export async function createCampaign(payload: {
   return data;
 }
 
+import { auth } from "@/lib/firebase";
+
+async function getAuthHeaders(): Promise<Record<string, string>> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  try {
+    if (typeof window !== "undefined" && auth?.currentUser) {
+      const token = await auth.currentUser.getIdToken();
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+    }
+  } catch {
+    // Ignore in SSR or test environments
+  }
+  return headers;
+}
+
 export async function sendCampaign(id: string): Promise<{
   success: boolean;
   status: string;
   sentCount: number;
   failedCount: number;
 }> {
+  const headers = await getAuthHeaders();
   const res = await fetch(`/api/whatsapp/campaigns/${encodeURIComponent(id)}/send`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || data.success === false) {
@@ -413,13 +433,67 @@ export async function sendCampaign(id: string): Promise<{
 }
 
 export async function cancelCampaign(id: string): Promise<{ success: boolean; message: string }> {
+  const headers = await getAuthHeaders();
   const res = await fetch(`/api/whatsapp/campaigns/${encodeURIComponent(id)}/cancel`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || data.success === false) {
     throw new Error(data.error || "Failed to cancel campaign");
+  }
+  return data;
+}
+
+export async function pauseCampaign(id: string): Promise<{ success: boolean; message: string }> {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`/api/whatsapp/campaigns/${encodeURIComponent(id)}/pause`, {
+    method: "POST",
+    headers,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.success === false) {
+    throw new Error(data.error || "Failed to pause campaign");
+  }
+  return data;
+}
+
+export async function resumeCampaign(id: string): Promise<{ success: boolean; message: string; status: string }> {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`/api/whatsapp/campaigns/${encodeURIComponent(id)}/resume`, {
+    method: "POST",
+    headers,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.success === false) {
+    throw new Error(data.error || "Failed to resume campaign");
+  }
+  return data;
+}
+
+export async function getCampaignRecoveryReport(id: string): Promise<any> {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`/api/whatsapp/campaigns/${encodeURIComponent(id)}/recover`, {
+    method: "GET",
+    headers,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.error || "Failed to assess historical recovery");
+  }
+  return data;
+}
+
+export async function recoverCampaign(id: string, confirm: boolean): Promise<{ success: boolean; message: string; requeuedCount: number }> {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`/api/whatsapp/campaigns/${encodeURIComponent(id)}/recover`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ confirm }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.success === false) {
+    throw new Error(data.error || "Failed to execute recovery");
   }
   return data;
 }
@@ -450,7 +524,9 @@ export async function getCampaignRetryEligibility(id: string): Promise<{
     coolingMinutesRemaining: number;
   }>;
 }> {
+  const headers = await getAuthHeaders();
   const res = await fetch(`/api/whatsapp/campaigns/${encodeURIComponent(id)}/retry`, {
+    headers,
     cache: "no-store",
   });
   const data = await res.json().catch(() => ({}));
@@ -471,9 +547,10 @@ export async function retryCampaign(
   retriedFailedCount?: number;
   applicationCharges?: number;
 }> {
+  const headers = await getAuthHeaders();
   const res = await fetch(`/api/whatsapp/campaigns/${encodeURIComponent(id)}/retry`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify(options || {}),
   });
   const data = await res.json().catch(() => ({}));

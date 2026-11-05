@@ -12,6 +12,8 @@ export interface CampaignCalculatedStats {
   deliveredCount: number;
   readCount: number;
   failedCount: number;
+  ambiguousCount: number;
+  pendingCount: number;
   status?: WhatsAppCampaignStatus;
 }
 
@@ -37,6 +39,7 @@ export function calculateCampaignStats(
   let deliveredOnlyCount = 0;
   let readCount = 0;
   let failedCount = 0;
+  let ambiguousCount = 0;
   let pendingCount = 0;
   let sendingCount = 0;
 
@@ -55,9 +58,11 @@ export function calculateCampaignStats(
     } else if (s === "FAILED") {
       failedCount++;
       sentCount++;
+    } else if (s === "AMBIGUOUS") {
+      ambiguousCount++;
     } else if (s === "SENDING") {
       sendingCount++;
-    } else if (s === "PENDING") {
+    } else if (s === "PENDING" || s === "QUEUED") {
       pendingCount++;
     }
   }
@@ -91,6 +96,8 @@ export function calculateCampaignStats(
     deliveredCount,
     readCount,
     failedCount,
+    ambiguousCount,
+    pendingCount,
     status,
   };
 }
@@ -111,26 +118,8 @@ export function applyStatsToCampaign(
     deliveredCount: stats.deliveredCount,
     readCount: stats.readCount,
     failedCount: stats.failedCount,
+    ambiguousCount: stats.ambiguousCount,
+    pendingCount: stats.pendingCount,
     status: stats.status || campaign.status,
   };
-}
-
-/**
- * Loads recipient records for a campaign from Firestore and calculates aggregation metrics.
- */
-export async function getCampaignStats(
-  campaignId: string,
-  firestoreDb?: import("firebase/firestore").Firestore
-): Promise<CampaignCalculatedStats> {
-  const { db } = await import("@/lib/firebase");
-  const { collection, getDocs, query, where } = await import("firebase/firestore");
-  const targetDb = firestoreDb || db;
-  
-  const q = query(
-    collection(targetDb, "whatsapp_campaign_recipients"),
-    where("campaignId", "==", campaignId)
-  );
-  const snap = await getDocs(q);
-  const recipients = snap.docs.map((doc) => doc.data() as Partial<WhatsAppCampaignRecipient>);
-  return calculateCampaignStats(recipients);
 }

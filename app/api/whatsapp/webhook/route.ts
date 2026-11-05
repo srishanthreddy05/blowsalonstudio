@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import crypto from "crypto";
-import { db } from "@/lib/firebase";
 import {
+  adminDb as db,
   collection,
   query,
   where,
@@ -9,7 +9,8 @@ import {
   updateDoc,
   setDoc,
   doc,
-} from "firebase/firestore";
+  getDoc,
+} from "@/lib/firebaseAdmin";
 import type { WhatsAppMessageStatus } from "@/types/whatsapp";
 import { maskPhoneNumber } from "@/lib/whatsapp/logger";
 
@@ -18,6 +19,8 @@ export const runtime = "nodejs";
 
 import { sanitizeFirestoreDoc } from "@/lib/utils/firestore";
 import { calculateCampaignStats } from "@/lib/whatsapp/campaignStats";
+import { parseWhatsAppFailure } from "@/lib/whatsapp/errorClassifier";
+import type { WhatsAppDeliveryAttempt } from "@/types/whatsapp";
 import {
   handleIncomingCallWebhook,
   handleCallPermissionWebhook,
@@ -121,23 +124,44 @@ export async function POST(request: Request) {
                 const nowIso = new Date().toISOString();
 
                 const STATUS_RANK: Record<string, number> = {
-                  PENDING: 1,
-                  SENDING: 2,
-                  SENT: 3,
-                  DELIVERED: 4,
-                  READ: 5,
+                  FAILED: 1,
+                  PENDING: 2,
+                  QUEUED: 2,
+                  RETRY_WAIT: 2,
+                  AMBIGUOUS: 2,
+                  PROCESSING: 3,
+                  ACCEPTED: 4,
+                  SENT: 5,
+                  DELIVERED: 6,
+                  READ: 7,
                 };
+
+                const errorObj = statusObj.errors?.[0];
+                const failureClass = mappedStatus === "FAILED"
+                  ? parseWhatsAppFailure(errorObj?.message || errorObj?.title, errorObj?.code)
+                  : null;
 
                 // 1. Update matching unified Firestore audit doc (whatsapp_messages)
                 try {
+                  let msgDocs: any[] = [];
                   const qMsg = query(
                     collection(db, MESSAGES_COLLECTION),
                     where("messageId", "==", messageId)
                   );
                   const msgSnap = await getDocs(qMsg);
+                  msgDocs = msgSnap.docs;
 
-                  if (!msgSnap.empty) {
-                    const docSnap = msgSnap.docs[0];
+                  if (msgDocs.length === 0) {
+                    const qMeta = query(
+                      collection(db, MESSAGES_COLLECTION),
+                      where("metaMessageId", "==", messageId)
+                    );
+                    const metaSnap = await getDocs(qMeta);
+                    msgDocs = metaSnap.docs;
+                  }
+
+                  if (msgDocs.length > 0) {
+                    const docSnap = msgDocs[0];
                     const msgData = docSnap.data();
                     const currentStatus = (msgData.status || "").toUpperCase();
                     const currentRank = STATUS_RANK[currentStatus] || 0;
@@ -160,9 +184,8 @@ export async function POST(request: Request) {
                         updatePayload.deliveredAt = msgData.deliveredAt || nowIso;
                         updatePayload.readAt = msgData.readAt || nowIso;
                       } else if (mappedStatus === "FAILED") {
-                        const errorObj = statusObj.errors?.[0];
-                        updatePayload.errorMessage = errorObj?.message || errorObj?.title || "Message delivery failed";
-                        updatePayload.errorCode = "WHATSAPP_API_ERROR";
+                        updatePayload.errorMessage = failureClass?.details || failureClass?.shortReason || errorObj?.message || errorObj?.title || "Message delivery failed";
+                        updatePayload.errorCode = errorObj?.code ? String(errorObj.code) : "WHATSAPP_API_ERROR";
                       }
 
                       await updateDoc(
@@ -178,16 +201,169 @@ export async function POST(request: Request) {
                   );
                 }
 
-                // 2. Update matching campaign recipient doc (whatsapp_campaign_recipients)
+                // 2. Update matching persistent queue job (whatsappCampaignJobs)
+                // Finds by messageIds array-contains or scalar whatsappMessageId
+                let jobDocs: any[] = [];
                 try {
-                  const qRec = query(
-                    collection(db, RECIPIENTS_COLLECTION),
-                    where("metaMessageId", "==", messageId)
-                  );
-                  const recSnap = await getDocs(qRec);
+                  try {
+                    const qJobArr = query(
+                      collection(db, "whatsappCampaignJobs"),
+                      where("messageIds", "array-contains", messageId)
+                    );
+                    const jobArrSnap = await getDocs(qJobArr);
+                    jobDocs = jobArrSnap.docs;
+                  } catch {
+                    // Fallback to scalar match
+                  }
 
-                  if (!recSnap.empty) {
-                    const recDoc = recSnap.docs[0];
+                  if (jobDocs.length === 0) {
+                    const qJob = query(
+                      collection(db, "whatsappCampaignJobs"),
+                      where("whatsappMessageId", "==", messageId)
+                    );
+                    const jobSnap = await getDocs(qJob);
+                    jobDocs = jobSnap.docs;
+                  }
+
+                  // Crash Recovery Reconciliation:
+                  // If wamid was lost in a server crash before being persisted,
+                  // search for an AMBIGUOUS job matching the recipient phone number.
+                  if (jobDocs.length === 0 && recipientPhone) {
+                    const qAmb = query(
+                      collection(db, "whatsappCampaignJobs"),
+                      where("phoneNumber", "==", recipientPhone),
+                      where("status", "==", "AMBIGUOUS")
+                    );
+                    const ambSnap = await getDocs(qAmb);
+                    if (ambSnap.docs.length === 1) {
+                      // Safe single-job match: exactly one ambiguous job exists for this recipient
+                      const candidateDoc = ambSnap.docs[0];
+                      const ambData = candidateDoc.data();
+                      const dispatchTime = ambData.dispatchStartedAt || ambData.lastAttemptAt || ambData.createdAt;
+                      const dispatchTimeMs = dispatchTime ? new Date(dispatchTime).getTime() : 0;
+                      const dispatchAgeMs = dispatchTimeMs ? Date.now() - dispatchTimeMs : 0;
+                      const MAX_RECONCILIATION_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+                      // Chronological safeguard: Check Meta webhook timestamp if available
+                      const webhookTimestampSec = Number(statusObj.timestamp);
+                      const webhookEventTimeMs = !isNaN(webhookTimestampSec) && webhookTimestampSec > 0
+                        ? webhookTimestampSec * 1000
+                        : null;
+
+                      // If webhook event occurred before dispatch attempt even started (with 60s clock skew margin),
+                      // it belongs to an older/stale attempt on that phone number and MUST NOT be linked.
+                      const isPreDispatchStale = webhookEventTimeMs !== null && dispatchTimeMs > 0 &&
+                        webhookEventTimeMs < (dispatchTimeMs - 60000);
+
+                      if (isPreDispatchStale) {
+                        console.warn(
+                          `[WhatsApp Webhook] Webhook timestamp (${new Date(webhookEventTimeMs!).toISOString()}) precedes ambiguous dispatch attempt start (${new Date(dispatchTimeMs).toISOString()}). Skipping stale automated link.`
+                        );
+                      } else if (dispatchAgeMs <= MAX_RECONCILIATION_WINDOW_MS) {
+                        jobDocs = [candidateDoc];
+                        const existingIds = ambData.messageIds || [];
+                        await updateDoc(
+                          doc(db, "whatsappCampaignJobs", candidateDoc.id),
+                          sanitizeFirestoreDoc({
+                            whatsappMessageId: messageId,
+                            messageIds: Array.from(new Set([...existingIds, messageId])),
+                            isAmbiguous: false,
+                            reconciledViaWebhook: true,
+                            updatedAt: nowIso,
+                          })
+                        );
+                      } else {
+                        console.warn(
+                          `[WhatsApp Webhook] Ambiguous job ${candidateDoc.id} dispatch age exceeds 24h window. Skipping automated link.`
+                        );
+                      }
+                    } else if (ambSnap.docs.length > 1) {
+                      // Safety guard: Multiple ambiguous jobs exist for this phone number.
+                      // Do NOT guess or arbitrarily bind wamid to avoid cross-campaign contamination.
+                      console.warn(
+                        `[WhatsApp Webhook] Multiple ambiguous jobs (${ambSnap.docs.length}) found for phone ${maskPhoneNumber(recipientPhone)}. Leaving for manual admin resolution.`
+                      );
+                    }
+                  }
+
+                  if (jobDocs.length > 0) {
+                    const jobDoc = jobDocs[0];
+                    const jobData = jobDoc.data();
+                    const currentStatus = (jobData.status || "").toUpperCase();
+                    const currentRank = STATUS_RANK[currentStatus] || 0;
+                    const newRank = STATUS_RANK[mappedStatus] || 0;
+
+                    if (newRank > 0 && currentRank >= newRank && currentStatus !== mappedStatus) {
+                      // Skip status downgrade
+                    } else if (currentStatus === mappedStatus && mappedStatus !== "FAILED") {
+                      // Duplicate event
+                    } else {
+                      const jobUpdate: Record<string, any> = {
+                        status: mappedStatus,
+                        isAmbiguous: false,
+                        updatedAt: nowIso,
+                      };
+
+                      if (mappedStatus === "DELIVERED") {
+                        jobUpdate.deliveredAt = jobData.deliveredAt || nowIso;
+                      } else if (mappedStatus === "READ") {
+                        jobUpdate.deliveredAt = jobData.deliveredAt || nowIso;
+                        jobUpdate.readAt = jobData.readAt || nowIso;
+                      } else if (mappedStatus === "FAILED") {
+                        jobUpdate.failedAt = nowIso;
+                        jobUpdate.lastError = failureClass?.details || failureClass?.shortReason || errorObj?.message || errorObj?.title || "Message delivery failed";
+                        jobUpdate.metaErrorCode = errorObj?.code || null;
+                        jobUpdate.metaErrorDetails = errorObj?.details || errorObj?.message || errorObj?.title || null;
+                        jobUpdate.classification = failureClass?.classification || null;
+                        jobUpdate.errorSource = "WEBHOOK";
+                      }
+
+                      await updateDoc(
+                        doc(db, "whatsappCampaignJobs", jobDoc.id),
+                        sanitizeFirestoreDoc(jobUpdate)
+                      );
+                    }
+                  }
+                } catch (jobErr) {
+                  console.error(`[WhatsApp Webhook] Failed to update queue job for ${messageId}:`, jobErr);
+                }
+
+                // 3. Update matching campaign recipient doc (whatsapp_campaign_recipients)
+                // Finds by messageIds array-contains or scalar metaMessageId
+                try {
+                  let recDocs: any[] = [];
+                  try {
+                    const qRecArr = query(
+                      collection(db, RECIPIENTS_COLLECTION),
+                      where("messageIds", "array-contains", messageId)
+                    );
+                    const recArrSnap = await getDocs(qRecArr);
+                    recDocs = recArrSnap.docs;
+                  } catch {
+                    // Fallback to scalar match
+                  }
+
+                  if (recDocs.length === 0) {
+                    const qRec = query(
+                      collection(db, RECIPIENTS_COLLECTION),
+                      where("metaMessageId", "==", messageId)
+                    );
+                    const recSnap = await getDocs(qRec);
+                    recDocs = recSnap.docs;
+                  }
+
+                  // Crash Recovery Reconciliation for Recipient:
+                  // Use the exact recipientId from the matched job to prevent cross-campaign contamination
+                  if (recDocs.length === 0 && jobDocs.length > 0 && jobDocs[0].data()?.recipientId) {
+                    const matchedRecRef = doc(db, RECIPIENTS_COLLECTION, jobDocs[0].data().recipientId);
+                    const matchedRecSnap = await getDoc(matchedRecRef);
+                    if (matchedRecSnap.exists()) {
+                      recDocs = [matchedRecSnap];
+                    }
+                  }
+
+                  if (recDocs.length > 0) {
+                    const recDoc = recDocs[0];
                     const recData = recDoc.data();
                     const campaignId = recData.campaignId;
                     const currentStatus = (recData.status || "").toUpperCase();
@@ -213,9 +389,26 @@ export async function POST(request: Request) {
                         recUpdate.deliveredAt = recData.deliveredAt || nowIso;
                         recUpdate.readAt = recData.readAt || nowIso;
                       } else if (mappedStatus === "FAILED") {
-                        const errorObj = statusObj.errors?.[0];
-                        recUpdate.errorMessage = errorObj?.message || errorObj?.title || "Delivery failed";
+                        recUpdate.errorMessage = failureClass?.details || failureClass?.shortReason || errorObj?.message || errorObj?.title || "Delivery failed";
+                        recUpdate.errorCode = errorObj?.code ? String(errorObj.code) : null;
+                        recUpdate.metaErrorDetails = errorObj?.details || errorObj?.message || errorObj?.title || null;
+                        recUpdate.classification = failureClass?.classification || null;
+                        recUpdate.errorSource = "WEBHOOK";
                       }
+
+                      // Append to attempts history array
+                      const existingAttempts: WhatsAppDeliveryAttempt[] = Array.isArray(recData.attempts) ? [...recData.attempts] : [];
+                      existingAttempts.push({
+                        attempt: recData.attemptCount || recData.retryCount || 1,
+                        status: mappedStatus,
+                        sentAt: recData.sentAt || nowIso,
+                        deliveredAt: mappedStatus === "DELIVERED" || mappedStatus === "READ" ? (recData.deliveredAt || nowIso) : undefined,
+                        readAt: mappedStatus === "READ" ? (recData.readAt || nowIso) : undefined,
+                        metaMessageId: messageId,
+                        errorMessage: mappedStatus === "FAILED" ? (failureClass?.details || failureClass?.shortReason || errorObj?.message) : undefined,
+                        errorCode: mappedStatus === "FAILED" ? (errorObj?.code ? String(errorObj.code) : undefined) : undefined,
+                      });
+                      recUpdate.attempts = existingAttempts;
 
                       await updateDoc(
                         doc(db, RECIPIENTS_COLLECTION, recDoc.id),
@@ -223,7 +416,7 @@ export async function POST(request: Request) {
                       );
                     }
 
-                    // 3. Recalculate and Synchronize Campaign Counters from Recipient Records
+                    // 4. Recalculate and Synchronize Campaign Counters from Recipient Records
                     if (campaignId && shouldRecalculate) {
                       const allRecSnap = await getDocs(
                         query(collection(db, RECIPIENTS_COLLECTION), where("campaignId", "==", campaignId))
@@ -320,7 +513,7 @@ export async function POST(request: Request) {
                 msg.interactive.call_permission_reply
               ) {
                 const userResp = msg.interactive.call_permission_reply.response || "";
-                console.log(`[WhatsApp Webhook] Received call_permission_reply from ${msg.from}: ${userResp}`);
+                console.log(`[WhatsApp Webhook] Received call_permission_reply from ${maskPhoneNumber(msg.from)}: ${userResp}`);
                 try {
                   await handleCallPermissionWebhook(msg.from, userResp);
                 } catch (permErr) {
@@ -332,7 +525,7 @@ export async function POST(request: Request) {
             const replyObj = (value as any).call_permission_reply;
             const fromPhone = (value as any).from || (value as any).user_wa_id || "";
             if (fromPhone && replyObj?.response) {
-              console.log(`[WhatsApp Webhook] Received field call_permission_reply from ${fromPhone}: ${replyObj.response}`);
+              console.log(`[WhatsApp Webhook] Received field call_permission_reply from ${maskPhoneNumber(fromPhone)}: ${replyObj.response}`);
               try {
                 await handleCallPermissionWebhook(fromPhone, replyObj.response);
               } catch (permErr) {

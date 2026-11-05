@@ -1,0 +1,19 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "blow-salon-queue-scheduler",
+  "main": "worker.js",
+  "compatibility_date": "2024-04-01",
+  "triggers": {
+    "crons": [
+      "* * * * *"
+    ]
+  },
+  "vars": {
+    // Safety Switch: Default to false. When false, scheduled crons will NOT invoke Vercel.
+    // Set to true only after manual health check and dry-run verification succeed.
+    "ENABLE_LIVE_QUEUE": "false",
+    "BACKEND_URL": "https://blowsalonstudio.vercel.app/api/whatsapp/queue/worker",
+    "REQUEST_TIMEOUT_MS": "45000"
+  }
+}
+

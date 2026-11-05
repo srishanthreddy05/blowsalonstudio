@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/firebase";
 import {
+  adminDb as db,
   collection,
   doc,
   addDoc,
@@ -8,7 +8,7 @@ import {
   query,
   orderBy,
   writeBatch,
-} from "firebase/firestore";
+} from "@/lib/firebaseAdmin";
 import type {
   WhatsAppCampaign,
   WhatsAppCampaignRecipient,
@@ -106,9 +106,10 @@ export async function POST(request: Request) {
       targetCustomers = allCustomers.filter((c) => c.id && idSet.has(c.id));
     }
 
-    // 3. Separate Eligible vs Excluded based on WhatsApp Opt-in / Opt-out and Phone validity
+    // 3. Separate Eligible vs Excluded based on WhatsApp Opt-in / Opt-out, Phone validity and Duplicate Phones
     const nowIso = new Date().toISOString();
     const recipientRecords: Array<Omit<WhatsAppCampaignRecipient, "id">> = [];
+    const seenNormalizedPhones = new Set<string>();
 
     let eligibleCount = 0;
     let excludedCount = 0;
@@ -117,9 +118,17 @@ export async function POST(request: Request) {
       const normalized = normalizePhoneNumber(cust.phone);
       const isOptedOut = cust.whatsappOptOut === true;
       const isInvalidPhone = !normalized.isValid;
+      const isDuplicatePhone = normalized.isValid && seenNormalizedPhones.has(normalized.digits);
 
-      if (isOptedOut || isInvalidPhone) {
+      if (isOptedOut || isInvalidPhone || isDuplicatePhone) {
         excludedCount++;
+        let reason = "Invalid phone number format";
+        if (isOptedOut) {
+          reason = "Customer opted out of WhatsApp marketing";
+        } else if (isDuplicatePhone) {
+          reason = "duplicate phone";
+        }
+
         recipientRecords.push({
           campaignId: "", // will be set after campaign creation
           customerId: cust.id || null,
@@ -127,9 +136,7 @@ export async function POST(request: Request) {
           phone: cust.phone || "",
           normalizedPhone: normalized.display || normalized.digits || "",
           status: "EXCLUDED",
-          errorMessage: isOptedOut
-            ? "Customer opted out of WhatsApp marketing"
-            : "Invalid phone number format",
+          errorMessage: reason,
           sentAt: null,
           deliveredAt: null,
           readAt: null,
@@ -137,6 +144,7 @@ export async function POST(request: Request) {
           updatedAt: nowIso,
         });
       } else {
+        seenNormalizedPhones.add(normalized.digits);
         eligibleCount++;
         recipientRecords.push({
           campaignId: "",

@@ -40,6 +40,18 @@ const statusPillStyles: Record<
     text: "text-[#747A72]",
     border: "border-[#E0E4DD]",
   },
+  QUEUED: {
+    label: "Queued",
+    bg: "bg-[#F7F7F4]",
+    text: "text-[#747A72]",
+    border: "border-[#E0E4DD]",
+  },
+  AMBIGUOUS: {
+    label: "Ambiguous",
+    bg: "bg-[#FFF4E5]",
+    text: "text-[#B76E00]",
+    border: "border-[#B76E00]/30",
+  },
   SENDING: {
     label: "Sending",
     bg: "bg-[#EBF3FB]",

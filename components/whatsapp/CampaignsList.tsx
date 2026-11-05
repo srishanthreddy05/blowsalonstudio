@@ -13,6 +13,7 @@ import {
   AlertTriangle,
   Plus,
   Play,
+  Pause,
   FileText,
   Search,
   Filter,
@@ -33,6 +34,8 @@ interface CampaignsListProps {
   onViewCampaign: (campaign: WhatsAppCampaign) => void;
   onSendCampaign: (campaign: WhatsAppCampaign) => void;
   onCancelCampaign: (campaignId: string) => void;
+  onPauseCampaign?: (campaignId: string) => void;
+  onResumeCampaign?: (campaignId: string) => void;
   onRetryCampaign: (campaignId: string) => void;
   onDeleteCampaign: (campaignId: string) => void;
   onDuplicateCampaign?: (campaign: WhatsAppCampaign) => void;
@@ -84,6 +87,13 @@ export const statusConfig: Record<
     border: "border-[#F8D7D7]",
     dot: "bg-[#B55B5B]",
   },
+  PAUSED: {
+    label: "Paused",
+    bg: "bg-[#FFF8E6]",
+    text: "text-[#C05621]",
+    border: "border-[#FBD38D]",
+    dot: "bg-[#C05621]",
+  },
   CANCELLED: {
     label: "Cancelled",
     bg: "bg-[#F7F7F4]",
@@ -109,6 +119,8 @@ export default function CampaignsList({
   onViewCampaign,
   onSendCampaign,
   onCancelCampaign,
+  onPauseCampaign,
+  onResumeCampaign,
   onRetryCampaign,
   onDeleteCampaign,
   onDuplicateCampaign,
@@ -347,6 +359,33 @@ export default function CampaignsList({
                             >
                               <RotateCcw size={12} />
                               <span>Retry Failed ({failed})</span>
+                            </button>
+                          )}
+
+                          {/* Pause button for Sending */}
+                          {onPauseCampaign && camp.status === "SENDING" && (
+                            <button
+                              type="button"
+                              title="Pause Campaign Queue"
+                              onClick={() => onPauseCampaign(camp.id)}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[#FBD38D] bg-[#FFF8E6] hover:bg-[#FEEBC8] text-xs font-bold text-[#C05621] shadow-2xs transition cursor-pointer"
+                            >
+                              <Pause size={12} />
+                              <span>Pause</span>
+                            </button>
+                          )}
+
+                          {/* Resume button for Paused */}
+                          {onResumeCampaign && camp.status === "PAUSED" && (
+                            <button
+                              type="button"
+                              title="Resume Campaign Queue"
+                              disabled={!whatsappEnabled}
+                              onClick={() => onResumeCampaign(camp.id)}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#5F7A62] hover:bg-[#4E6651] text-[#FAF4E8] text-xs font-bold shadow-2xs transition cursor-pointer disabled:opacity-40"
+                            >
+                              <Play size={12} />
+                              <span>Resume</span>
                             </button>
                           )}
 

@@ -1,15 +1,16 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/firebase";
 import {
+  adminDb as db,
   doc,
   getDoc,
+  setDoc,
   updateDoc,
   collection,
   query,
   where,
   getDocs,
   addDoc,
-} from "firebase/firestore";
+} from "@/lib/firebaseAdmin";
 import type {
   WhatsAppCampaign,
   WhatsAppCampaignRecipient,
@@ -21,6 +22,7 @@ import { calculateCampaignStats } from "@/lib/whatsapp/campaignStats";
 import { sanitizeFirestoreDoc } from "@/lib/utils/firestore";
 import { getTemplateLanguage } from "@/lib/whatsapp/templateRegistry";
 import { assertWhatsAppEnabled } from "@/lib/whatsapp/enabledGuard";
+import { verifyWhatsAppCampaignAuth } from "@/lib/whatsapp/auth";
 import { classifyRetryEligibility } from "@/lib/whatsapp/errorClassifier";
 import { WHATSAPP_APPLICATION_RATES } from "@/lib/whatsapp/pricingConfig";
 
@@ -45,6 +47,11 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const auth = await verifyWhatsAppCampaignAuth(request);
+    if (!auth.authorized) {
+      return NextResponse.json({ error: auth.error || "Unauthorized campaign retry access." }, { status: 401 });
+    }
+
     const { id } = await params;
     if (!id) {
       return NextResponse.json({ error: "Missing campaign ID." }, { status: 400 });
@@ -182,6 +189,11 @@ export async function POST(
   const campaignRef = doc(db, CAMPAIGNS_COLLECTION, id);
 
   try {
+    const auth = await verifyWhatsAppCampaignAuth(request);
+    if (!auth.authorized) {
+      return NextResponse.json({ error: auth.error || "Unauthorized campaign retry access." }, { status: 401 });
+    }
+
     let body: { bypassDelay?: boolean; manualRecipientId?: string } = {};
     try {
       body = await request.json();
@@ -319,32 +331,14 @@ export async function POST(
     let retriedFailedCount = 0;
 
     try {
-      // 7. Dispatch Retries to Eligible Recipients
-      for (let i = 0; i < eligibleRecipients.length; i++) {
-        const rec = eligibleRecipients[i];
-        const nowIso = new Date().toISOString();
-
-        // Preserve delivery attempt history
-        const priorAttempts: WhatsAppDeliveryAttempt[] = Array.isArray(rec.attempts)
-          ? [...rec.attempts]
-          : [];
-
-        if (priorAttempts.length === 0) {
-          priorAttempts.push({
-            attempt: 1,
-            status: "FAILED",
-            sentAt: rec.sentAt || rec.createdAt,
-            errorMessage: rec.errorMessage || "Initial delivery failure",
-            errorCode: rec.errorCode || null,
-            metaMessageId: rec.metaMessageId || null,
-          });
-        }
-
-        const currentAttemptNumber = priorAttempts.length + 1;
+      // 7. Enqueue Eligible Failed Recipients into Persistent Queue
+      const nowIso = new Date().toISOString();
+      for (const rec of eligibleRecipients) {
+        const jobId = `${id}_${rec.id}`;
+        const jobRef = doc(db, "whatsappCampaignJobs", jobId);
 
         // Build template parameters dynamically
         let components: Array<Record<string, unknown>> | undefined = undefined;
-
         if (campaign.templateName === "blow_salon_campaign") {
           const customerName = (rec.customerName || "Customer").trim();
           const campaignContent = (
@@ -392,123 +386,71 @@ export async function POST(
           }
         }
 
-        const templateLang = getTemplateLanguage(
-          campaign.templateName,
-          campaign.templateLanguage
-        );
-
-        // Send via Meta Provider
-        const sendResult = await provider.sendTemplateMessage(
-          rec.normalizedPhone || rec.phone,
-          campaign.templateName,
-          templateLang,
-          components,
-          campaign.headerImageUrl || undefined
-        );
-
-        if (sendResult.success) {
-          retriedSuccessCount++;
+        const priorAttempts = Array.isArray(rec.attempts) ? [...rec.attempts] : [];
+        if (priorAttempts.length === 0) {
           priorAttempts.push({
-            attempt: currentAttemptNumber,
-            status: "SENT",
-            sentAt: nowIso,
-            metaMessageId: sendResult.messageId || null,
-          });
-
-          await updateDoc(
-            doc(db, RECIPIENTS_COLLECTION, rec.id),
-            sanitizeFirestoreDoc({
-              status: "SENT",
-              metaMessageId: sendResult.messageId || null,
-              errorMessage: null,
-              errorCode: null,
-              retryCount: (rec.retryCount || 0) + 1,
-              attempts: priorAttempts,
-              sentAt: nowIso,
-              updatedAt: nowIso,
-            })
-          );
-
-          // Add audit entry in whatsapp_messages with retry metadata
-          const auditRecord: Omit<WhatsAppMessageRecord, "id"> = {
-            messageType: "MARKETING_CAMPAIGN",
-            category: "MARKETING",
-            campaignId: id,
-            campaignName: campaign.name,
-            customerId: rec.customerId || null,
-            customerName: rec.customerName,
-            phoneNumber: rec.phone,
-            normalizedPhone: rec.normalizedPhone,
-            templateName: campaign.templateName,
-            message: `[Campaign Template: ${campaign.templateName}] (Retry Attempt #${currentAttemptNumber})`,
-            status: "SENT",
-            provider: provider.providerType,
-            messageId: sendResult.messageId || null,
-            metaMessageId: sendResult.messageId || null,
-            isRetry: true,
-            retryCount: currentAttemptNumber,
-            retryAttemptNumber: currentAttemptNumber,
-            costPerMessage: 0.90,
-            estimatedCharge: 0.90,
-            sentAt: nowIso,
-            createdAt: nowIso,
-            updatedAt: nowIso,
-          };
-          await addDoc(collection(db, MESSAGES_COLLECTION), sanitizeFirestoreDoc(auditRecord));
-        } else {
-          retriedFailedCount++;
-          priorAttempts.push({
-            attempt: currentAttemptNumber,
+            attempt: 1,
             status: "FAILED",
-            sentAt: nowIso,
-            errorMessage: sendResult.error || "Retry delivery failed",
-            errorCode: sendResult.errorCode || null,
+            sentAt: rec.sentAt || rec.createdAt,
+            errorMessage: rec.errorMessage || "Initial delivery failure",
+            errorCode: rec.errorCode || null,
+            metaMessageId: rec.metaMessageId || null,
           });
-
-          await updateDoc(
-            doc(db, RECIPIENTS_COLLECTION, rec.id),
-            sanitizeFirestoreDoc({
-              status: "FAILED",
-              errorMessage: sendResult.error || "Retry delivery failed",
-              errorCode: sendResult.errorCode || null,
-              retryCount: (rec.retryCount || 0) + 1,
-              attempts: priorAttempts,
-              updatedAt: nowIso,
-            })
-          );
-
-          const auditRecord: Omit<WhatsAppMessageRecord, "id"> = {
-            messageType: "MARKETING_CAMPAIGN",
-            category: "MARKETING",
-            campaignId: id,
-            campaignName: campaign.name,
-            customerId: rec.customerId || null,
-            customerName: rec.customerName,
-            phoneNumber: rec.phone,
-            normalizedPhone: rec.normalizedPhone,
-            templateName: campaign.templateName,
-            message: `[Campaign Template: ${campaign.templateName}] (Retry Attempt #${currentAttemptNumber})`,
-            status: "FAILED",
-            provider: provider.providerType,
-            errorMessage: sendResult.error || "Retry delivery failed",
-            errorCode: sendResult.errorCode || null,
-            isRetry: true,
-            retryCount: currentAttemptNumber,
-            retryAttemptNumber: currentAttemptNumber,
-            costPerMessage: 0.90,
-            estimatedCharge: 0,
-            sentAt: nowIso,
-            createdAt: nowIso,
-            updatedAt: nowIso,
-          };
-          await addDoc(collection(db, MESSAGES_COLLECTION), sanitizeFirestoreDoc(auditRecord));
         }
 
-        // Pacing delay (60ms) to respect Meta rate limits
-        if (i < eligibleRecipients.length - 1) {
-          await sleep(60);
-        }
+        // Set persistent queue job
+        await setDoc(
+          jobRef,
+          sanitizeFirestoreDoc({
+            id: jobId,
+            campaignId: id,
+            recipientId: rec.id,
+            customerId: rec.customerId || null,
+            phoneNumber: rec.normalizedPhone || rec.phone,
+            customerName: rec.customerName || "Customer",
+            templateName: campaign.templateName,
+            templateLanguage: campaign.templateLanguage,
+            templateParameters: components,
+            imageUrl: campaign.headerImageUrl || null,
+            status: "PENDING",
+            attemptCount: rec.retryCount || 1,
+            attempts: rec.retryCount || 1,
+            maxAttempts: 4,
+            nextAttemptAt: nowIso,
+            createdAt: rec.createdAt || nowIso,
+            updatedAt: nowIso,
+            lastError: null,
+            metaErrorCode: null,
+            metaErrorDetails: null,
+            whatsappMessageId: null,
+            messageIds: rec.messageIds || (rec.metaMessageId ? [rec.metaMessageId] : []),
+            idempotencyKey: jobId,
+          }),
+          { merge: true }
+        );
+
+        // Update recipient to PENDING
+        await updateDoc(
+          doc(db, RECIPIENTS_COLLECTION, rec.id),
+          sanitizeFirestoreDoc({
+            status: "PENDING",
+            attemptCount: rec.retryCount || 1,
+            retryCount: rec.retryCount || 1,
+            attempts: priorAttempts,
+            updatedAt: nowIso,
+          })
+        );
       }
+
+      // Trigger queue worker for immediate execution of first batch
+      const { processQueueBatch } = await import("@/lib/whatsapp/queue/queueManager");
+      const workerRes = await processQueueBatch({
+        maxJobs: 2,
+        timeBudgetMs: 5000,
+      });
+
+      retriedSuccessCount = workerRes.acceptedCount;
+      retriedFailedCount = workerRes.failedCount;
     } finally {
       // 8. Always release lock and recalculate campaign statistics
       const allRecSnap = await getDocs(
