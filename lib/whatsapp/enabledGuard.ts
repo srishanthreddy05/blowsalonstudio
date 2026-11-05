@@ -21,15 +21,18 @@ export async function isWhatsAppEnabled(): Promise<boolean> {
     const snap = await getDoc(doc(db, SETTINGS_DOC_PATH.collection, SETTINGS_DOC_PATH.id));
     if (snap.exists()) {
       const data = snap.data() as Partial<WhatsAppSettings>;
-      // Default true – preserves existing behaviour before the field was introduced
-      if (typeof data.whatsappEnabled === "boolean") {
-        return data.whatsappEnabled;
+      // Strict fail-closed: must explicitly be boolean true
+      if (data && typeof data.whatsappEnabled === "boolean" && data.whatsappEnabled === true) {
+        return true;
       }
+      return false;
     }
-    return true;
-  } catch {
-    // On Firestore error, fail-open (allow) to avoid breaking the app
-    return true;
+    // Missing settings document: fail closed
+    return false;
+  } catch (error) {
+    // Fail closed: Firestore read errors block live dispatch
+    console.error("[WhatsApp Guard] Error reading settings/whatsapp document; failing closed:", error);
+    return false;
   }
 }
 

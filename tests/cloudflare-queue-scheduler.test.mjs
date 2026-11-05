@@ -19,6 +19,7 @@ import worker from "../cloudflare/worker.js";
 test("BLOW SALON — Cloudflare Queue Scheduler Suite", async (t) => {
   const TEST_BACKEND = "https://blowsalonstudio.vercel.app/api/whatsapp/queue/worker";
   const TEST_SECRET = "test_cron_secret_cloudflare_987654";
+  const TEST_SCHEDULER_SECRET = "test_scheduler_secret_cf_12345";
 
   // ── 1. Manual Health Check Behavior ─────────────────────────────────────────
   await t.test("Health check (GET) returns status and never calls backend", async () => {
@@ -32,6 +33,7 @@ test("BLOW SALON — Cloudflare Queue Scheduler Suite", async (t) => {
     try {
       const env = {
         CRON_SECRET: TEST_SECRET,
+        SCHEDULER_SECRET: TEST_SCHEDULER_SECRET,
         ENABLE_LIVE_QUEUE: "false",
         BACKEND_URL: TEST_BACKEND,
       };
@@ -49,12 +51,14 @@ test("BLOW SALON — Cloudflare Queue Scheduler Suite", async (t) => {
       assert.strictEqual(body.status, "DEPLOYED");
       assert.strictEqual(body.schedule, "* * * * *");
       assert.strictEqual(body.isSecretConfigured, true);
+      assert.strictEqual(body.isSchedulerSecretConfigured, true);
       assert.strictEqual(body.isLiveExecutionEnabled, false);
       assert.strictEqual(body.backendUrl, TEST_BACKEND);
 
-      // Verify that secret is NEVER exposed in response body
+      // Verify that secrets are NEVER exposed in response body
       const rawBody = JSON.stringify(body);
       assert.strictEqual(rawBody.includes(TEST_SECRET), false, "Health check must NEVER leak CRON_SECRET");
+      assert.strictEqual(rawBody.includes(TEST_SCHEDULER_SECRET), false, "Health check must NEVER leak SCHEDULER_SECRET");
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -150,6 +154,7 @@ test("BLOW SALON — Cloudflare Queue Scheduler Suite", async (t) => {
     try {
       const env = {
         CRON_SECRET: TEST_SECRET,
+        SCHEDULER_SECRET: TEST_SCHEDULER_SECRET,
         ENABLE_LIVE_QUEUE: "true",
         BACKEND_URL: TEST_BACKEND,
       };
@@ -160,7 +165,32 @@ test("BLOW SALON — Cloudflare Queue Scheduler Suite", async (t) => {
       assert.strictEqual(capturedMethod, "POST");
       assert.strictEqual(capturedHeaders["Authorization"], `Bearer ${TEST_SECRET}`);
       assert.strictEqual(capturedHeaders["Content-Type"], "application/json");
+      assert.strictEqual(capturedHeaders["X-Scheduler-Secret"], TEST_SCHEDULER_SECRET);
       assert.strictEqual(capturedBody.dryRun, false);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  // ── 5b. Scheduled Handler: Missing SCHEDULER_SECRET Fails Closed ───────────
+  await t.test("Scheduled handler fails closed when SCHEDULER_SECRET is missing even if ENABLE_LIVE_QUEUE=true", async () => {
+    let backendFetchCalled = false;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => {
+      backendFetchCalled = true;
+      return new Response(JSON.stringify({ success: true }));
+    };
+
+    try {
+      const env = {
+        CRON_SECRET: TEST_SECRET,
+        ENABLE_LIVE_QUEUE: "true",
+        BACKEND_URL: TEST_BACKEND,
+        // SCHEDULER_SECRET deliberately omitted
+      };
+
+      await worker.scheduled({}, env);
+      assert.strictEqual(backendFetchCalled, false, "Must not invoke backend when SCHEDULER_SECRET is missing");
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -182,6 +212,7 @@ test("BLOW SALON — Cloudflare Queue Scheduler Suite", async (t) => {
     try {
       const env = {
         CRON_SECRET: TEST_SECRET,
+        SCHEDULER_SECRET: TEST_SCHEDULER_SECRET,
         ENABLE_LIVE_QUEUE: "true",
         BACKEND_URL: TEST_BACKEND,
         REQUEST_TIMEOUT_MS: "50",
@@ -212,6 +243,7 @@ test("BLOW SALON — Cloudflare Queue Scheduler Suite", async (t) => {
       try {
         const env = {
           CRON_SECRET: TEST_SECRET,
+          SCHEDULER_SECRET: TEST_SCHEDULER_SECRET,
           ENABLE_LIVE_QUEUE: "true",
           BACKEND_URL: TEST_BACKEND,
         };
@@ -249,6 +281,7 @@ test("BLOW SALON — Cloudflare Queue Scheduler Suite", async (t) => {
     try {
       const env = {
         CRON_SECRET: "super_secret_token_never_log_me_99999",
+        SCHEDULER_SECRET: TEST_SCHEDULER_SECRET,
         ENABLE_LIVE_QUEUE: "true",
         BACKEND_URL: TEST_BACKEND,
       };
@@ -383,6 +416,7 @@ test("BLOW SALON — Cloudflare Queue Scheduler Suite", async (t) => {
     try {
       const env = {
         CRON_SECRET: TEST_SECRET,
+        SCHEDULER_SECRET: TEST_SCHEDULER_SECRET,
         ENABLE_LIVE_QUEUE: "true",
         BACKEND_URL: TEST_BACKEND,
       };

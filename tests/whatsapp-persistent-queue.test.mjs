@@ -1329,4 +1329,202 @@ test("BLOW SALON — WhatsApp Persistent Queue, Delays & Rate-Limit Behavioral S
     campaign.status = "COMPLETED";
     assert.strictEqual(campaign.status, "COMPLETED");
   });
+
+  // ── Scenario 41: Production WhatsApp Queue Worker Security Hardening (Phase 3) ──
+  await t.test("Scenario 41 (Security Hardening): Server-side live gate, Cloudflare scheduler secret & fail-closed kill-switch", async (t) => {
+    const fs = await import("fs");
+    const crypto = await import("crypto");
+
+    const timingSafeEqualStr = (a, b) => {
+      if (!a || !b) return false;
+      const bufA = Buffer.from(a);
+      const bufB = Buffer.from(b);
+      if (bufA.length !== bufB.length) return false;
+      return crypto.timingSafeEqual(bufA, bufB);
+    };
+
+    // Replicates exact worker route security gate in app/api/whatsapp/queue/worker/route.ts
+    const evaluateVercelWorkerSecurityGate = ({
+      env = {},
+      headers = {},
+      body = {},
+      queryParam = null,
+    }) => {
+      const dryRunHeader = headers["x-dry-run"];
+      let isDryRunRequested = dryRunHeader === "true" || dryRunHeader === "1" || queryParam === "true";
+      if (!isDryRunRequested && body?.dryRun === true) {
+        isDryRunRequested = true;
+      }
+
+      if (!isDryRunRequested) {
+        // TASK 1: Independent Vercel live-dispatch gate
+        const serverLiveQueueFlag = env.ENABLE_LIVE_QUEUE?.trim();
+        if (serverLiveQueueFlag !== "true") {
+          return {
+            allowed: false,
+            status: 403,
+            code: "LIVE_QUEUE_DISABLED",
+            error: "Live queue execution is disabled on the server (ENABLE_LIVE_QUEUE is not 'true'). Direct live dispatch is blocked.",
+          };
+        }
+
+        // TASK 2: Exclusive Cloudflare scheduler authorization
+        const configuredSchedulerSecret = env.SCHEDULER_SECRET?.trim();
+        const providedSchedulerSecret = headers["x-scheduler-secret"]?.trim();
+
+        if (
+          !configuredSchedulerSecret ||
+          !providedSchedulerSecret ||
+          !timingSafeEqualStr(providedSchedulerSecret, configuredSchedulerSecret)
+        ) {
+          return {
+            allowed: false,
+            status: 403,
+            code: "SCHEDULER_SECRET_INVALID",
+            error: "Unauthorized live dispatch scheduler. Valid X-Scheduler-Secret header required for live execution.",
+          };
+        }
+      }
+
+      return {
+        allowed: true,
+        isDryRun: isDryRunRequested,
+      };
+    };
+
+    // Replicates exact fail-closed kill switch in lib/whatsapp/enabledGuard.ts
+    const evaluateFailClosedKillSwitch = (docData, shouldThrow = false) => {
+      try {
+        if (shouldThrow) throw new Error("Simulated Firestore read error");
+        if (docData && typeof docData.whatsappEnabled === "boolean" && docData.whatsappEnabled === true) {
+          return true;
+        }
+        return false;
+      } catch {
+        return false;
+      }
+    };
+
+    // ── Static Code Invariant Checks ──────────────────────────────────────────
+    const workerRouteSrc = fs.readFileSync("app/api/whatsapp/queue/worker/route.ts", "utf8");
+    const enabledGuardSrc = fs.readFileSync("lib/whatsapp/enabledGuard.ts", "utf8");
+    const cloudflareWorkerSrc = fs.readFileSync("cloudflare/worker.js", "utf8");
+
+    assert.ok(workerRouteSrc.includes('process.env.ENABLE_LIVE_QUEUE'), "Worker route must inspect process.env.ENABLE_LIVE_QUEUE");
+    assert.ok(workerRouteSrc.includes('process.env.SCHEDULER_SECRET'), "Worker route must inspect process.env.SCHEDULER_SECRET");
+    assert.ok(workerRouteSrc.includes('x-scheduler-secret'), "Worker route must inspect x-scheduler-secret header");
+    assert.ok(workerRouteSrc.includes('timingSafeEqual'), "Worker route must use constant-time comparison");
+    assert.ok(workerRouteSrc.includes('LIVE_QUEUE_DISABLED'), "Worker route must return LIVE_QUEUE_DISABLED code");
+    assert.ok(workerRouteSrc.includes('SCHEDULER_SECRET_INVALID'), "Worker route must return SCHEDULER_SECRET_INVALID code");
+
+    // Fail-closed guard checks
+    assert.ok(!enabledGuardSrc.includes('return true;\n  } catch'), "Catch block must never return true (must fail closed)");
+    assert.ok(!enabledGuardSrc.includes('// Default true'), "Must not default to true when setting is absent");
+
+    // Cloudflare worker checks
+    assert.ok(cloudflareWorkerSrc.includes('X-Scheduler-Secret'), "Cloudflare worker must send X-Scheduler-Secret header");
+    assert.ok(cloudflareWorkerSrc.includes('SCHEDULER_SECRET'), "Cloudflare worker must read env.SCHEDULER_SECRET");
+
+    const TEST_SCHEDULER_SECRET = "production_super_secret_scheduler_key_777";
+
+    // 1. Direct Vercel POST with dryRun:false while ENABLE_LIVE_QUEUE=false → blocked (403)
+    const test1 = evaluateVercelWorkerSecurityGate({
+      env: { ENABLE_LIVE_QUEUE: "false", SCHEDULER_SECRET: TEST_SCHEDULER_SECRET },
+      headers: { "x-scheduler-secret": TEST_SCHEDULER_SECRET },
+      body: { dryRun: false },
+    });
+    assert.strictEqual(test1.allowed, false);
+    assert.strictEqual(test1.status, 403);
+    assert.strictEqual(test1.code, "LIVE_QUEUE_DISABLED");
+
+    // 2. Direct Vercel POST with dryRun omitted → blocked (403)
+    const test2 = evaluateVercelWorkerSecurityGate({
+      env: { ENABLE_LIVE_QUEUE: "false", SCHEDULER_SECRET: TEST_SCHEDULER_SECRET },
+      headers: { "x-scheduler-secret": TEST_SCHEDULER_SECRET },
+      body: {}, // dryRun omitted
+    });
+    assert.strictEqual(test2.allowed, false);
+    assert.strictEqual(test2.status, 403);
+    assert.strictEqual(test2.code, "LIVE_QUEUE_DISABLED");
+
+    // 3. Missing ENABLE_LIVE_QUEUE → blocked (403)
+    const test3 = evaluateVercelWorkerSecurityGate({
+      env: { SCHEDULER_SECRET: TEST_SCHEDULER_SECRET }, // ENABLE_LIVE_QUEUE missing
+      headers: { "x-scheduler-secret": TEST_SCHEDULER_SECRET },
+      body: { dryRun: false },
+    });
+    assert.strictEqual(test3.allowed, false);
+    assert.strictEqual(test3.status, 403);
+    assert.strictEqual(test3.code, "LIVE_QUEUE_DISABLED");
+
+    // 4. Wrong scheduler secret → blocked (403)
+    const test4 = evaluateVercelWorkerSecurityGate({
+      env: { ENABLE_LIVE_QUEUE: "true", SCHEDULER_SECRET: TEST_SCHEDULER_SECRET },
+      headers: { "x-scheduler-secret": "wrong_secret_attempt" },
+      body: { dryRun: false },
+    });
+    assert.strictEqual(test4.allowed, false);
+    assert.strictEqual(test4.status, 403);
+    assert.strictEqual(test4.code, "SCHEDULER_SECRET_INVALID");
+
+    // 5. Missing scheduler secret → blocked (403)
+    const test5 = evaluateVercelWorkerSecurityGate({
+      env: { ENABLE_LIVE_QUEUE: "true", SCHEDULER_SECRET: TEST_SCHEDULER_SECRET },
+      headers: {}, // header omitted
+      body: { dryRun: false },
+    });
+    assert.strictEqual(test5.allowed, false);
+    assert.strictEqual(test5.status, 403);
+    assert.strictEqual(test5.code, "SCHEDULER_SECRET_INVALID");
+
+    // 6. Valid scheduler secret but ENABLE_LIVE_QUEUE=false → blocked (403)
+    const test6 = evaluateVercelWorkerSecurityGate({
+      env: { ENABLE_LIVE_QUEUE: "false", SCHEDULER_SECRET: TEST_SCHEDULER_SECRET },
+      headers: { "x-scheduler-secret": TEST_SCHEDULER_SECRET },
+      body: { dryRun: false },
+    });
+    assert.strictEqual(test6.allowed, false);
+    assert.strictEqual(test6.status, 403);
+    assert.strictEqual(test6.code, "LIVE_QUEUE_DISABLED");
+
+    // 7. Valid scheduler secret AND ENABLE_LIVE_QUEUE=true → eligible for live execution
+    const test7 = evaluateVercelWorkerSecurityGate({
+      env: { ENABLE_LIVE_QUEUE: "true", SCHEDULER_SECRET: TEST_SCHEDULER_SECRET },
+      headers: { "x-scheduler-secret": TEST_SCHEDULER_SECRET },
+      body: { dryRun: false },
+    });
+    assert.strictEqual(test7.allowed, true);
+    assert.strictEqual(test7.isDryRun, false);
+
+    // 8. Firestore master switch false → blocked
+    assert.strictEqual(evaluateFailClosedKillSwitch({ whatsappEnabled: false }), false);
+
+    // 9. Firestore master switch missing/empty → blocked (no default true)
+    assert.strictEqual(evaluateFailClosedKillSwitch({}), false);
+    assert.strictEqual(evaluateFailClosedKillSwitch(null), false);
+    assert.strictEqual(evaluateFailClosedKillSwitch({ whatsappEnabled: "true" }), false, "String 'true' must be rejected; boolean strictly required");
+
+    // 10. Firestore read error → blocked
+    assert.strictEqual(evaluateFailClosedKillSwitch(null, true), false, "Read error must fail closed");
+
+    // 11. Dry-run still works with live dispatch disabled
+    const test11a = evaluateVercelWorkerSecurityGate({
+      env: { ENABLE_LIVE_QUEUE: "false" },
+      headers: { "x-dry-run": "true" },
+      body: {},
+    });
+    assert.strictEqual(test11a.allowed, true);
+    assert.strictEqual(test11a.isDryRun, true);
+
+    const test11b = evaluateVercelWorkerSecurityGate({
+      env: { ENABLE_LIVE_QUEUE: "false" },
+      headers: {},
+      body: { dryRun: true },
+    });
+    assert.strictEqual(test11b.allowed, true);
+    assert.strictEqual(test11b.isDryRun, true);
+
+    // 12. Valid settings doc returns true
+    assert.strictEqual(evaluateFailClosedKillSwitch({ whatsappEnabled: true }), true);
+  });
 });

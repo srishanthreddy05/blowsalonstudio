@@ -24,6 +24,7 @@ export default {
     // 1. Health-check endpoint on GET / HEAD
     if (request.method === "GET" || request.method === "HEAD") {
       const isSecretConfigured = Boolean(env.CRON_SECRET && env.CRON_SECRET.trim().length > 0);
+      const isSchedulerSecretConfigured = Boolean(env.SCHEDULER_SECRET && env.SCHEDULER_SECRET.trim().length > 0);
       const isLiveExecutionEnabled = String(env.ENABLE_LIVE_QUEUE).toLowerCase() === "true";
       const backendUrl = env.BACKEND_URL || "https://blowsalonstudio.vercel.app/api/whatsapp/queue/worker";
 
@@ -33,6 +34,7 @@ export default {
         schedule: "* * * * *",
         backendUrl,
         isSecretConfigured,
+        isSchedulerSecretConfigured,
         isLiveExecutionEnabled,
         timestamp: new Date().toISOString(),
       };
@@ -96,8 +98,9 @@ export default {
         );
       }
 
+      const schedulerSecret = !isDryRun ? env.SCHEDULER_SECRET?.trim() : undefined;
       const backendUrl = env.BACKEND_URL || "https://blowsalonstudio.vercel.app/api/whatsapp/queue/worker";
-      const result = await invokeBackendWorker(backendUrl, cronSecret, isDryRun, env.REQUEST_TIMEOUT_MS);
+      const result = await invokeBackendWorker(backendUrl, cronSecret, isDryRun, env.REQUEST_TIMEOUT_MS, schedulerSecret);
 
       return new Response(JSON.stringify(result.data), {
         status: result.status,
@@ -128,10 +131,16 @@ export default {
       return;
     }
 
+    const schedulerSecret = env.SCHEDULER_SECRET?.trim();
+    if (!schedulerSecret) {
+      console.error("[Scheduler] SCHEDULER_SECRET is missing or empty. Scheduled live run aborted (FAIL CLOSED).");
+      return;
+    }
+
     const backendUrl = env.BACKEND_URL || "https://blowsalonstudio.vercel.app/api/whatsapp/queue/worker";
     console.log(`[Scheduler] Cron triggered at ${new Date().toISOString()}. Invoking Vercel worker: ${backendUrl}`);
 
-    await invokeBackendWorker(backendUrl, cronSecret, false, env.REQUEST_TIMEOUT_MS);
+    await invokeBackendWorker(backendUrl, cronSecret, false, env.REQUEST_TIMEOUT_MS, schedulerSecret);
   },
 };
 
@@ -139,20 +148,27 @@ export default {
  * Invokes the Vercel queue worker endpoint with bearer authentication and timeout safeguards.
  * Never retries on uncertain network errors or timeouts to prevent duplicate message dispatches.
  */
-async function invokeBackendWorker(backendUrl, cronSecret, dryRun = false, customTimeoutMs) {
+async function invokeBackendWorker(backendUrl, cronSecret, dryRun = false, customTimeoutMs, schedulerSecret) {
   const timeoutMs = parseInt(customTimeoutMs, 10) || 45000;
   const abortController = new AbortController();
   const timeoutId = setTimeout(() => abortController.abort(), timeoutMs);
 
   try {
+    const headers = {
+      Authorization: `Bearer ${cronSecret}`,
+      "Content-Type": "application/json",
+      "x-dry-run": dryRun ? "true" : "false",
+      "User-Agent": "BlowSalon-Cloudflare-Scheduler/1.0",
+    };
+
+    // Send X-Scheduler-Secret only for live execution dispatches
+    if (!dryRun && schedulerSecret) {
+      headers["X-Scheduler-Secret"] = schedulerSecret;
+    }
+
     const response = await fetch(backendUrl, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${cronSecret}`,
-        "Content-Type": "application/json",
-        "x-dry-run": dryRun ? "true" : "false",
-        "User-Agent": "BlowSalon-Cloudflare-Scheduler/1.0",
-      },
+      headers,
       body: JSON.stringify({ dryRun }),
       signal: abortController.signal,
     });
