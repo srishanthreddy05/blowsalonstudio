@@ -108,7 +108,7 @@ test("BLOW SALON — WhatsApp Webhook Firestore Sanitization & Lifecycle Suite",
     assert.deepEqual(sanitized.deepHierarchy, [{ items: [{ id: "item1" }] }]);
   });
 
-  await t.test("Requirement 4: Preserves valid null values, timestamps, dates, and FieldValue sentinels", () => {
+  await t.test("Requirement 4: Preserves valid null values, timestamps, dates, booleans, and FieldValue sentinels", () => {
     const testDate = new Date("2026-11-05T19:15:46.250Z");
     const mockFieldValue = Object.create({
       isEqual: () => true,
@@ -124,6 +124,7 @@ test("BLOW SALON — WhatsApp Webhook Firestore Sanitization & Lifecycle Suite",
       serverTime: mockFieldValue,
       tags: ["promo", "vip"],
       zeroCount: 0,
+      emptyString: "",
       isFalse: false,
       undefinedKey: undefined,
     };
@@ -139,6 +140,7 @@ test("BLOW SALON — WhatsApp Webhook Firestore Sanitization & Lifecycle Suite",
     assert.equal(sanitized.serverTime, mockFieldValue);
     assert.deepEqual(sanitized.tags, ["promo", "vip"]);
     assert.equal(sanitized.zeroCount, 0);
+    assert.equal(sanitized.emptyString, "");
     assert.equal(sanitized.isFalse, false);
     assert.equal("undefinedKey" in sanitized, false);
   });
@@ -204,7 +206,42 @@ test("BLOW SALON — WhatsApp Webhook Firestore Sanitization & Lifecycle Suite",
     assert.equal(duplicateRead.finalStatus, "READ");
   });
 
-  await t.test("Requirement 7: Campaign metrics accurately reconcile using authoritative queue job statuses", () => {
+  await t.test("Requirement C: Delivery attempt construction omits absent optional fields cleanly", () => {
+    const nowIso = "2026-11-05T19:18:56.234Z";
+    const messageId = "wamid.TEST456";
+    const recData = {
+      attemptCount: 1,
+      sentAt: "2026-11-05T19:18:43.879Z",
+    };
+
+    // When status is DELIVERED: readAt, errorMessage, and errorCode must NOT exist
+    const deliveredAttempt = {
+      attempt: recData.attemptCount || 1,
+      status: "DELIVERED",
+      sentAt: recData.sentAt,
+      metaMessageId: messageId,
+      deliveredAt: nowIso,
+    };
+    assert.doesNotThrow(() => assertValidFirestoreDoc(deliveredAttempt));
+    assert.equal("readAt" in deliveredAttempt, false);
+    assert.equal("errorMessage" in deliveredAttempt, false);
+    assert.equal("errorCode" in deliveredAttempt, false);
+
+    // When status is READ: readAt is present, error fields must NOT exist
+    const readAttempt = {
+      attempt: recData.attemptCount || 1,
+      status: "READ",
+      sentAt: recData.sentAt,
+      metaMessageId: messageId,
+      deliveredAt: nowIso,
+      readAt: nowIso,
+    };
+    assert.doesNotThrow(() => assertValidFirestoreDoc(readAttempt));
+    assert.equal("errorMessage" in readAttempt, false);
+    assert.equal("errorCode" in readAttempt, false);
+  });
+
+  await t.test("Requirement C: Exact campaign test2 (3V4rbzWfX3AYEIenHNpi) reconciliation simulation", () => {
     const STATUS_RANK = {
       CANCELLED: 0,
       FAILED: 1,
@@ -221,49 +258,100 @@ test("BLOW SALON — WhatsApp Webhook Firestore Sanitization & Lifecycle Suite",
       READ: 7,
     };
 
-    // Simulate recipients in Firestore that were at status "SENT"
-    const recipients = [
-      { id: "rec_1", customerName: "Srishanth Reddy", status: "SENT" },
-      { id: "rec_2", customerName: "Customer 2", status: "SENT" },
-      { id: "rec_3", customerName: "Customer 3", status: "EXCLUDED" },
+    // Exactly matches the 4 production recipients of test2 in Firestore
+    const productionRecipients = [
+      { id: "1U2RmI9bhVNaJoczXdLm", customerName: "Sricharan", status: "SENT" },
+      { id: "8icEyTr0pHmTdtkjr0oM", customerName: "Srishanth Reddy", status: "SENT" },
+      { id: "wfl5M12qg6Igv0Vqkvb4", customerName: "Yash Reddy", status: "SENT" },
+      { id: "x5LGSm1QfGXfomF0M0ib", customerName: "Akhila", status: "SENT" },
     ];
 
-    // Simulate authoritative queue jobs that reached DELIVERED and READ via Meta webhooks
-    const jobs = [
-      { id: "camp_1_rec_1", recipientId: "rec_1", status: "READ" },
-      { id: "camp_1_rec_2", recipientId: "rec_2", status: "DELIVERED" },
+    // Exactly matches the 4 production queue jobs of test2 in whatsappCampaignJobs
+    const productionJobs = [
+      { id: "3V4rbzWfX3AYEIenHNpi_1U2RmI9bhVNaJoczXdLm", recipientId: "1U2RmI9bhVNaJoczXdLm", status: "DELIVERED" },
+      { id: "3V4rbzWfX3AYEIenHNpi_8icEyTr0pHmTdtkjr0oM", recipientId: "8icEyTr0pHmTdtkjr0oM", status: "ACCEPTED" },
+      { id: "3V4rbzWfX3AYEIenHNpi_wfl5M12qg6Igv0Vqkvb4", recipientId: "wfl5M12qg6Igv0Vqkvb4", status: "DELIVERED" },
+      { id: "3V4rbzWfX3AYEIenHNpi_x5LGSm1QfGXfomF0M0ib", recipientId: "x5LGSm1QfGXfomF0M0ib", status: "ACCEPTED" },
     ];
 
-    const jobsByRecipientId = new Map(jobs.map((j) => [j.recipientId, j]));
+    const jobsByRecipientId = new Map(productionJobs.map((j) => [j.recipientId, j]));
 
-    // Reconciliation algorithm implemented in syncCampaignStats
-    const reconciledRecs = recipients.map((rec) => {
-      const job = jobsByRecipientId.get(rec.id);
-      if (!job) return rec;
+    function reconcile(recipients) {
+      return recipients.map((rec) => {
+        const job = jobsByRecipientId.get(rec.id);
+        if (!job) return rec;
 
-      const recRank = STATUS_RANK[(rec.status || "").toUpperCase()] || 0;
-      const jobRank = STATUS_RANK[(job.status || "").toUpperCase()] || 0;
+        const recRank = STATUS_RANK[(rec.status || "").toUpperCase()] || 0;
+        const jobRank = STATUS_RANK[(job.status || "").toUpperCase()] || 0;
 
-      if (jobRank > recRank) {
-        return {
-          ...rec,
-          status: job.status,
-        };
-      }
-      return rec;
-    });
+        // Reconcile status if job has progressed further
+        if (jobRank > recRank) {
+          return {
+            ...rec,
+            status: job.status,
+          };
+        }
+        return rec;
+      });
+    }
 
-    const stats = calculateCampaignStats(reconciledRecs);
+    const reconciled = reconcile(productionRecipients);
+    const stats = calculateCampaignStats(reconciled);
 
-    assert.equal(stats.totalRecipients, 3);
-    assert.equal(stats.eligibleCount, 2);
-    assert.equal(stats.excludedCount, 1);
-    assert.equal(stats.sentCount, 2);
-    // DELIVERED includes READ because a read message was necessarily delivered
+    // Assertions matching production expectations:
+    // 1. Total recipients = 4
+    assert.equal(stats.totalRecipients, 4);
+    // 2. Eligible count = 4
+    assert.equal(stats.eligibleCount, 4);
+    // 3. Sent count = 4 (all 4 were dispatched to Meta Cloud API)
+    assert.equal(stats.sentCount, 4);
+    // 4. Exactly two DELIVERED jobs produce deliveredCount = 2
     assert.equal(stats.deliveredCount, 2);
-    assert.equal(stats.readCount, 1);
+    // 5. The two ACCEPTED jobs (Srishanth & Akhila) are NOT counted as delivered
+    assert.equal(stats.deliveredCount, 2, "ACCEPTED jobs must not be counted in deliveredCount");
+    // 6. Read count = 0 (neither Sricharan nor Yash Reddy have opened/read yet)
+    assert.equal(stats.readCount, 0);
+    // 7. Failed count = 0
     assert.equal(stats.failedCount, 0);
+    // 8. Campaign status = COMPLETED (queue dispatch finished, zero remaining queue jobs)
     assert.equal(stats.status, "COMPLETED");
+
+    // Idempotency: Running reconciliation repeatedly produces identical results
+    for (let i = 0; i < 5; i++) {
+      const repeatedStats = calculateCampaignStats(reconcile(productionRecipients));
+      assert.deepEqual(repeatedStats, stats);
+    }
+  });
+
+  await t.test("Requirement B: Campaign status definition — COMPLETED vs SENDING vs FAILED", () => {
+    // 1. When jobs are still processing or pending, campaign status is SENDING
+    const pendingCampaign = calculateCampaignStats([
+      { id: "r1", status: "SENT" },
+      { id: "r2", status: "PENDING" },
+    ]);
+    assert.equal(pendingCampaign.pendingCount, 1);
+    assert.equal(pendingCampaign.status, undefined); // Handled by queue manager remainingJobs > 0 -> "SENDING"
+
+    // 2. When all jobs dispatched and pending = 0, status is COMPLETED
+    const completedCampaign = calculateCampaignStats([
+      { id: "r1", status: "SENT" },
+      { id: "r2", status: "DELIVERED" },
+    ]);
+    assert.equal(completedCampaign.pendingCount, 0);
+    assert.equal(completedCampaign.status, "COMPLETED");
+
+    // 3. When some jobs failed and some sent, status is COMPLETED_WITH_ERRORS
+    const errorCampaign = calculateCampaignStats([
+      { id: "r1", status: "SENT" },
+      { id: "r2", status: "FAILED" },
+    ]);
+    assert.equal(errorCampaign.status, "COMPLETED_WITH_ERRORS");
+
+    // 4. When all eligible jobs failed, status is FAILED
+    const allFailedCampaign = calculateCampaignStats([
+      { id: "r1", status: "FAILED" },
+      { id: "r2", status: "FAILED" },
+    ]);
+    assert.equal(allFailedCampaign.status, "FAILED");
   });
 });
-

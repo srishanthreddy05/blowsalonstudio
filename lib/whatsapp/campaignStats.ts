@@ -53,7 +53,7 @@ export function calculateCampaignStats(
     } else if (s === "DELIVERED") {
       deliveredOnlyCount++;
       sentCount++;
-    } else if (s === "SENT") {
+    } else if (s === "SENT" || s === "ACCEPTED") {
       sentCount++;
     } else if (s === "FAILED") {
       failedCount++;
@@ -62,7 +62,7 @@ export function calculateCampaignStats(
       ambiguousCount++;
     } else if (s === "SENDING") {
       sendingCount++;
-    } else if (s === "PENDING" || s === "QUEUED") {
+    } else if (s === "PENDING" || s === "QUEUED" || s === "RETRY_WAIT") {
       pendingCount++;
     }
   }

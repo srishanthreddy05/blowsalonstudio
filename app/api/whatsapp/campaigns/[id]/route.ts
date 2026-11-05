@@ -10,7 +10,7 @@ import {
   deleteDoc,
   writeBatch,
 } from "@/lib/firebaseAdmin";
-import type { WhatsAppCampaign, WhatsAppCampaignRecipient } from "@/types/whatsapp";
+import type { WhatsAppCampaign, WhatsAppCampaignRecipient, WhatsAppCampaignJob } from "@/types/whatsapp";
 import { normalizeCampaignData } from "@/lib/utils/firestore";
 
 import { calculateCampaignStats, applyStatsToCampaign } from "@/lib/whatsapp/campaignStats";
@@ -40,7 +40,7 @@ export async function GET(
 
     const initialCampaign = normalizeCampaignData(snap.data(), snap.id);
 
-    // Fetch recipients for this campaign as Single Source of Truth
+    // Fetch recipients for this campaign
     const q = query(
       collection(db, RECIPIENTS_COLLECTION),
       where("campaignId", "==", id)
@@ -51,15 +51,28 @@ export async function GET(
       ...d.data(),
     } as WhatsAppCampaignRecipient));
 
-    // Dynamically calculate accurate stats from the recipient delivery records
-    const stats = calculateCampaignStats(recipients);
-    let campaign = applyStatsToCampaign(initialCampaign, stats);
-
-    // Fetch live queue job breakdown for real-time monitoring
+    // Fetch live queue job breakdown for real-time monitoring and authoritative status reconciliation
     let pendingJobsCount = 0;
     let processingJobsCount = 0;
     let retryWaitJobsCount = 0;
     let acceptedJobsCount = 0;
+    const jobsByRecipientId = new Map<string, WhatsAppCampaignJob>();
+
+    const STATUS_RANK: Record<string, number> = {
+      CANCELLED: 0,
+      FAILED: 1,
+      EXCLUDED: 1,
+      NOT_SENT: 1,
+      PENDING: 2,
+      QUEUED: 2,
+      RETRY_WAIT: 2,
+      AMBIGUOUS: 2,
+      PROCESSING: 3,
+      ACCEPTED: 4,
+      SENT: 5,
+      DELIVERED: 6,
+      READ: 7,
+    };
 
     try {
       const qJobs = query(
@@ -68,8 +81,12 @@ export async function GET(
       );
       const jobSnap = await getDocs(qJobs);
       for (const d of jobSnap.docs) {
-        const s = d.data().status;
-        if (s === "PENDING") pendingJobsCount++;
+        const job = d.data() as WhatsAppCampaignJob;
+        const recId = job.recipientId || (job.id.includes("_") ? job.id.split("_")[1] : null);
+        if (recId) jobsByRecipientId.set(recId, job);
+
+        const s = job.status;
+        if (s === "PENDING" || s === "QUEUED") pendingJobsCount++;
         else if (s === "PROCESSING") processingJobsCount++;
         else if (s === "RETRY_WAIT") retryWaitJobsCount++;
         else if (s === "ACCEPTED") acceptedJobsCount++;
@@ -77,6 +94,27 @@ export async function GET(
     } catch {
       pendingJobsCount = recipients.filter((r) => r.status === "PENDING").length;
     }
+
+    // Reconcile recipient statuses using authoritative queue jobs
+    const reconciledRecs = recipients.map((r) => {
+      const job = jobsByRecipientId.get(r.id);
+      if (!job) return r;
+      const recRank = STATUS_RANK[(r.status || "").toUpperCase()] || 0;
+      const jobRank = STATUS_RANK[(job.status || "").toUpperCase()] || 0;
+      if (jobRank > recRank) {
+        return {
+          ...r,
+          status: job.status as any,
+          deliveredAt: job.deliveredAt || r.deliveredAt,
+          readAt: job.readAt || r.readAt,
+        };
+      }
+      return r;
+    });
+
+    // Dynamically calculate accurate stats from the reconciled delivery records
+    const stats = calculateCampaignStats(reconciledRecs);
+    let campaign = applyStatsToCampaign(initialCampaign, stats);
 
     const { getCurrentSendDelayMs } = await import("@/lib/whatsapp/queue/throttleController");
     const currentDelayMs = getCurrentSendDelayMs();
