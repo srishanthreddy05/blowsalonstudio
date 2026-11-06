@@ -14,6 +14,7 @@ import type { WhatsAppCampaign, WhatsAppCampaignRecipient, WhatsAppCampaignJob }
 import { normalizeCampaignData } from "@/lib/utils/firestore";
 
 import { calculateCampaignStats, applyStatsToCampaign } from "@/lib/whatsapp/campaignStats";
+import { canTransitionStatus } from "@/lib/whatsapp/statusTransitions";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -58,22 +59,6 @@ export async function GET(
     let acceptedJobsCount = 0;
     const jobsByRecipientId = new Map<string, WhatsAppCampaignJob>();
 
-    const STATUS_RANK: Record<string, number> = {
-      CANCELLED: 0,
-      FAILED: 1,
-      EXCLUDED: 1,
-      NOT_SENT: 1,
-      PENDING: 2,
-      QUEUED: 2,
-      RETRY_WAIT: 2,
-      AMBIGUOUS: 2,
-      PROCESSING: 3,
-      ACCEPTED: 4,
-      SENT: 5,
-      DELIVERED: 6,
-      READ: 7,
-    };
-
     try {
       const qJobs = query(
         collection(db, "whatsappCampaignJobs"),
@@ -95,18 +80,21 @@ export async function GET(
       pendingJobsCount = recipients.filter((r) => r.status === "PENDING").length;
     }
 
-    // Reconcile recipient statuses using authoritative queue jobs
+    // Reconcile recipient statuses using authoritative queue jobs via centralized transition validator
     const reconciledRecs = recipients.map((r) => {
       const job = jobsByRecipientId.get(r.id);
       if (!job) return r;
-      const recRank = STATUS_RANK[(r.status || "").toUpperCase()] || 0;
-      const jobRank = STATUS_RANK[(job.status || "").toUpperCase()] || 0;
-      if (jobRank > recRank) {
+      const transition = canTransitionStatus(r.status, job.status);
+      if (transition.allowed) {
         return {
           ...r,
           status: job.status as any,
           deliveredAt: job.deliveredAt || r.deliveredAt,
           readAt: job.readAt || r.readAt,
+          failedAt: job.failedAt || (r as any).failedAt,
+          errorMessage: job.lastError || r.errorMessage,
+          errorCode: job.metaErrorCode ? String(job.metaErrorCode) : r.errorCode,
+          metaErrorDetails: job.metaErrorDetails || (r as any).metaErrorDetails,
         };
       }
       return r;
@@ -136,7 +124,7 @@ export async function GET(
 
     return NextResponse.json({
       campaign,
-      recipients,
+      recipients: reconciledRecs,
     });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : "Failed to load campaign details";

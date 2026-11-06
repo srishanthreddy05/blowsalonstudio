@@ -14,6 +14,7 @@ export interface CampaignCalculatedStats {
   failedCount: number;
   ambiguousCount: number;
   pendingCount: number;
+  acceptedCount?: number;
   status?: WhatsAppCampaignStatus;
 }
 
@@ -36,6 +37,7 @@ export function calculateCampaignStats(
   const totalRecipients = recipients.length;
   let excludedCount = 0;
   let sentCount = 0;
+  let acceptedCount = 0;
   let deliveredOnlyCount = 0;
   let readCount = 0;
   let failedCount = 0;
@@ -53,7 +55,10 @@ export function calculateCampaignStats(
     } else if (s === "DELIVERED") {
       deliveredOnlyCount++;
       sentCount++;
-    } else if (s === "SENT" || s === "ACCEPTED") {
+    } else if (s === "SENT") {
+      sentCount++;
+    } else if (s === "ACCEPTED") {
+      acceptedCount++;
       sentCount++;
     } else if (s === "FAILED") {
       failedCount++;
@@ -98,6 +103,7 @@ export function calculateCampaignStats(
     failedCount,
     ambiguousCount,
     pendingCount,
+    acceptedCount,
     status,
   };
 }
@@ -120,6 +126,7 @@ export function applyStatsToCampaign(
     failedCount: stats.failedCount,
     ambiguousCount: stats.ambiguousCount,
     pendingCount: stats.pendingCount,
+    acceptedCount: stats.acceptedCount,
     status: stats.status || campaign.status,
   };
 }

@@ -37,6 +37,7 @@ import {
   calculateNextAttemptAt,
 } from "./throttleController";
 import { checkConversationBudget } from "./conversationTracker";
+import { canTransitionStatus } from "@/lib/whatsapp/statusTransitions";
 
 export const QUEUE_JOBS_COLLECTION = "whatsappCampaignJobs";
 export const RECIPIENTS_COLLECTION = "whatsapp_campaign_recipients";
@@ -1018,6 +1019,7 @@ export async function syncCampaignStats(campaignId: string): Promise<void> {
   let processingJobsCount = 0;
   let retryWaitJobsCount = 0;
   let ambiguousJobsCount = 0;
+  let acceptedJobsCount = 0;
   const jobsByRecipientId = new Map<string, WhatsAppCampaignJob>();
 
   try {
@@ -1035,24 +1037,25 @@ export async function syncCampaignStats(campaignId: string): Promise<void> {
       else if (s === "PROCESSING") processingJobsCount++;
       else if (s === "RETRY_WAIT") retryWaitJobsCount++;
       else if (s === "AMBIGUOUS") ambiguousJobsCount++;
+      else if (s === "ACCEPTED") acceptedJobsCount++;
     }
   } catch {
     // If job query fails, derive from recipient status
     pendingJobsCount = allRecs.filter((r) => r.status === "PENDING" || (r as any).status === "QUEUED").length;
     ambiguousJobsCount = allRecs.filter((r) => r.status === "AMBIGUOUS").length;
+    acceptedJobsCount = allRecs.filter((r) => r.status === "ACCEPTED").length;
   }
 
   // Reconcile recipient delivery statuses using authoritative queue jobs
-  // Never downgrade status: READ cannot be downgraded to DELIVERED or SENT
+  // Monotonic lifecycle transition: DELIVERED/READ cannot be downgraded to FAILED or SENT
   const nowIso = new Date().toISOString();
   const reconciledRecs = allRecs.map((rec) => {
     const job = jobsByRecipientId.get(rec.id);
     if (!job) return rec;
 
-    const recRank = STATUS_RANK[(rec.status || "").toUpperCase()] || 0;
-    const jobRank = STATUS_RANK[(job.status || "").toUpperCase()] || 0;
+    const transition = canTransitionStatus(rec.status, job.status);
 
-    if (jobRank > recRank) {
+    if (transition.allowed) {
       // Reconcile recipient doc in Firestore if out of sync with authoritative job
       updateDoc(
         doc(db, RECIPIENTS_COLLECTION, rec.id),
@@ -1060,6 +1063,12 @@ export async function syncCampaignStats(campaignId: string): Promise<void> {
           status: job.status,
           deliveredAt: job.deliveredAt || rec.deliveredAt || null,
           readAt: job.readAt || rec.readAt || null,
+          failedAt: job.failedAt || (rec as any).failedAt || null,
+          errorMessage: job.lastError || rec.errorMessage || null,
+          errorCode: job.metaErrorCode ? String(job.metaErrorCode) : rec.errorCode || null,
+          metaErrorDetails: job.metaErrorDetails || (rec as any).metaErrorDetails || null,
+          classification: job.classification || (rec as any).classification || null,
+          errorSource: job.errorSource || (rec as any).errorSource || null,
           metaMessageId: job.whatsappMessageId || rec.metaMessageId || null,
           updatedAt: nowIso,
         })
@@ -1072,6 +1081,9 @@ export async function syncCampaignStats(campaignId: string): Promise<void> {
         status: job.status as any,
         deliveredAt: job.deliveredAt || rec.deliveredAt,
         readAt: job.readAt || rec.readAt,
+        failedAt: job.failedAt || (rec as any).failedAt,
+        errorMessage: job.lastError || rec.errorMessage,
+        errorCode: job.metaErrorCode ? String(job.metaErrorCode) : rec.errorCode,
       };
     }
     return rec;
@@ -1113,6 +1125,7 @@ export async function syncCampaignStats(campaignId: string): Promise<void> {
     pendingCount: pendingJobsCount,
     processingCount: processingJobsCount,
     retryWaitingCount: retryWaitJobsCount,
+    acceptedCount: stats.acceptedCount || acceptedJobsCount,
     currentDelayMs,
     estimatedCompletionMinutes,
     completedAt: remainingJobs === 0 && (newStatus === "COMPLETED" || newStatus === "COMPLETED_WITH_ERRORS")

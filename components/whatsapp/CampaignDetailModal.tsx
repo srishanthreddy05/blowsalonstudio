@@ -55,6 +55,12 @@ const recipientStatusBadges: Record<
     text: "text-[#747A72]",
     border: "border-[#E0E4DD]",
   },
+  ACCEPTED: {
+    label: "Accepted",
+    bg: "bg-[#F0F4F8]",
+    text: "text-[#334E68]",
+    border: "border-[#334E68]/30",
+  },
   SENT: {
     label: "Sent",
     bg: "bg-[#EBF3FB]",
@@ -120,6 +126,7 @@ export default function CampaignDetailModal({
       deliveredCount: normalizeCount(campaign.deliveredCount),
       readCount: normalizeCount(campaign.readCount),
       failedCount: normalizeCount(campaign.failedCount),
+      acceptedCount: normalizeCount((campaign as any).acceptedCount),
       status: campaign.status,
     };
   }, [recipients, campaign]);
@@ -134,7 +141,10 @@ export default function CampaignDetailModal({
     stats.failedCount > 0 &&
     (currentStatus === "COMPLETED_WITH_ERRORS" || currentStatus === "FAILED" || currentStatus === "COMPLETED");
 
-  const pendingCount = recipients.filter((r) => r.status === "PENDING" || r.status === "SENDING").length;
+  const acceptedCount = stats.acceptedCount !== undefined
+    ? stats.acceptedCount
+    : recipients.filter((r) => r.status === "ACCEPTED").length;
+  const pendingCount = recipients.filter((r) => r.status === "PENDING" || r.status === "SENDING" || r.status === "QUEUED").length;
   const retryEligibleCount = recipients.filter(
     (r) => r.status === "FAILED" && (r.retryCount || 0) < 2
   ).length;
@@ -298,7 +308,7 @@ export default function CampaignDetailModal({
           </div>
 
           {/* Metrics Overview Grid (Fractional Counts & Reporting Requirements) */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2.5">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-9 gap-2.5">
             {/* Total Recipients */}
             <div className="p-3 rounded-2xl border border-[#E0E4DD] bg-[#F7F7F4]">
               <div className="text-[10px] font-bold uppercase tracking-wider text-[#747A72]">
@@ -308,6 +318,17 @@ export default function CampaignDetailModal({
                 {stats.totalRecipients}
               </div>
               <div className="text-[10px] text-[#8C9389]">Audience pool</div>
+            </div>
+
+            {/* Accepted (API 200 / Initial Submission) */}
+            <div className="p-3 rounded-2xl border border-[#D9E2EC] bg-[#F0F4F8]/70">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-[#334E68]">
+                Accepted
+              </div>
+              <div className="text-lg font-bold text-[#334E68] mt-0.5">
+                {acceptedCount}
+              </div>
+              <div className="text-[10px] text-[#486581]">API 200 OK</div>
             </div>
 
             {/* Sent */}
@@ -420,6 +441,7 @@ export default function CampaignDetailModal({
               >
                 <option value="ALL">All Recipient Statuses</option>
                 <option value="PENDING">Pending</option>
+                <option value="ACCEPTED">Accepted</option>
                 <option value="SENT">Sent</option>
                 <option value="DELIVERED">Delivered</option>
                 <option value="READ">Read</option>
@@ -483,9 +505,10 @@ export default function CampaignDetailModal({
                                 <p
                                   className="text-[10px] font-medium text-[#B55B5B] mt-0.5 max-w-xs truncate cursor-pointer hover:underline"
                                   onClick={() => setSelectedRecipientForDetail(r)}
-                                  title="Click to view failure details"
+                                  title={r.errorMessage || r.metaErrorDetails || "Click to view failure details"}
                                 >
-                                  {parseWhatsAppFailure(r.errorMessage).shortReason}
+                                  {r.errorCode ? `[${r.errorCode}] ` : ""}
+                                  {parseWhatsAppFailure(r.errorMessage || r.metaErrorDetails, r.errorCode).shortReason}
                                 </p>
                               )}
                             </div>

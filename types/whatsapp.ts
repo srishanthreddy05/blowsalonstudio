@@ -9,6 +9,7 @@ export type WhatsAppMessageStatus =
   | "PENDING"
   | "QUEUED"
   | "SENDING"
+  | "ACCEPTED"
   | "SENT"
   | "DELIVERED"
   | "READ"

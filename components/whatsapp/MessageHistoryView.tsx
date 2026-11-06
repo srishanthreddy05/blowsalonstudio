@@ -58,6 +58,12 @@ const statusPillStyles: Record<
     text: "text-[#2B6CB0]",
     border: "border-[#2B6CB0]/30",
   },
+  ACCEPTED: {
+    label: "Accepted",
+    bg: "bg-[#F0F4F8]",
+    text: "text-[#334E68]",
+    border: "border-[#334E68]/30",
+  },
   SENT: {
     label: "Sent",
     bg: "bg-[#EBF3FB]",
